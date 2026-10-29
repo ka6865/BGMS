@@ -1,12 +1,13 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
-import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
+import { getPrivatePlayersList, isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 
 vi.mock("@/lib/pubg/privatePlayers", () => ({
   isPlayerPrivate: vi.fn().mockResolvedValue(false),
   getCachedPlayerAccountId: vi.fn(async () => database.accountId),
+  getPrivatePlayersList: vi.fn(async () => []),
 }));
 vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({
   resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null),
@@ -94,6 +95,7 @@ function basicRow(matchId: string) {
 describe("matches-summary raw timestamp fallback", () => {
   beforeEach(() => {
     vi.mocked(isPlayerPrivate).mockReset().mockResolvedValue(false);
+    vi.mocked(getPrivatePlayersList).mockClear();
     database.rows = {
       processed_match_telemetry: [],
       pubg_player_matches: [],
@@ -476,7 +478,7 @@ describe("matches-summary raw timestamp fallback", () => {
     expect(await response.json()).toMatchObject({missingMatchIds: ['missing-match'], nextMatchIds: [], ingestedMatchIds: []});
   });
 
-  it("attempts at most five missing matches and continues past failures without re-fetching stored matches", async () => {
+  it("attempts every missing recent match in one request without re-fetching stored matches", async () => {
     vi.stubEnv("PUBG_API_KEY", "test-key");
     const ids = Array.from({ length: 20 }, (_, index) => `new-${index}`);
     database.rows.pubg_player_matches = [{
@@ -485,10 +487,13 @@ describe("matches-summary raw timestamp fallback", () => {
     }];
     const req = request(ids);
     const body = await (await POST(req)).json();
-    expect(ingestMatch).toHaveBeenCalledTimes(5);
-    expect(ingestMatch.mock.calls.map((call) => call[1])).toEqual(ids.slice(1, 6));
+    expect(ingestMatch).toHaveBeenCalledTimes(19);
+    expect(ingestMatch.mock.calls.map((call) => call[1])).toEqual(ids.slice(1));
     expect(ingestMatch.mock.calls[0][5].signal).toBe(req.signal);
-    expect(body.nextMatchIds).toEqual(ids.slice(6));
+    // 비공개 목록은 요청당 한 번 읽어 모든 경기 수집에 같이 넘긴다.
+    expect(getPrivatePlayersList).toHaveBeenCalledTimes(1);
+    expect(ingestMatch.mock.calls.every((call) => Array.isArray(call[5].privatePlayers))).toBe(true);
+    expect(body.nextMatchIds).toEqual([]);
     expect(body.collectionStopped).toBe(false);
     expect(body.missingMatchIds).toEqual(ids.slice(1));
     expect(body.summaries[ids[0]]).toBeDefined();
@@ -501,7 +506,7 @@ describe("matches-summary raw timestamp fallback", () => {
     ingestMatch.mockResolvedValueOnce({ status, httpStatus, record: null });
     const ids = Array.from({ length: 20 }, (_, index) => `new-${index}`);
     const body = await (await POST(request(ids))).json();
-    expect(ingestMatch).toHaveBeenCalledTimes(5);
+    expect(ingestMatch).toHaveBeenCalledTimes(20);
     expect(body.nextMatchIds).toEqual([]);
     expect(body.collectionStopped).toBe(true);
     expect(body.missingMatchIds).toEqual(ids);

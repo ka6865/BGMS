@@ -96,6 +96,36 @@ export function lolSearchCacheKey(gameName: string, tagLine: string, platform: L
   return `search:v11:${platform}:${route}:${version}:${encodeURIComponent(gameName.toLocaleLowerCase())}:${encodeURIComponent(tagLine.toLocaleLowerCase())}`;
 }
 
+// 마지막 성공 검색 결과(7일 보관) 키. 검색 DTO 버전이 바뀌면 함께 바뀌도록 검색 키에서 만든다.
+export function lolSearchSnapshotKey(gameName: string, tagLine: string, platform: LolPlatform, route: LolRegionalRoute, version: string): string {
+  return lolSearchCacheKey(gameName, tagLine, platform, route, version).replace(/^search:/, "search-snapshot:");
+}
+
+// 2분 검색 캐시와 달리 캐시 적중 지표는 세지 않는다. 지표 이름은 DB 허용 목록이 정한다.
+// 저장 계정이 지금도 이 Riot ID의 유일한 저장 계정일 때만 돌려준다(DB에서 확인, Riot 호출 없음).
+export async function getLolSearchSnapshot<T>(key: string, platform: LolPlatform, route: LolRegionalRoute, version: string,
+  riotId: { gameName: string; tagLine: string }): Promise<T | undefined> {
+  const cached = await rpc<T | null>("get_lol_search_snapshot", {
+    p_key: key, p_platform: platform, p_route: route, p_version: version, p_game_name: riotId.gameName, p_tag_line: riotId.tagLine,
+  });
+  return cached ?? undefined;
+}
+
+// 한 Riot ID의 2분 검색 캐시와 보관본을 모든 Data Dragon 버전에서 지운다. 이름 변경을 확인했거나 계정 조회가 404일 때 쓴다.
+export async function deleteLolSearchCacheForName(gameName: string, tagLine: string, platform: LolPlatform, route: LolRegionalRoute): Promise<void> {
+  const suffix = `:${encodeURIComponent(gameName.toLocaleLowerCase())}:${encodeURIComponent(tagLine.toLocaleLowerCase())}`;
+  await rpc<number>("delete_lol_search_cache_for_name", { p_platform: platform, p_route: route, p_name_suffix: suffix });
+}
+
+export async function putLolSearchSnapshot(input: {
+  key: string; platform: LolPlatform; route: LolRegionalRoute; version: string; puuid: string; payload: unknown;
+}): Promise<boolean> {
+  return rpc<boolean>("put_lol_search_snapshot", {
+    p_cache_key: input.key, p_platform: input.platform, p_route: input.route, p_version: input.version,
+    p_puuid: input.puuid, p_payload: input.payload,
+  });
+}
+
 export async function getLolChallengeCatalogCache(): Promise<LolChallengeCatalog | undefined> {
   return (await rpc<LolChallengeCatalog | null>("get_lol_challenge_catalog_cache", {})) ?? undefined;
 }
@@ -157,16 +187,21 @@ export async function releaseLolCollectionLease(lease: Lease): Promise<void> {
   await rpc<boolean>("release_lol_collection_lease", { p_key: lease.key, p_token: lease.token });
 }
 
-export async function reserveLolRiotRequest(host: LolRiotHost): Promise<{ token: string; permitAt: number }> {
-  const rows = await rpc<Array<{ granted: boolean; lease_token: string | null; permit_at: string | null; retry_after_seconds: number; reason: string }>>(
-    "reserve_lol_riot_request", { p_host: host },
+// 백그라운드 수집기는 LOL_RIOT_PRIORITY=background로 실행해 사용자 검색보다 적은 몫만 쓴다.
+export function lolRiotPriority(): "interactive" | "background" {
+  return process.env.LOL_RIOT_PRIORITY === "background" ? "background" : "interactive";
+}
+
+export async function reserveLolRiotRequest(host: LolRiotHost, maxWaitMs?: number): Promise<{ token: string; permitAt: number; started: boolean }> {
+  const rows = await rpc<Array<{ granted: boolean; lease_token: string | null; permit_at: string | null; retry_after_seconds: number; reason: string; started?: boolean | null }>>(
+    "reserve_lol_riot_request", { p_host: host, p_priority: lolRiotPriority(), ...(maxWaitMs === undefined ? {} : { p_max_wait_ms: maxWaitMs }) },
   );
   const result = rows?.[0];
   if (!result) throw new LolPersistenceError();
   if (!result.granted || !result.lease_token || !result.permit_at) {
     throw new LolPermitError(result.reason === "cooldown" || result.reason === "daily_budget" ? "rate_limited" : "busy", result.retry_after_seconds);
   }
-  return { token: result.lease_token, permitAt: Date.parse(result.permit_at) };
+  return { token: result.lease_token, permitAt: Date.parse(result.permit_at), started: result.started === true };
 }
 
 export async function startLolRiotRequest(token: string): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
@@ -179,12 +214,30 @@ export async function releaseLolRiotRequest(token: string): Promise<void> {
   await rpc<boolean>("release_lol_riot_request", { p_token: token });
 }
 
+// Riot에 보내기 전에 포기한 예약은 허가와 함께 예약 기록도 지워 한도를 돌려준다. 보낸 요청에는 쓰지 않는다.
+export async function cancelLolRiotRequest(token: string): Promise<void> {
+  await rpc<boolean>("cancel_lol_riot_request", { p_token: token });
+}
+
 export async function blockLolRiotRequests(host: LolRiotHost, retryAfterSeconds: number): Promise<void> {
   await rpc<string>("block_lol_riot_requests", { p_host: host, p_retry_after_seconds: Math.min(604800, Math.max(1, retryAfterSeconds)) });
 }
 
 export async function recordLolRiotRateHeaders(host: LolRiotHost, headers: Headers): Promise<void> {
   const accepted = await rpc<boolean>("record_lol_riot_rate_headers", {
+    p_host: host,
+    p_app_limit: headers.get("X-App-Rate-Limit"),
+    p_app_count: headers.get("X-App-Rate-Limit-Count"),
+    p_method_limit: headers.get("X-Method-Rate-Limit"),
+    p_method_count: headers.get("X-Method-Rate-Limit-Count"),
+  });
+  if (!accepted) throw new LolPermitError("rate_limited", 600);
+}
+
+// 응답 헤더 기록과 허가 해제를 한 번의 DB 왕복으로 처리한다.
+export async function finishLolRiotRequest(token: string, host: LolRiotHost, headers: Headers): Promise<void> {
+  const accepted = await rpc<boolean>("finish_lol_riot_request", {
+    p_token: token,
     p_host: host,
     p_app_limit: headers.get("X-App-Rate-Limit"),
     p_app_count: headers.get("X-App-Rate-Limit-Count"),

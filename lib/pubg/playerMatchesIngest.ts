@@ -194,6 +194,8 @@ export interface BasicMatchIngestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   onResponseStatus?: (status: number) => void;
+  // 한 요청에서 여러 경기를 받을 때 비공개 목록을 한 번만 읽어 넘긴다. 없으면 경기마다 읽는다.
+  privatePlayers?: PrivatePlayer[];
 }
 
 type BasicMatchIngestCallback = ((status: number) => void) | BasicMatchIngestOptions;
@@ -309,7 +311,7 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
       return { status: 'upstream_error', record: null, httpStatus: res.status, rateLimitHeaders, error: 'participant-name-missing' };
     }
     let privatePlayers: PrivatePlayer[];
-    try { privatePlayers = await getPrivatePlayersList(supabase); }
+    try { privatePlayers = options.privatePlayers ?? await getPrivatePlayersList(supabase); }
     catch { return { status: "upstream_error", record: null, httpStatus: res.status, rateLimitHeaders, error: "player-privacy-check-failed" }; }
     const rosters = (Array.isArray(data.included) ? data.included : []).filter((it: any) => it?.type === "roster");
     const records = buildOfficialParticipantMatchRecords({ matchId, platform: normPlatform, matchAttr, participants, privatePlayers, rosters });
