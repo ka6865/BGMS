@@ -238,7 +238,7 @@ describe("useStatsPageController", () => {
         return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
       }
       playerAttempt += 1;
-      return Promise.resolve(jsonResponse(playerAttempt === 1
+      return Promise.resolve(jsonResponse(playerAttempt <= 2
         ? playerReady
         : {
           ...playerReady,
@@ -252,6 +252,9 @@ describe("useStatsPageController", () => {
       initialPlatform: "steam",
     }));
     await waitFor(() => expect(result.current.result?.seasonId).toBe(playerReady.seasonId));
+    await act(async () => {
+      await result.current.search({ nickname: "FixturePlayer", platform: "steam", seasonId: playerReady.seasonId });
+    });
 
     await act(async () => {
       await result.current.refresh();
@@ -264,7 +267,8 @@ describe("useStatsPageController", () => {
     expect(result.current.partialReasons).not.toContain("stats_stale");
   });
 
-  it("명시 시즌 갱신 응답에 seasonId가 없으면 기존 시즌 전적을 유지한다", async () => {
+  it("응답으로 정해진 시즌은 갱신 때 붙이지 않아 서버가 새 현재 시즌을 고르게 한다", async () => {
+    const newSeasonId = "division.bro.official.pc-2026-09";
     let playerAttempt = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
@@ -275,6 +279,88 @@ describe("useStatsPageController", () => {
       playerAttempt += 1;
       return Promise.resolve(jsonResponse(playerAttempt === 1
         ? playerReady
+        : {
+          ...playerReady,
+          seasonId: newSeasonId,
+          seasons: [{ id: newSeasonId, name: "Season 9" }, ...playerReady.seasons],
+          updatedAt: new Date().toISOString(),
+        }));
+    });
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }));
+    await waitFor(() => expect(result.current.result?.seasonId).toBe(playerReady.seasonId));
+    expect(result.current.seasonId).toBe(playerReady.seasonId);
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    const refreshUrl = String(playerRequests(fetchMock).at(-1)?.[0]);
+    expect(refreshUrl).toContain("refresh=true");
+    expect(refreshUrl).not.toContain("season=");
+    expect(result.current.result?.seasonId).toBe(newSeasonId);
+    expect(result.current.seasonId).toBe(newSeasonId);
+    expect(result.current.status).toBe("ready");
+  });
+
+  it("직접 고른 시즌은 갱신 때 유지하고 시즌 없는 재검색은 그 선택을 해제한다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/matches-summary")) return Promise.resolve(jsonResponse(summaryReady));
+      if (url.startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+      }
+      const season = new URL(url, "http://localhost").searchParams.get("season");
+      return Promise.resolve(jsonResponse({
+        ...playerReady,
+        seasonId: season ?? playerReady.seasonId,
+        updatedAt: "2026-08-08T00:00:00.000Z",
+      }));
+    });
+    const previousSeasonId = playerReady.seasons[1].id;
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }));
+    await waitFor(() => expect(result.current.result?.seasonId).toBe(playerReady.seasonId));
+
+    await act(async () => {
+      await result.current.search({ nickname: "FixturePlayer", platform: "steam", seasonId: previousSeasonId });
+    });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    const explicitRefreshUrl = String(playerRequests(fetchMock).at(-1)?.[0]);
+    expect(explicitRefreshUrl).toContain("refresh=true");
+    expect(explicitRefreshUrl).toContain(`season=${encodeURIComponent(previousSeasonId)}`);
+    expect(result.current.seasonId).toBe(previousSeasonId);
+
+    await act(async () => {
+      await result.current.search({ nickname: "FixturePlayer", platform: "steam", seasonId: "" });
+    });
+    await act(async () => {
+      await result.current.refresh();
+    });
+    const defaultRefreshUrl = String(playerRequests(fetchMock).at(-1)?.[0]);
+    expect(defaultRefreshUrl).toContain("refresh=true");
+    expect(defaultRefreshUrl).not.toContain("season=");
+  });
+
+  it("명시 시즌 갱신 응답에 seasonId가 없으면 기존 시즌 전적을 유지한다", async () => {
+    let playerAttempt = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/matches-summary")) return Promise.resolve(jsonResponse(summaryReady));
+      if (url.startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+      }
+      playerAttempt += 1;
+      return Promise.resolve(jsonResponse(playerAttempt <= 2
+        ? playerReady
         : { ...playerReady, seasonId: "", statsAvailability: { ranked: { status: "stale" } } }));
     });
 
@@ -283,6 +369,9 @@ describe("useStatsPageController", () => {
       initialPlatform: "steam",
     }));
     await waitFor(() => expect(result.current.result?.seasonId).toBe(playerReady.seasonId));
+    await act(async () => {
+      await result.current.search({ nickname: "FixturePlayer", platform: "steam", seasonId: playerReady.seasonId });
+    });
 
     await act(async () => {
       await result.current.refresh();

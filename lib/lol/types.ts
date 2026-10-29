@@ -175,6 +175,8 @@ export type LolSearchResult = {
   matchFailures: LolMatchFailure[];
   lastUpdatedAt: string;
   refreshRemainSeconds: number;
+  // 저장된 검색 결과를 먼저 보냈고, 오래되어 화면이 바로 갱신을 요청해야 할 때만 true다.
+  autoRefresh?: boolean;
   summaries: Record<LolQueueSummary["queue"], LolQueueSummary>;
   matchStatus: "ready" | "empty" | "partial" | "failed";
 };
