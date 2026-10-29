@@ -87,6 +87,9 @@ export function StatsPageShell({
     summaryStatus,
     collectionProgress,
     matchIds,
+    recentMatchIds,
+    aiMatchIds,
+    applyRecentMatchIdsToAi,
     historyStatus,
     historyPage,
     historyTotalPages,
@@ -375,12 +378,16 @@ export function StatsPageShell({
             <div className="flex flex-col gap-2 md:gap-4">
 
               <div role="region" aria-label="AI 분석" tabIndex={-1}>
-                {result.recentMatches.length > 0 ? (
+                {aiMatchIds === null ? (
+                  <p role="status" className="p-5 text-center text-sm text-white/50">AI 분석에 사용할 최근 경기를 확인하고 있습니다.</p>
+                ) : aiMatchIds.length > 0 ? (
                   <RecentAISummary
-                    matchIds={result.recentMatches}
+                    matchIds={aiMatchIds}
                     nickname={result.nickname}
                     platform={result.platform}
                     isMobile={isMobile}
+                    pendingMatchCount={(recentMatchIds ?? []).filter((id) => !aiMatchIds.includes(id)).length}
+                    onApplyPendingMatches={applyRecentMatchIdsToAi}
                   />
                 ) : (
                   <p
@@ -396,7 +403,7 @@ export function StatsPageShell({
               <div className="stats-result-grid">
                 <aside className="stats-overview-rail">
                   <StatSummaryPanel
-                    matchIds={result.recentMatches}
+                    matchIds={recentMatchIds ?? []}
                     summaries={matchSummaries}
                     matchModeMeta={matchModeMeta}
                     summaryStatus={summaryStatus}
@@ -484,8 +491,8 @@ export function StatsPageShell({
                         <div className="flex gap-3">
                           <span className="text-amber-500/30 font-black italic">01</span>
                           <div>
-                            <div className="text-gray-200 text-xs font-bold mb-1">평균 반응 속도</div>
-                            <div className="text-gray-500 text-[11px] leading-relaxed">피격 시점부터 적에게 반격을 가하기까지의 시간. 당신의 순수 피지컬과 위기 대처 능력을 측정합니다.</div>
+                            <div className="text-gray-200 text-xs font-bold mb-1">반격 소요 시간</div>
+                            <div className="text-gray-500 text-[11px] leading-relaxed">상대에게 피해를 받은 뒤 해당 상대에게 처음 피해를 주기까지의 시간입니다. 피격 전 연속 발사·불확실한 기록은 제외하며, 반사신경을 직접 측정한 값은 아닙니다.</div>
                           </div>
                         </div>
                         <div className="flex gap-3">
@@ -498,8 +505,8 @@ export function StatsPageShell({
                         <div className="flex gap-3">
                           <span className="text-amber-500/30 font-black italic">03</span>
                           <div>
-                            <div className="text-gray-200 text-xs font-bold mb-1">전투 주도권</div>
-                            <div className="text-gray-500 text-[11px] leading-relaxed">교전 시작 시 먼저 선제 타격을 가한 비율. 능동적으로 교전을 리드하는 성향을 분석합니다.</div>
+                            <div className="text-gray-200 text-xs font-bold mb-1">선제 타격 성공률</div>
+                            <div className="text-gray-500 text-[11px] leading-relaxed">먼저 피해를 준 교전 중 승리하거나 아군 마무리를 지원한 비율입니다. 전체 교전에서 먼저 발사한 비율은 아닙니다.</div>
                           </div>
                         </div>
                         <div className="flex gap-3">

@@ -22,7 +22,7 @@ BEGIN
   THEN RAISE EXCEPTION 'FAIL: view ACL or security_invoker changed'; END IF;
   SELECT pg_get_functiondef(p.oid) INTO definition FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
   WHERE n.nspname='public' AND p.proname='upgrade_analysis_calculation';
-  IF (length(definition) - length(replace(definition, 'counter_latency_ms, first_reply_latency_ms, initiative_rate', ''))) / length('counter_latency_ms, first_reply_latency_ms, initiative_rate') <> 2
+  IF (length(definition) - length(replace(definition, 'counter_latency_ms, first_reply_latency_ms, eligible_first_reply_latency_ms, eligible_counter_failure_rate, initiative_rate', ''))) / length('counter_latency_ms, first_reply_latency_ms, eligible_first_reply_latency_ms, eligible_counter_failure_rate, initiative_rate') <> 2
     OR has_function_privilege('anon','public.upgrade_analysis_calculation(text,text,text,jsonb,jsonb,jsonb,jsonb)','EXECUTE')
   THEN RAISE EXCEPTION 'FAIL: upgrade RPC does not carry first reply or ACL widened'; END IF;
   RAISE NOTICE 'PASS: counter latency split keeps legacy average and adds first reply/failure columns';

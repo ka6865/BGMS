@@ -1,3 +1,4 @@
+import { readFirstReplyEvidence } from '../pubg-analysis/firstReply';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildMatchSummary, type MatchSummaryData } from '../pubg-analysis/matchSummary';
 import { getLegacyFullResultForHistory } from '../pubg-analysis/cacheIdentity';
@@ -62,6 +63,9 @@ export function buildRetainedPerformanceRow(full: unknown, identity: Identity): 
     team: [], killDetails: [], dbnoDetails: [], tacticalTimeline: [],
   };
   for (const [key, keys] of Object.entries(fields)) compact[key] = pick(full[key], keys);
+  const replyEvidence = readFirstReplyEvidence(full);
+  if (replyEvidence) compact.duelStats = { ...compact.duelStats, firstReplyEvidence: pick(replyEvidence,
+    ['version', 'eligibleCount', 'alreadyFiringCount', 'unknownCount', 'within3sCount', 'latencySumMs', 'noReplyCount']) };
   compact.badges = Array.isArray(full.badges) ? full.badges.slice(0, 32).map((badge: unknown) => pick(badge, ['id', 'name', 'desc'])).filter(Boolean) : [];
   if (record(full.weaponStats)) compact.weaponStats = Object.fromEntries(Object.entries(full.weaponStats).slice(0, 100)
     .map(([key, value]) => [key, pick(value, ['damage', 'damageDealt', 'kills', 'dbnos', 'dBNOs', 'hits', 'shots', 'headshots', 'headHits', 'accuracy', 'firstSecHits', 'sustainedHits', 'sustainedBurstCount'])]));

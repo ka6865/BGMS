@@ -1,10 +1,11 @@
 import { after, NextResponse } from "next/server";
 import { APICallError, streamText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { AI_SUMMARY_CACHE_VERSION, COUNTER_LATENCY_PENALTY_MS, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
+import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { dominantTierScope, tierScopeOfMode, type TierScope } from "@/lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
+import { ROLE_REFERENCE_VERSION } from "@/lib/pubg-analysis/roleReference";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import {
   adaptObservedBenchmark,
@@ -13,7 +14,7 @@ import {
 } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { BENCHMARK_FILTER_VERSION, fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
 import { hasSupportedCalculation, getValidFullResultForMatch, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
-import { firstReplyLatencyMs } from "@/lib/pubg-analysis/firstReply";
+import { firstReplyLatencyMs, firstReplyFailureRate } from "@/lib/pubg-analysis/firstReply";
 import { buildBackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
@@ -34,6 +35,7 @@ import {
   buildMatchSelectionKey,
   normalizeMatchId,
   normalizeBenchmarkScore,
+  normalizeObservedBenchmarkScore,
   RECENT_MATCH_SELECTION_VERSION,
   selectBestMatches,
   selectRecentMatches,
@@ -408,7 +410,7 @@ function buildSummaryCacheHash(input: {
   return crypto
     .createHash("sha256")
     .update(AI_SUMMARY_CACHE_VERSION)
-    .update("\n")
+    .update(`\nrole-reference:${ROLE_REFERENCE_VERSION}\n`)
     .update(serializedInput)
     .digest("hex");
 }
@@ -553,7 +555,7 @@ function aggregateMatches(matches: any[]) {
   let vehicleCombatMatchCount = 0;
 
   const backupLatencies: number[] = [], reactionLatencies: number[] = [];
-  let counterFailureMatches = 0, firstReplySumMs = 0, firstReplyCount = 0, firstReplyMatches = 0;
+  let counterObservedMatches = 0, counterFailureMatches = 0, firstReplySumMs = 0, firstReplyCount = 0, firstReplyMatches = 0;
   const goldenTimeFinal = { early: 0, mid1: 0, mid2: 0, late: 0 };
   const killContribFinal = { solo: 0, cleanup: 0, assist: 0 }; // assist = 내 킬 중 팀원이 먼저 딜을 넣었던 킬 (KDA 어시스트와 무관)
   const weaponStatsFinal: Record<string, any> = {};
@@ -608,12 +610,15 @@ function aggregateMatches(matches: any[]) {
       if (reactionLatencyMs !== null && reactionLatencyMs > 0) {
         reactionLatencies.push(reactionLatencyMs);
         // 3초 안에 대응하지 못한 경기는 엔진이 패널티 값을 넣는다. 실패 경기로 따로 센다.
-        if (reactionLatencyMs >= COUNTER_LATENCY_PENALTY_MS) counterFailureMatches++;
+
       }
-      // 반응 시간은 교전별 첫 피격→첫 반격 기록(계산 5)으로만 계산한다.
+      const failure = firstReplyFailureRate(m);
+      if (failure !== null) { counterObservedMatches++; if (failure === 100) counterFailureMatches++; }
+      // 피격 전 사격이 구분된 관측만 코칭 평균과 실패 분모에 넣는다.
       if (firstReplyLatencyMs(m) !== null) {
-        firstReplySumMs += Number(m.duelStats.firstReplyLatencySumMs);
-        firstReplyCount += Number(m.duelStats.firstReplyWithin3sCount);
+        // 비교 view가 player-match 평균이므로 경기별 평균에 같은 가중치를 준다.
+        firstReplySumMs += firstReplyLatencyMs(m)!;
+        firstReplyCount++;
         firstReplyMatches++;
       }
     }
@@ -859,10 +864,9 @@ function aggregateMatches(matches: any[]) {
   const userReversalRate = totalReversalAttempts > 0 ? Math.max(0, Math.min(100, Math.round((totalReversalWins / totalReversalAttempts) * 100))) : null;
   const avgBackupLatency = backupLatencies.length > 0 ? (backupLatencies.reduce((a, b) => a + b, 0) / backupLatencies.length / 1000).toFixed(2) + "s" : "측정 불가";
   const avgReactionLatency = reactionLatencies.length > 0 ? (reactionLatencies.reduce((a, b) => a + b, 0) / reactionLatencies.length / 1000).toFixed(2) + "s" : "측정 불가";
-  // 역할 분류와 시각화는 패널티 포함 평균(avgReactionLatency)으로 보정되어 있다. AI 근거는 아래 두 값을 쓴다.
+  // 기존 평균은 점수 호환 기록이다. 신규 명중 간격을 구 분포의 역할·등급에 대입하지 않는다.
   const measuredReactionLatencySec = firstReplyCount > 0 ? firstReplySumMs / firstReplyCount / 1000 : null;
   const avgMeasuredReactionLatency = measuredReactionLatencySec === null ? "측정 불가" : measuredReactionLatencySec.toFixed(2) + "s";
-  const counterObservedMatches = reactionLatencies.length;
   const counterFailureRate = counterObservedMatches > 0 ? Math.round((counterFailureMatches / counterObservedMatches) * 100) : null;
   const avgCoverRate = totalCoverAttempts > 0
     ? Math.max(0, Math.min(100, Math.round((totalCoverSuccess / totalCoverAttempts) * 100)))
@@ -1717,7 +1721,7 @@ export async function POST(request: Request) {
       "- [ZERO HALLUCINATION] 숫자를 인용할 때는 제공된 지표·수치·분모를 그대로 사용하고 추정하지 마십시오. 코치 의견은 숫자 나열보다 그 의미를 설명하고, 상세 수치는 근거 행에서 보여주십시오.",
       "- [READABLE COACHING] kindOpinion/spicyOpinion/reason/evaluation은 각각 짧고 완결된 한국어 1~2문장으로 작성하세요. 코치는 관측된 특징과 다음 행동을 말하며, 근거 표를 읽어 주듯 반복하지 마세요. '모드·매치 유형·티어 기준 BGMS 표본 평균', '[모드 duo · 매치 유형 competitive · 티어 B]', '해당 지표 n=36', 'player-match', ID 및 내부 메타데이터를 의견에 출력하지 마세요. 상세 조건·표본 수는 서버 근거 영역에서 제공합니다. 평균과 값이 같으면 부족하다고 단정하지 마세요.",
       "- [UTILITY LOGIC] 연막 사용, 피해형 투척, 구출 연막 시도, 아군 기절 대비 연막 구출률은 서로 다른 기록입니다. 연막 사용만으로 생존·엄폐 목적이나 구출 성공을 단정하지 마세요. 피해형과 비피해형의 차이가 작으면 '대부분', '공격형 시도는 적다' 같은 판단을 하지 마세요. 종류별 횟수로 관측된 구성을 설명하고, 구출 성공이 없더라도 구출 시도까지 없었다고 말하지 마세요. 피해형이 아닌 투척을 적중 실패로 계산하지 마세요.",
-      `- [BENCHMARK COMPARISON GUARD] debateIssues의 userStats/benchmarkStats에는 실제로 제공된 ${benchmarkPromptProvenance}가 존재하는 지표만 대조하십시오. 비교 표본이 없거나 개별 지표가 NULL이면 해당 benchmarkStats 행과 비교 문장을 생략하고 값을 추정하지 마십시오. 'Benchmark N/A'나 'N/A'를 출력하는 것을 엄격히 금지합니다. 연막 지표는 분모가 같은 '아군 기절 대비 연막 구출률'과 '${benchmarkPromptProvenance} 기회 대비 평균 연막 구출률'만 1:1 대칭으로 구성하고, '연막 구출률'·'내 연막 구출 성공률'·'내 구출 연막 성공률'처럼 시도 횟수 분모인 라벨은 벤치마크와 비교하지 마십시오. 그 밖에는 1:1 승률, 대응 사격 속도, 백업 속도 등 실제 평균이 명시된 지표만 대조하십시오.`,
+      `- [BENCHMARK COMPARISON GUARD] debateIssues의 userStats/benchmarkStats에는 실제로 제공된 ${benchmarkPromptProvenance}가 존재하는 지표만 대조하십시오. 비교 표본이 없거나 개별 지표가 NULL이면 해당 benchmarkStats 행과 비교 문장을 생략하고 값을 추정하지 마십시오. 'Benchmark N/A'나 'N/A'를 출력하는 것을 엄격히 금지합니다. 연막 지표는 분모가 같은 '아군 기절 대비 연막 구출률'과 '${benchmarkPromptProvenance} 기회 대비 평균 연막 구출률'만 1:1 대칭으로 구성하고, '연막 구출률'·'내 연막 구출 성공률'·'내 구출 연막 성공률'처럼 시도 횟수 분모인 라벨은 벤치마크와 비교하지 마십시오. 그 밖에는 1:1 승률, 반격 소요 시간, 백업 속도 등 실제 평균이 명시된 지표만 대조하십시오.`,
       "- [BACKUP OUTCOME LOGIC] 백업 속도는 아군 기절 후 복수 처치까지의 시간입니다. 시간 단독으로 '느린 백업'을 단정하지 말고, 소생·합류·복구에 걸린 시간으로 해석하거나 복구 시간 단축을 지시하지 마십시오.",
       "- [MATCH IMPACT LOGIC] 매치 임팩트가 '하드캐리' 또는 '레전드'인 경기는 단일 경기 하이라이트 성과로 인정하십시오. 낮은 세부 지표를 지적하더라도 판 전체를 실패로 단정하지 말고, 강한 성과와 보완점을 분리하십시오.",
       "- [WIN CONTRIBUTION LOGIC] 1등 자체는 생존 결과입니다. '1등 보너스'라고 표현하지 말고, 화력 캐리/복구 기여/결정적 마무리/승리 기여 근거처럼 행동 기반 근거만 사용하십시오.",
@@ -1876,7 +1880,7 @@ export async function POST(request: Request) {
         totalTeamWipes: summaryStats.totalTeamWipes,
         totalTeammateKnocks: summaryStats.totalTeammateKnocks,
       }).promptLine}\n`;
-      userPrompt += `- 대응 사격 속도(Reaction): ${summaryStats.avgMeasuredReactionLatency} (기습당한 교전에서 첫 피격 후 첫 반격까지), 3초 내 대응 실패: ${summaryStats.counterObservedMatches > 0 ? `${summaryStats.counterFailureMatches}/${summaryStats.counterObservedMatches}경기` : "측정 불가"}\n`;
+      userPrompt += `- 반격 소요 시간: ${summaryStats.avgMeasuredReactionLatency} (피격 전 사격을 구분한 교전의 첫 피격부터 해당 상대에게 첫 명중까지), 3초 내 대응 실패: ${summaryStats.counterObservedMatches > 0 ? `${summaryStats.counterFailureMatches}/${summaryStats.counterObservedMatches}경기` : "측정 불가"}\n`;
       userPrompt += `- 유틸리티 활용: 총 투척 ${formatObservedCount(summaryStats.totalUtilityThrows)} (내 연막 ${summaryStats.totalSmokes}회 사용)\n`;
       userPrompt += `- 개인 전술 구출: 내 구출 연막 성공률 ${smokeRescueRate} (구출 연막 시도 ${summaryStats.totalSmokeCount}회, 성공 ${summaryStats.totalSmokeRescues}회), 아군 기절 대비 연막 구출률 ${smokeOpportunityRate}\n`;
     }
@@ -1935,14 +1939,15 @@ export async function POST(request: Request) {
       // `bestMatches` already contains the canonical telemetry payloads used
       // by selectBestMatches. Keep score and breakdowns on that same source so
       // the score-aware cache key and potential tier cannot diverge from the
-      // values shown here. Numeric strings are accepted; zero is meaningful;
-      // nullish/non-finite values normalize to the selector's explicit zero.
+      // values shown here. Numeric strings are accepted; zero is meaningful.
+      // The total score keeps the selector's explicit zero, while a missing
+      // or non-finite display axis stays null so it is not shown as 0.
       const combinedScores = gMatches.map((matchData: any) => {
         const breakdown = matchData?.benchmark?.breakdown;
         return {
-          combat: normalizeBenchmarkScore(breakdown?.combat),
-          tactical: normalizeBenchmarkScore(breakdown?.tactical),
-          survival: normalizeBenchmarkScore(breakdown?.survival),
+          combat: normalizeObservedBenchmarkScore(breakdown?.combat),
+          tactical: normalizeObservedBenchmarkScore(breakdown?.tactical),
+          survival: normalizeObservedBenchmarkScore(breakdown?.survival),
           score: normalizeBenchmarkScore(matchData?.benchmark?.score),
         };
       });
@@ -1997,7 +2002,7 @@ export async function POST(request: Request) {
       userPrompt += `- 유저 티어: ${userTier}\n`;
       userPrompt += `- 비교 표본 출처: ${benchmarkProvenance}\n`;
       userPrompt += `- 평균 화력: ${gStats.avgDamage}${bench?.avgDamage !== undefined ? ` (${metricBenchmarkProvenance("avgDamage")}: 평균 화력 ${bench.avgDamage})` : ""}, 평균 ${gStats.avgKills}킬\n`;
-      userPrompt += `- [선제 공격] 주도권 성공률: ${formatObservedPercent(gStats.userInitiativeRate)}${bench?.avgInitiativeRate !== undefined ? ` (${metricBenchmarkProvenance("avgInitiativeRate")}: 주도권 성공률 ${bench.avgInitiativeRate}%)` : ""}\n`;
+      userPrompt += `- [선제 공격] 선제 타격 성공률: ${formatObservedPercent(gStats.userInitiativeRate)}${bench?.avgInitiativeRate !== undefined ? ` (${metricBenchmarkProvenance("avgInitiativeRate")}: 선제 타격 성공률 ${bench.avgInitiativeRate}%)` : ""}\n`;
       userPrompt += `- [교전 결정력] 1:1 교전 승률: ${formatObservedPercent(gStats.avgDuelWinRate)}${bench?.avgDuelWinRate !== undefined ? ` (${metricBenchmarkProvenance("avgDuelWinRate")}: 1:1 교전 승률 ${bench.avgDuelWinRate}%)` : ""}, 승리: ${gStats.totalDuelWins}회, 패배: ${gStats.totalDuelLosses}회, 역전승: ${gStats.totalReversalWins}회\n`;
       userPrompt += `- [교전 압박] 평균 압박 지수: ${formatObservedMetric(gStats.avgPressureIndex)}${bench?.avgPressureIndex !== undefined ? ` (${metricBenchmarkProvenance("avgPressureIndex")}: 압박 지수 ${bench.avgPressureIndex})` : ""}, 최대 교전 거리: ${formatObservedMetric(gStats.totalMaxHitDist, "m")}\n`;
       if (mode !== 'solo') {
@@ -2013,8 +2018,8 @@ export async function POST(request: Request) {
         ? `3초 내 대응 실패 ${gStats.counterFailureMatches}/${gStats.counterObservedMatches}경기(${gStats.counterFailureRate}%)${bench?.avgCounterFailureRate !== undefined ? ` (${metricBenchmarkProvenance("avgCounterFailureRate")}: 3초 내 대응 실패율 ${bench.avgCounterFailureRate}%)` : ""}`
         : "";
       const reactionStr = gStats.counterObservedMatches === 0
-        ? "측정 불가 (선제 공격 중심 플레이로 피격 후 반격 샘플 없음 — 이 항목을 언급하거나 추론하지 말 것)"
-        : `${gStats.avgMeasuredReactionLatency === "측정 불가" ? "첫 반격 시간 기록 없음(측정 불가)" : `${gStats.avgMeasuredReactionLatency}(기습당한 교전의 첫 피격→첫 반격)${bench?.avgFirstReplyLatency !== undefined ? ` (${metricBenchmarkProvenance("avgFirstReplyLatency")}: 대응 사격 속도 ${bench.avgFirstReplyLatency}s)` : ""}`}, ${counterFailureStr}`;
+        ? "측정 불가 (적격 반격 관측이 없음 — 플레이 성향이나 능력을 추론하지 말 것)"
+        : `${gStats.avgMeasuredReactionLatency === "측정 불가" ? "첫 반격 시간 기록 없음(측정 불가)" : `${gStats.avgMeasuredReactionLatency}(피격 전 사격을 구분한 교전의 첫 피격부터 해당 상대에게 첫 명중까지)${bench?.avgFirstReplyLatency !== undefined ? ` (${metricBenchmarkProvenance("avgFirstReplyLatency")}: 반격 소요 시간 ${bench.avgFirstReplyLatency}s)` : ""}`}, ${counterFailureStr}`;
       const backupStr = gStats.avgBackupLatency === "측정 불가"
         ? "측정 불가 (아군 기절 후 복수 교전 샘플 없음 — 이 항목을 언급하거나 추론하지 말 것)"
         : `${gStats.avgBackupLatency}${bench?.avgTradeLatency !== undefined ? ` (${metricBenchmarkProvenance("avgTradeLatency")}: 백업 속도 ${bench.avgTradeLatency}s)` : ""}`;
@@ -2032,7 +2037,7 @@ export async function POST(request: Request) {
         ? "측정 불가"
         : String(gStats.avgUtilityEfficiency);
       const utilityLine = `- [유틸리티] 총 투척 ${formatObservedCount(gStats.totalUtilityThrows)}, 피해형 투척 ${formatObservedCount(gStats.totalLethalThrows)}, 피해 적중 ${formatObservedCount(gStats.totalUtilityHits)}, 피해형 투척 딜량 ${utilityDamageAverage} (평균), 연막 ${gStats.totalSmokes}회`;
-      userPrompt += `- [반응 속도] 대응 사격 속도: ${reactionStr}, 반격 성공률: ${formatBoundedRate(gStats.totalReversalWins, gStats.totalReversalAttempts)}\n- [백업 속도] 아군 백업 속도: ${backupStr}\n- [백업 결과 해석] ${backupContext.promptLine}\n- [생존 환경] 고립 지수(운영/교전/사망): ${gStats.avgIsolationStr}/${gStats.avgCombatIsolationStr}/${gStats.avgDeathIsolationStr}, 양각 노출 상황: ${formatObservedCount(gStats.totalCrossfireExposureCount)}\n- [거리 관리] 팀원과의 평균 거리: ${gStats.avgMinDistStr}, 평균 고도차: ${gStats.avgHeightDiffStr}, 경기당 평균 거리별 데미지(근/중/원): ${gStats.avgDistanceDamage.short}/${gStats.avgDistanceDamage.mid}/${gStats.avgDistanceDamage.long}\n- [킬 분류] 솔로 킬: ${gStats.killContribFinal.solo}회, 클린업 킬: ${gStats.killContribFinal.cleanup}회 (솔로 비중: ${formatObservedPercent(gStats.soloKillRate)}${bench?.avgSoloKillRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgSoloKillRate")}: 솔로 킬 비중 ${bench.avgSoloKillRate}%` : ""})\n${utilityLine}\n- [운영 패턴] 평균 사망 페이즈: ${formatObservedMetric(gStats.avgDeathPhase)}${bench?.avgDeathPhase !== undefined ? ` (${metricBenchmarkProvenance("avgDeathPhase")}: 사망 페이즈 ${bench.avgDeathPhase})` : ""}, 자기장 누적 피해: ${formatObservedMetric(gStats.avgBluezoneWaste, " HP")}, 엣지(Edge) 플레이: ${formatObservedCount(gStats.totalEdgePlay)}, 진입 지연: ${formatObservedCount(gStats.totalFatalDelay)}\n\n`;
+      userPrompt += `- [반격 기록] 반격 소요 시간: ${reactionStr}, 반격 성공률: ${formatBoundedRate(gStats.totalReversalWins, gStats.totalReversalAttempts)}\n- [백업 속도] 아군 백업 속도: ${backupStr}\n- [백업 결과 해석] ${backupContext.promptLine}\n- [생존 환경] 고립 지수(운영/교전/사망): ${gStats.avgIsolationStr}/${gStats.avgCombatIsolationStr}/${gStats.avgDeathIsolationStr}, 양각 노출 상황: ${formatObservedCount(gStats.totalCrossfireExposureCount)}\n- [거리 관리] 팀원과의 평균 거리: ${gStats.avgMinDistStr}, 평균 고도차: ${gStats.avgHeightDiffStr}, 경기당 평균 거리별 데미지(근/중/원): ${gStats.avgDistanceDamage.short}/${gStats.avgDistanceDamage.mid}/${gStats.avgDistanceDamage.long}\n- [킬 분류] 솔로 킬: ${gStats.killContribFinal.solo}회, 클린업 킬: ${gStats.killContribFinal.cleanup}회 (솔로 비중: ${formatObservedPercent(gStats.soloKillRate)}${bench?.avgSoloKillRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgSoloKillRate")}: 솔로 킬 비중 ${bench.avgSoloKillRate}%` : ""})\n${utilityLine}\n- [운영 패턴] 평균 사망 페이즈: ${formatObservedMetric(gStats.avgDeathPhase)}${bench?.avgDeathPhase !== undefined ? ` (${metricBenchmarkProvenance("avgDeathPhase")}: 사망 페이즈 ${bench.avgDeathPhase})` : ""}, 자기장 누적 피해: ${formatObservedMetric(gStats.avgBluezoneWaste, " HP")}, 엣지(Edge) 플레이: ${formatObservedCount(gStats.totalEdgePlay)}, 진입 지연: ${formatObservedCount(gStats.totalFatalDelay)}\n\n`;
       userPrompt = userPrompt.replace(utilityLine, `- [유틸리티] 총 투척 ${formatObservedCount(gStats.totalUtilityThrows)} (연막 ${gStats.totalSmokes}회, 피해형 ${formatObservedCount(gStats.totalLethalThrows)}, 피해 적중 ${formatObservedCount(gStats.totalUtilityHits)}), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}`);
     }
 
@@ -2044,18 +2049,19 @@ export async function POST(request: Request) {
     const scopedGroupScores = overallGroupScores.filter((s) => s.tierScope === mainTierScope);
     mainTierMatchCount = scopedGroupScores.length;
     if (scopedGroupScores.length > 0) {
-      const validOverallCombat = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.combat));
-      const validOverallTactical = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.tactical));
-      const validOverallSurvival = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.survival));
+      // 한 경기라도 축 기록이 없으면 그 축은 평균하지 않고 측정 불가(null)로 둔다.
+      const averageAxis = (values: Array<number | null>) => values.some((value) => value === null)
+        ? null
+        : Number(((values as number[]).reduce((a, b) => a + b, 0) / values.length).toFixed(1));
       const validOverallScores = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.score));
       const overallAvgScore = validOverallScores.length > 0
         ? validOverallScores.reduce((a, b) => a + b, 0) / validOverallScores.length
         : 0;
 
       finalTierBreakdown = {
-        combat: Number((validOverallCombat.reduce((a, b) => a + b, 0) / validOverallCombat.length).toFixed(1)),
-        tactical: Number((validOverallTactical.reduce((a, b) => a + b, 0) / validOverallTactical.length).toFixed(1)),
-        survival: Number((validOverallSurvival.reduce((a, b) => a + b, 0) / validOverallSurvival.length).toFixed(1)),
+        combat: averageAxis(scopedGroupScores.map((s) => s.combat)),
+        tactical: averageAxis(scopedGroupScores.map((s) => s.tactical)),
+        survival: averageAxis(scopedGroupScores.map((s) => s.survival)),
         total: Number(overallAvgScore.toFixed(1)),
       };
       mainUserTier = estimateUserTier(overallAvgScore);
@@ -2102,7 +2108,7 @@ export async function POST(request: Request) {
     const mainSmokeOpportunityRate = calculateBoundedRate(canonicalStats.totalSmokeRescues, canonicalStats.totalTeammateKnocks);
     addCanonicalEvidence("damage_average", "평균 화력", canonicalStats.avgDamage, "동일 티어 평균 화력", mainBench?.avgDamage);
     if (typeof canonicalStats.userInitiativeRate === "number" && Number.isFinite(canonicalStats.userInitiativeRate)) {
-      addCanonicalEvidence("initiative_rate", "주도권 성공률", `${canonicalStats.userInitiativeRate}%`, "동일 티어 평균 주도권 성공률", mainBench?.avgInitiativeRate === undefined ? undefined : `${mainBench.avgInitiativeRate}%`);
+      addCanonicalEvidence("initiative_rate", "선제 타격 성공률", `${canonicalStats.userInitiativeRate}%`, "동일 티어 평균 선제 타격 성공률", mainBench?.avgInitiativeRate === undefined ? undefined : `${mainBench.avgInitiativeRate}%`);
     }
     if (typeof canonicalStats.avgDuelWinRate === "number" && Number.isFinite(canonicalStats.avgDuelWinRate)) {
       addCanonicalEvidence("duel_win_rate", "1:1 교전 승률", `${canonicalStats.avgDuelWinRate}%`, "동일 티어 평균 1:1 교전 승률", mainBench?.avgDuelWinRate === undefined ? undefined : `${mainBench.avgDuelWinRate}%`);
@@ -2117,7 +2123,7 @@ export async function POST(request: Request) {
       addCanonicalEvidence("smoke_opportunity_rate", "아군 기절 대비 연막 구출률", `${mainSmokeOpportunityRate}%`, "동일 티어 기회 대비 평균 연막 구출률", mainBench?.avgSmokeRate === undefined ? undefined : `${mainBench.avgSmokeRate}%`);
     }
     if (canonicalStats.avgMeasuredReactionLatency !== "측정 불가") {
-      addCanonicalEvidence("reaction_latency", "대응 사격 속도", canonicalStats.avgMeasuredReactionLatency, "동일 티어 평균 대응 사격 속도", mainBench?.avgFirstReplyLatency === undefined ? undefined : `${mainBench.avgFirstReplyLatency}s`);
+      addCanonicalEvidence("reaction_latency", "반격 소요 시간", canonicalStats.avgMeasuredReactionLatency, "동일 티어 평균 반격 소요 시간", mainBench?.avgFirstReplyLatency === undefined ? undefined : `${mainBench.avgFirstReplyLatency}s`);
     }
     if (canonicalStats.avgBackupLatency !== "측정 불가") {
       addCanonicalEvidence("backup_latency", "백업 속도", canonicalStats.avgBackupLatency, "동일 티어 평균 백업 속도", mainBench?.avgTradeLatency === undefined ? undefined : `${mainBench.avgTradeLatency}s`);
@@ -2188,7 +2194,7 @@ export async function POST(request: Request) {
         "카드에 없는 소생 기여, 교전 주도권, 팀원의 화력 분담, 투척물 보유량은 판단하지 마세요. 평균 화력이 높다는 사실만으로 교전을 주도했다거나 팀원의 지원이 부족했다고 추론하지 마세요. 투척 횟수는 사용 기록이며 보유량이 아닙니다. 백업 시간만으로 복구 성공이나 실패를 단정하지 마세요.",
         "[측정 의미] 이 요약의 백업 속도는 아군을 기절시킨 적을 30초 안에 처치한 사례에서 기절부터 처치까지 걸린 평균 시간입니다. 성공한 복수 처치 사례만의 시간이며 이동·첫 대응 시간이나 모든 구조 기회의 시간이 아닙니다. 실제 이동 속도·기동력·합류 경로·집중력·판단력·소통 능력을 측정한 값이 아닙니다. 1:1 승률도 집중력이나 교전 주도권을 입증하지 않습니다. 기록에 없는 능력 평가를 붙이지 말고 비교 결과 자체를 짧게 설명하세요.",
         "[비교 문장] 한 문장에는 지표 하나와 방향 하나만 쓰세요. '복수 성공률은 비교 평균보다 높습니다. 백업 속도는 비교 평균보다 빠릅니다.'처럼 분리하세요. '둘 다 우수합니다/높거나 빠릅니다/평균을 웃돕니다' 같은 복합·모호한 비교를 쓰지 마세요. 두 지표 모두 유리한 방향이면 단순한 연습 제안을 약점 근거로 삼아 draw로 판정하지 마세요.",
-        "[문장 역할] 순한 코치는 확인된 성과 또는 관측 한계만 한 문장으로, 매운 코치는 다음 경기의 구체적인 상황과 확인 행동만 한 문장으로 설명하세요. 비교는 순한 코치에서만 쓰고 매운 코치에서는 반복하지 마세요. 억지 반대 의견이나 약점을 만들지 마세요. reason과 evaluation, 종합 결론은 서버가 전체 카드 근거로 결정합니다. signature와 signatureSub도 관측 기간의 지표를 요약하고 심리·능력·습관을 평가하지 마세요.",
+        "[문장 역할] 순한 코치는 확인된 성과 또는 관측 한계만 한 문장으로, 매운 코치는 다음 경기의 구체적인 상황과 확인 행동만 한 문장으로 설명하세요. 비교는 순한 코치에서만 쓰고 매운 코치에서는 반복하지 마세요. 억지 반대 의견이나 약점을 만들지 마세요. reason과 evaluation, 종합 결론은 서버가 전체 카드 근거로 결정합니다. signature와 signatureSub도 관측 기간의 지표를 요약하고 심리·능력·습관을 평가하지 마세요. 진입 위치나 순서는 측정하지 않으므로 전선·돌파·돌입·진입을 뜻하는 칭호를 만들지 마세요. 첫 반격은 피격 전 사격을 구분한 명중 간격이며 인지·반사신경을 측정하지 않습니다. 측정 불가 지표를 0초·느린 반응으로 평가하지 마세요.",
         "[관측 범위] userNumericValue와 benchmarkNumericValue는 반올림 전 값입니다. 화면 표시 숫자를 다시 비교하지 말고 serverComparison을 따르세요. numerator/denominator가 있으면 관측 건수를 고려하고 userMatchCount가 적은 지표의 한계를 밝히세요. 평균·횟수로 꾸준함, 침착함, 사용 목적의 적절성, 피해량 분포를 관측했다고 말하지 마세요. 작은 수치 차이를 우월한 능력으로 확대하지 마세요.",
         "[서버 비교] serverComparison은 서버가 계산한 비교 결과입니다. 비교가 필요하면 이 문장을 그대로 사용하고 높지만·월등히·유사한 수준 등으로 바꾸지 마세요. AI는 비교 수치나 기준을 새로 만들지 말고 관측 범위 설명과 다음 경기의 조건부 점검을 작성하세요. 두 코치가 같은 비교 결과에 동의해도 됩니다. 비교가 없으면 확인된 사용 기록과 판단 한계만 설명하세요. 고립 지수에 임의의 정상 기준이나 거리 목표를 붙이지 마세요.",
         "[경기별 일관성] 평균·합계만으로 매 경기의 일관성이나 습관을 알 수 없습니다. 꾸준히 높은 피해량을 기록했다거나 꾸준한 딜링 능력을 증명했다고 쓰지 마세요. 관측 기간의 평균을 설명하고 이후 행동은 조건부 점검으로 제안하세요. [작은 표본] context.userMatchCount는 카드에 선택된 경기 수이고 evidence.userMatchCount는 해당 지표의 기록이 확인된 경기 수입니다. 서로 다르면 지표의 실제 확인 경기 수로 설명하세요. 누락 기록과 발생 기회가 없었던 기록을 0% 실패로 해석하지 마세요. 최근 10경기 전체의 일관된 습관·능력으로 확대하지 마세요. 관측된 구출/복수 기회가 적으면 그 한계를 밝히고, 실패 원인이나 연막 타이밍을 단정하지 마세요. 행동 제안은 다음 경기에서 확인할 구체적인 조건부 점검으로 쓰세요.",
@@ -2242,14 +2248,15 @@ export async function POST(request: Request) {
     // as the potential tier. Keep the dominant mode only as context for
     // solo/team role gating; do not discard minority-mode weapon or stat
     // evidence from the role score itself.
-    const roleStatsWithDistribution = { ...summaryStats, modeDistribution: { main: mainModeName } };
+    // 역할의 반응 분포는 구 지표 기준이다. 신규 사격 근거 분포가 준비되기 전에는 이 항목을 보류한다.
+    const roleStatsWithDistribution = { ...summaryStats, avgReactionLatency: "측정 불가", modeDistribution: { main: mainModeName } };
     const roleInfo = classifyRole(roleStatsWithDistribution, mainBench, mainUserTier);
     if (!useIdCards) {
       userPrompt += `\n### [유저 전술적 정체성]\n- 부여된 칭호: ${roleInfo.title}\n- 전술 직업군: ${roleInfo.roleLabel}\n- 특징 요약: ${roleInfo.description}\n- 주요 취약점: ${roleInfo.weakness || "식별된 약점 없음 (완성형)"}\n- 시그니처 무기: ${roleInfo.signatureWeapon} (${roleInfo.signatureWeaponStats?.kills}킬, ${roleInfo.signatureWeaponStats?.dbnos}기절, 사용 일관성: ${roleInfo.signatureWeaponStats?.consistency}%)\n`;
       userPrompt += `\n[INSTRUCTION] 'finalVerdict' 필드에 위 '주요 취약점'에 대한 분석과 전체 토론 내용을 결합하여, 유저에게 깊은 인상을 남길 수 있는 최종 판결문을 작성하십시오.`;
     }
 
-    const reactionTier = (lat: string) => { const v = parseFloat(lat); return isNaN(v) ? "C" : v < 0.4 ? "S" : v < 0.6 ? "A" : v < 0.8 ? "B" : "C"; };
+    const reactionTier = (lat: string) => lat === "측정 불가" ? "측정 불가" : "평가 보류";
     const backupContextForVisuals = buildBackupCoachingContext({
       avgBackupLatency,
       totalTradeKills,

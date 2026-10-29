@@ -1,3 +1,4 @@
+import type { FirstReplyEvidence } from "@/lib/pubg-analysis/firstReply";
 /**
  * @fileoverview 전적 검색 결과 및 개별 매치 내 플레이어의 통계를 나타내는 타입들을 정의합니다.
  */
@@ -236,6 +237,7 @@ export interface MatchData {
   };
   /** [V12.5] 1:1 교전 통계 */
   duelStats?: {
+    firstReplyEvidence?: FirstReplyEvidence;
     totalDuels: number;
     wins: number;
     losses: number;

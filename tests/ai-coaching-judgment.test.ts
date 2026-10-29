@@ -7,6 +7,11 @@ import { applySquadEvidencePolicy } from '../lib/pubg-analysis/squadAiEvidence';
 const withheld = '해당 평가는 행동 근거가 부족해 보류합니다.';
 
 describe('coaching judgment regression corpus', () => {
+  it('blocks unsupported judgments using the new reply-duration label', () => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({signatureSub:'반격 소요 시간이 빨라 뛰어난 반사신경을 보여줍니다.'}), {}));
+    expect(result.signatureSub).not.toContain('빨라');
+    expect(result.signatureSub).toMatch(/측정 불가|평가.*보류/);
+  });
   it.each([
     '소생 소요 시간을 줄여야 한다는 뜻은 아닙니다.',
     '소생 소요 시간을 단축할 필요는 없습니다.',
@@ -142,7 +147,7 @@ describe('match coaching evidence from telemetry audit', () => {
 
   it('does not infer a percentile from a benchmark mean', () => {
     const input = { briefFeedback: ['대응 사격 속도 0.17초로 상위 수준의 반응 속도를 증명했습니다.'] };
-    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 167 }, duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 167 }, eliteBenchmark: { avgCounterLatency: 0.9, sampleCount: 30, metricSampleCounts: { avgCounterLatency: 22 } } }));
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 167 }, duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 167, firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:167,noReplyCount:0} }, eliteBenchmark: { avgCounterLatency: 0.9, sampleCount: 30, metricSampleCounts: { avgCounterLatency: 22 } } }));
     expect(result.briefFeedback[0]).toContain('0.17초');
     expect(result.briefFeedback[0]).not.toMatch(/상위|증명/);
   });
@@ -162,7 +167,7 @@ describe('additional telemetry findings', () => {
   it('does not present the 3 second failure penalty as a measured reaction time', () => {
     const input = { briefFeedback: ['대응 사격 속도가 3.00초로 비교 대상 평균인 0.57초보다 크게 느려 교전 반응 속도 개선이 시급합니다.'] };
     const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 3000 }, duelStats: { reversalAttempts: 3 } }));
-    expect(result.briefFeedback[0]).toBe('기습당한 교전 3회에서 3초 안에 첫 반격을 하지 못했습니다.');
+    expect(result.briefFeedback[0]).toContain('반응 속도 평가는 보류');
     expect(result.briefFeedback[0]).not.toContain('0.57초');
   });
 
@@ -265,7 +270,35 @@ describe('real gemini audit findings (2026-10-28)', () => {
   });
 
   it('drops only the uncomparable sentence and keeps neighbouring facts', () => {
-    const result = run({ briefFeedback: ['유효 딜량 596을 기록했습니다. 대응 사격 속도는 동일 티어 평균보다 느립니다.'] }, { duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 540 } });
+    const result = run({ briefFeedback: ['유효 딜량 596을 기록했습니다. 대응 사격 속도는 동일 티어 평균보다 느립니다.'] }, { duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 540, firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:540,noReplyCount:0} } });
     expect(result.briefFeedback[0]).toBe('유효 딜량 596을 기록했습니다.');
   });
+});
+
+describe('coaching follow-up evidence guards', () => {
+  it.each(['전선 돌파자', '대치선돌파수', '진입 전문가', '돌입 선두'])('rejects an unmeasured entry title: %s', signature => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ signature }), {}));
+    expect(result.signature).toBe('화력 기여형 플레이어');
+  });
+  it.each([{stats:{processedDamageDealt:62},duelStats:{wins:1}}, {stats:{DBNOs:1}}, {duelStats:{wins:1}}])('recognizes damage, duel wins or knocks despite zero kills', match => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({finalVerdict:'화력과 교전 성과는 전무했습니다.'}), match));
+    expect(result.finalVerdict).not.toContain('전무');
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), match))).toEqual(result);
+  });
+  it('keeps a factual zero-kill statement when damage exists', () => {
+    const input = {briefFeedback:['처치 기록은 없습니다. 유효 피해는 62입니다.']};
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {stats:{kills:0,processedDamageDealt:62}}))).toEqual(input);
+  });
+});
+
+it('corrects cached early-elimination claims while preserving a non-early limitation', () => {
+  const match = {stats:{timeSurvived:900,deathType:'byplayer'},deathPhase:4};
+  const corrected = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({briefFeedback:['조기 탈락했습니다.'],finalVerdict:'조기 탈락 기준에 해당하지 않습니다.'}), match));
+  expect(corrected.briefFeedback[0]).toBe('생존 시간은 900초입니다. 조기 탈락 기준에 해당하지 않습니다.');
+  expect(corrected.finalVerdict).toBe('조기 탈락 기준에 해당하지 않습니다.');
+});
+
+it('removes an unmeasured composure adjective while preserving observed firepower', () => {
+  const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({signature:'침착한 화력 지원가'}), {stats:{processedDamageDealt:106}}));
+  expect(result.signature).toBe('화력 지원가');
 });

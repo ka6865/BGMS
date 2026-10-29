@@ -3,6 +3,7 @@
 import { ChevronDown, Flame } from "lucide-react";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
 import { getNextTierInfo } from "@/lib/pubg-analysis/benchmarkScore";
+import { firstReplyLatencyMs } from "@/lib/pubg-analysis/firstReply";
 import type { MatchData } from "@/types/stat";
 
 const ScoreBar = ({ label, score, max, color, compact = false }: { label: string, score: number, max: number, color: string, compact?: boolean }) => (
@@ -54,11 +55,6 @@ interface TierEvidenceSection {
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
 const formatPercent = (value: number, digits = 0) => `${Number(value.toFixed(digits))}%`;
-
-const formatSeconds = (ms?: number) => {
-  if (!isFiniteNumber(ms) || ms <= 0) return "측정 불가";
-  return `${(ms / 1000).toFixed(2)}초`;
-};
 
 const getImpactGradeLabel = (grade?: string) => {
   if (grade === "LEGEND") return "레전드";
@@ -118,7 +114,8 @@ const buildTierEvidence = (matchData: MatchData) => {
     : matchData.myRank?.damageRank
       ? `#${matchData.myRank.damageRank}`
       : "응답 필드 없음";
-  const reactionSpeedValue = formatSeconds(tradeStats?.reactionLatencyMs);
+  const replyLatencyMs = firstReplyLatencyMs(matchData);
+  const reactionSpeedValue = replyLatencyMs === null ? "측정 불가" : `${(replyLatencyMs / 1000).toFixed(2)}초`;
   const pressureValue = isFiniteNumber(matchData.combatPressure?.pressureIndex)
     ? matchData.combatPressure.pressureIndex.toFixed(2)
     : "응답 필드 없음";
@@ -190,8 +187,8 @@ const buildTierEvidence = (matchData: MatchData) => {
       value: joinEvidenceSummary([
         isDisplayValueAvailable(damageValue) && `딜량 ${damageValue}`,
         isDisplayValueAvailable(initiativeValue)
-          ? `선공 ${initiativeValue}`
-          : isDisplayValueAvailable(reactionSpeedValue) && `반응 ${reactionSpeedValue}`
+          ? `선제 성공 ${initiativeValue}`
+          : isDisplayValueAvailable(reactionSpeedValue) && `반격 ${reactionSpeedValue}`
       ], "전투 샘플 측정 불가")
     },
     {
@@ -222,14 +219,14 @@ const buildTierEvidence = (matchData: MatchData) => {
           value: damageValue
         },
         {
-          label: "선제공격률",
+          label: "선제 타격 성공률",
           value: initiativeValue,
           note: isFiniteNumber(initiativeSamples) ? `샘플 ${initiativeSamples}회` : undefined
         },
         {
-          label: "대응 사격 속도",
+          label: "반격 소요 시간",
           value: reactionSpeedValue,
-          note: !tradeStats?.reactionLatencyMs ? "피격 후 반격 샘플 없음" : undefined
+          note: replyLatencyMs === null ? "적격 반격 명중 기록 없음" : "적격 교전의 첫 명중 기준. 점수용 지연과 구분됩니다."
         }
       ]
     },

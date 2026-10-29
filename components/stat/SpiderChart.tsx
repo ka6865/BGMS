@@ -4,25 +4,25 @@ import React from "react";
 
 interface SpiderChartProps {
   data: {
-    combat: number;    // 0-100
-    tactical: number;  // 0-100
-    survival: number;  // 0-100
+    combat?: number | null;
+    tactical?: number | null;
+    survival?: number | null;
   };
   nickname: string;
+  tierScope?: "solo" | "team";
   bestMatchCount?: number;
 }
 
-function normalizeScore(value: unknown): number {
-  try {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 0;
-  } catch {
-    return 0;
-  }
+function readScore(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps) => {
-  const size = 340; // 300 -> 340으로 확장
+function formatScore(value: number): string {
+  return String(Number(value.toFixed(1)));
+}
+
+export const SpiderChart = ({ data, nickname, tierScope, bestMatchCount }: SpiderChartProps) => {
+  const size = 340;
   const center = size / 2;
   const radius = size * 0.3; // 0.35 -> 0.3으로 비중 조절하여 여백 확보
   const levels = 5;
@@ -32,16 +32,22 @@ export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps
     { key: "tactical", label: "전술" },
     { key: "survival", label: "생존" },
   ] as const;
-  const normalizedScores = {
-    combat: normalizeScore(data?.combat),
-    tactical: normalizeScore(data?.tactical),
-    survival: normalizeScore(data?.survival),
+  const caps = tierScope === "team"
+    ? { combat: 40, tactical: 35, survival: 25 }
+    : tierScope === "solo"
+      ? { combat: 50, tactical: 15, survival: 35 }
+      : null;
+  const scores = {
+    combat: readScore(data?.combat),
+    tactical: readScore(data?.tactical),
+    survival: readScore(data?.survival),
   };
+  const hasCompleteScores = caps !== null && Object.values(scores).every((score) => score !== null);
   const selectionLabel = typeof bestMatchCount === "number"
     && Number.isFinite(bestMatchCount)
     && bestMatchCount > 0
-    ? `점수 상위 ${Math.floor(bestMatchCount)}판`
-    : "선정 경기";
+    ? `${Math.floor(bestMatchCount)}경기 기준 · 3영역 점수 분포`
+    : "3영역 점수 분포";
 
   const getPoint = (index: number, value: number) => {
     const angle = (Math.PI * 2 * index) / categories.length - Math.PI / 2;
@@ -52,7 +58,9 @@ export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps
     };
   };
 
-  const points = categories.map((cat, i) => getPoint(i, normalizedScores[cat.key]));
+  const points = hasCompleteScores
+    ? categories.map((cat, i) => getPoint(i, Math.max(0, Math.min(100, (scores[cat.key]! / caps![cat.key]) * 100))))
+    : [];
   const pathData = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
 
   return (
@@ -68,7 +76,7 @@ export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps
         </div>
       </div>
 
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="drop-shadow-[0_0_20px_rgba(99,102,241,0.2)]">
+      <svg width="100%" viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${nickname} 3영역 점수 분포`} className="h-auto w-full max-w-[340px] drop-shadow-[0_0_20px_rgba(99,102,241,0.2)]">
         {/* Background Grids */}
         {[...Array(levels)].map((_, i) => {
           const r = (radius * (i + 1)) / levels;
@@ -106,7 +114,7 @@ export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps
         })}
 
         {/* User Area */}
-        <path
+        {hasCompleteScores && <path
           d={pathData}
           fill="url(#radarGradient)"
           fillOpacity={0.4}
@@ -115,7 +123,7 @@ export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps
           strokeLinecap="round"
           strokeLinejoin="round"
           className="transition-all duration-1000 ease-out"
-        />
+        />}
 
         {/* Categories Labels */}
         {categories.map((cat, i) => {
@@ -136,7 +144,11 @@ export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps
                 textAnchor="middle"
                 className="fill-indigo-400 font-black text-[11px]"
               >
-                {Math.round(normalizedScores[cat.key])}
+                {scores[cat.key] === null
+                  ? "측정 불가"
+                  : caps
+                    ? `${formatScore(scores[cat.key]!)}/${caps[cat.key]}`
+                    : `${formatScore(scores[cat.key]!)}점`}
               </text>
             </g>
           );
@@ -150,11 +162,11 @@ export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps
         </defs>
       </svg>
 
+      {!caps && <p className="mt-3 text-xs text-white/60">배점 정보가 없어 원점수만 표시합니다.</p>}
+
       <div className="mt-8 text-center">
-        <div className="text-[10px] text-indigo-400/60 font-black uppercase tracking-[0.3em] mb-2">{selectionLabel} 전술 플레이스타일</div>
-        <div className="text-2xl font-black text-white tracking-tight">
-          {normalizedScores.combat > 80 ? "공격적 돌격병" : normalizedScores.survival > 80 ? "지능형 생존가" : "균형잡힌 전술가"}
-        </div>
+        <div className="text-sm text-indigo-300 font-bold mb-2">{selectionLabel}</div>
+        <p className="text-xs text-white/60">각 영역 배점 대비 달성률이며 백분위가 아닙니다.</p>
       </div>
     </div>
   );

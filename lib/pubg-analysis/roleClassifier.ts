@@ -44,8 +44,8 @@ interface RoleDefinition {
 
 const ROLE_DEFINITIONS: Record<Exclude<RoleKey, "fieldCommander">, RoleDefinition> = {
   pointMan: {
-    label: "선봉대 (Point Man)", title: "첫 총성의 화신", metrics: ["initiative", "reactionSec"],
-    description: "교전에서 먼저 쏘고, 피격되면 빠르게 반격합니다.",
+    label: "선봉대 (Point Man)", title: "교전의 선봉", metrics: ["initiative", "reactionSec"],
+    description: "선제 타격 교전의 성공률과 피격 후 반격 기록이 두드러집니다.",
   },
   phantomOverwatch: {
     label: "저격 유령 (Phantom Overwatch)", title: "침묵의 감시자", metrics: ["longShare", "maxHitDist"],
@@ -69,7 +69,7 @@ const ROLE_DEFINITIONS: Record<Exclude<RoleKey, "fieldCommander">, RoleDefinitio
   },
   dropPredator: {
     label: "핫드랍 약탈자 (Drop Predator)", title: "핫존의 포식자", metrics: ["earlyShare"],
-    description: "경기 초반에 넣는 피해 비중이 높습니다. 착지 직후 교전을 주도합니다.",
+    description: "경기 초반에 넣는 피해 비중이 높습니다.",
   },
   decoy: {
     label: "미끼 전술가 (Decoy)", title: "희생의 전략가", metrics: ["baitPerMatch", "supportPerMatch"], teamOnly: true,
@@ -114,16 +114,16 @@ const COMBO_TITLES: Array<[RoleKey, RoleKey, string]> = [
   ["executor", "mainGun", "전장의 군주"],
   ["shield", "avenger", "최후의 방어선"],
   ["shield", "decoy", "희생의 수호자"],
-  ["pointMan", "brawler", "돌파의 선봉"],
+  ["pointMan", "brawler", "교전의 선봉장"],
   ["phantomOverwatch", "zoneController", "외곽의 지배자"],
-  ["grenadier", "brawler", "폭풍 진입조"],
+  ["grenadier", "brawler", "폭발의 난투꾼"],
   ["dropPredator", "brawler", "핫존 난투왕"],
   ["crossfire", "avenger", "연계 사냥꾼"],
   ["mainGun", "crossfire", "화력 연계의 축"],
 ];
 
 const METRIC_LABELS: Record<RoleMetricKey, string> = {
-  initiative: "선제공격률", reactionSec: "반격 속도", duelWin: "1:1 승률", reversal: "역전 승률",
+  initiative: "선제 타격 성공률", reactionSec: "반격 소요 시간", duelWin: "1:1 승률", reversal: "역전 승률",
   longShare: "원거리 피해 비중", shortShare: "근거리 피해 비중", maxHitDist: "최대 명중 거리",
   rescueRate: "기절 아군 구조율", tradeRate: "복수 처치율", tradeSec: "복수 속도", pressure: "압박 지수",
   placement: "평균 순위", edgePerMatch: "자기장 가장자리 운영", earlyShare: "초반 피해 비중",
@@ -298,7 +298,9 @@ export function classifyRole(stats: any, _bench: any, overallTier: string): Role
   const scores = { fieldCommander: null } as RoleScore;
   for (const [role, definition] of Object.entries(ROLE_DEFINITIONS) as Array<[Exclude<RoleKey, "fieldCommander">, RoleDefinition]>) {
     const observed = definition.metrics.map((key) => metricPercentiles[key]).filter((value): value is number => value !== null);
-    const enough = observed.length >= Math.ceil(definition.metrics.length / 2);
+    // 선봉 복합 분포는 선제 성공률과 반격 시간이 함께 있을 때만 쓴다.
+    const required = role === "pointMan" ? definition.metrics.length : Math.ceil(definition.metrics.length / 2);
+    const enough = observed.length >= required;
     // 지표 백분위의 평균을 다시 역할 점수 분포의 백분위로 바꾼다.
     scores[role] = (definition.teamOnly && isSoloMode) || !enough
       ? null

@@ -1,3 +1,4 @@
+import type { FirstReplyEvidence } from "./firstReply";
 import type { SquadObservation } from './squadObservations';
 import type { SquadFocusFireObservation } from "./squadFocusFire";
 import type { MatchReport } from "./matchReport";
@@ -184,6 +185,7 @@ export interface DuelStats {
   firstReplyWithin3sCount?: number;
   /** [계산 5 기록] firstReplyWithin3sCount에 들어간 세션의 첫 피격→첫 반격 지연 합(ms). */
   firstReplyLatencySumMs?: number;
+  firstReplyEvidence?: FirstReplyEvidence;
 }
 
 export interface AnalysisResult {

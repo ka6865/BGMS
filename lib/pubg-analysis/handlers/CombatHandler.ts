@@ -1,3 +1,4 @@
+import { FirstReplyEvidenceCollector } from "../firstReply";
 import { AnalysisState, WipeContributionKind } from "../types";
 import { normalizeName, calcDist3D, scaleCoordinate } from "../utils";
 import { WEAPON_NAMES, IGNORE_WEAPONS, IGNORE_WEAPON_PATTERNS, TACTICAL_THRESHOLDS, WIPE_CONTRIBUTION_WINDOW_MS } from "../constants";
@@ -14,6 +15,7 @@ import {
 const actorLocation = (actor: any) => actor?.location ?? actor?.loc;
 
 export class CombatHandler extends BaseHandler {
+  readonly firstReplyEvidence = new FirstReplyEvidenceCollector();
   private readonly revengeWindows = new Map<string, number>();
   /** 처치 귀속(killer·finisher)을 이미 반영한 victim 생명 키. */
   private readonly creditedKills = new Set<string>();
@@ -194,6 +196,7 @@ export class CombatHandler extends BaseHandler {
         for (const knock of this.observedKnocks) if (knock.startsWith(`${key}:`)) this.observedKnocks.delete(knock);
       }
     }
+    if (eventType === "LogPlayerAttack" && this.isMe(e.attacker)) this.firstReplyEvidence.attack(e, ts);
     switch (eventType) {
       case "LogPlayerTakeDamage":
         this.handleDamage(e, ts);
@@ -1101,7 +1104,10 @@ export class CombatHandler extends BaseHandler {
           };
           pData.sessions.set(opponent, session);
           if (char === attacker) pData.total++;
-          else pData.reversalAttempts++;
+          else {
+            pData.reversalAttempts++;
+            if (isMe) this.firstReplyEvidence.begin(session, ts);
+          }
         } else {
           if (char === attacker) {
             session.lastHitByUser = ts;
@@ -1115,6 +1121,7 @@ export class CombatHandler extends BaseHandler {
             // [계산 5 기록] 적 선타 세션마다 첫 반격 1회만 본다(첫 피격 → 첫 반격).
             if (isMe && !session.userStarted && !session.firstReplyRecorded && session.firstHitByEnemy > 0) {
               session.firstReplyRecorded = true;
+              this.firstReplyEvidence.reply(session, e, ts);
               const firstLatency = ts - session.firstHitByEnemy;
               if (firstLatency >= 0 && firstLatency < 3000) {
                 this.state.firstReplyWithin3sCount++;

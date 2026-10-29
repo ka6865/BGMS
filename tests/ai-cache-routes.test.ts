@@ -13,6 +13,12 @@ import {
 import { AI_CACHE_RETENTION_DAYS, AI_CACHE_TABLES, cleanupExpiredCache } from "../scripts/cleanup_ai_cache";
 import crypto from "node:crypto";
 
+const roleReferenceState = vi.hoisted(() => ({ version: 1 }));
+vi.mock('../lib/pubg-analysis/roleReference', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/pubg-analysis/roleReference')>();
+  return { ...actual, get ROLE_REFERENCE_VERSION() { return roleReferenceState.version; } };
+});
+
 const {
   mockWithAuthGuard,
   mockTrackAiUsage,
@@ -425,6 +431,7 @@ function mockSquadGeminiJson(json: any) {
 
 describe("AI cache route stabilization", () => {
   beforeEach(() => {
+    roleReferenceState.version = 1;
     vi.clearAllMocks();
     process.env.GOOGLE_GEMINI_API_KEY = "test-gemini-key";
     mockWithAuthGuard.mockResolvedValue({
@@ -1759,6 +1766,32 @@ describe("AI cache route stabilization", () => {
     const legacyHash = crypto.createHash("sha256").update(`${AI_SUMMARY_CACHE_VERSION}\n${selectionKey}\n${bestSelectionKey}`).digest("hex");
     expect(upsertPayload.match_ids_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(upsertPayload.match_ids_hash).not.toBe(legacyHash);
+  });
+
+  it("ai-summary reference-only changes invalidate lookup/save identity without changing metric inputs", async () => {
+    mockSummaryGeminiResponse();
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({ data: [{match_id:'reference-match',player_id:'player_a',platform:'kakao',
+      data:{fullResult:createSummaryMatch('reference-match',{createdAt:recentMatchDate(1)})}}], error:null });
+    const supabase=createSupabaseMock({player_ai_summary_cache:summaryCache,processed_match_telemetry:telemetry,
+      global_benchmarks:createQueryChain({data:[],error:null}),benchmark_stats_by_tier_v2:createQueryChain()});
+    mockWithAuthGuard.mockResolvedValue({user:{id:'user-1'},supabaseAdmin:supabase});
+    const request=()=>createRequest({matchIds:['reference-match'],nickname:'Player_A',platform:'kakao'});
+    await (await aiSummaryPOST(request())).text();
+    const firstHash=summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+    expect(firstHash).toMatch(/^[a-f0-9]{64}$/);
+    configureSummaryCacheHitForHash(summaryCache,firstHash);
+    await (await aiSummaryPOST(request())).text();
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+    roleReferenceState.version=2;
+    await (await aiSummaryPOST(request())).text();
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
+    const secondHash=summaryCache.upsert.mock.calls[1]?.[0]?.match_ids_hash;
+    expect(secondHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(secondHash).not.toBe(firstHash);
+    configureSummaryCacheHitForHash(summaryCache,secondHash);
+    await (await aiSummaryPOST(request())).text();
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
   });
 
   it("ai-summary cache hash는 latest10 ID가 같아도 best5 normalized score가 바뀌면 달라진다", async () => {
@@ -3245,6 +3278,47 @@ describe("AI cache route stabilization", () => {
     expect(visuals.overallTier).toBe("C+");
     expect(visuals).toMatchObject({ tierScope: "team", tierMatchCount: 3, bestMatchCount: 5 });
     expect(visuals.roleInfo.overallTier).toBe("C+");
+  });
+
+  it("ai-summary 잠재 티어 축은 한 경기라도 누락·비유한이면 측정 불가로 두고 실제 0과 총점은 유지한다", async () => {
+    mockSummaryGeminiResponse(() => undefined);
+    const specs = [
+      { id: "axis-1", mode: "SQUAD", score: 40, breakdown: { combat: 20, tactical: 0, survival: 20 } },
+      { id: "axis-2", mode: "SQUAD", score: 30, breakdown: { combat: "10", tactical: 0, survival: null } },
+      { id: "axis-3", mode: "SQUAD-FPP", score: 20, breakdown: { combat: 15, tactical: 0, survival: "" } },
+      { id: "axis-4", mode: "SOLO", score: 95, breakdown: { combat: 50, tactical: Number.NaN, survival: 35 } },
+    ];
+    const telemetry = createQueryChain({
+      data: specs.map((spec, index) => ({
+        match_id: spec.id,
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch(spec.id, {
+            gameMode: spec.mode,
+            createdAt: recentMatchDate(index + 1),
+            benchmark: { score: spec.score, breakdown: spec.breakdown },
+          }),
+        },
+      })),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain(),
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: specs.map((spec) => spec.id), nickname: "Player_A", platform: "kakao", force: true }));
+    const visuals = parseSummaryNdjson(await response.text()).find((record) => record.type === "visuals")?.data;
+
+    // 팀 3판만 같은 배점이다. 숫자 문자열은 기존처럼 받고, 실제 0은 0으로 평균하며,
+    // null·빈 문자열이 섞인 생존 축은 0으로 바꾸지 않는다. 솔로 경기의 NaN은 팀 축에 섞이지 않는다.
+    expect(visuals.tierBreakdown).toEqual({ combat: 15, tactical: 0, survival: null, total: 30 });
+    expect(visuals).toMatchObject({ tierScope: "team", tierMatchCount: 3 });
+    expect(visuals.overallTier).toBe("C+");
   });
 
   it("ai-summary mixed-mode 분석은 모드별 상위 표본과 전체 best5 잠재 티어를 분리한다", async () => {
@@ -5915,8 +5989,8 @@ describe("AI cache route stabilization", () => {
     });
     const tradeStats = { teammateKnocks: 0, tradeKills: 0, suppCount: 0, revCount: 0, smokeCount: 0, smokeRescues: 0, tradeLatencyMs: null };
     const player = { player_id: "kangheesung_", stats: { name: "KangHeeSung_", kills: 1, damageDealt: 200, processedDamageDealt: 200, winPlace: 5, timeSurvived: 1200 } };
-    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 1200 } });
-    const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 } });
+    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 1200, firstReplyEvidence:{version:1,eligibleCount:2,alreadyFiringCount:0,unknownCount:0,within3sCount:2,latencySumMs:1200,noReplyCount:0} } });
+    const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 }, duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:0,latencySumMs:0,noReplyCount:1}} });
     const telemetry = createQueryChain({
       data: [measured, penalty].map((fullResult) => ({ match_id: fullResult.matchId, player_id: "kangheesung_", platform: "kakao", data: { fullResult } })),
       error: null,
@@ -5933,6 +6007,69 @@ describe("AI cache route stabilization", () => {
     expect(await response.text()).toContain("\"type\":\"done\"");
     expect(capturedPrompt).toContain("0.60s");
     expect(capturedPrompt).toContain("1/2경기");
+    expect(capturedPrompt).not.toContain("1.55s");
+    expect(capturedPrompt).not.toContain("0.09s");
+  });
+
+  it("ai-summary는 비교 view와 같은 player-match 가중치로 평균을 낸다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+    const tradeStats = { teammateKnocks: 0, tradeKills: 0, suppCount: 0, revCount: 0, smokeCount: 0, smokeRescues: 0, tradeLatencyMs: null };
+    const player = { player_id: "kangheesung_", stats: { name: "KangHeeSung_", kills: 1, damageDealt: 200, processedDamageDealt: 200, winPlace: 5, timeSurvived: 1200 } };
+    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 1200, firstReplyEvidence:{version:1,eligibleCount:2,alreadyFiringCount:0,unknownCount:0,within3sCount:2,latencySumMs:1200,noReplyCount:0} } });
+    const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 }, duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:1600,noReplyCount:0}} });
+    const telemetry = createQueryChain({
+      data: [measured, penalty].map((fullResult) => ({ match_id: fullResult.matchId, player_id: "kangheesung_", platform: "kakao", data: { fullResult } })),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain(),
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: ["match-react", "match-penalty"], nickname: "KangHeeSung_", platform: "kakao", force: true }));
+    expect(await response.text()).toContain("\"type\":\"done\"");
+    expect(capturedPrompt).toContain("1.10s");
+    expect(capturedPrompt).toContain("0/2경기");
+    expect(capturedPrompt).not.toContain("1.55s");
+    expect(capturedPrompt).not.toContain("0.09s");
+  });
+
+  it("ai-summary는 연사 중 교전을 시간·실패 분모에서 제외한다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+    const tradeStats = { teammateKnocks: 0, tradeKills: 0, suppCount: 0, revCount: 0, smokeCount: 0, smokeRescues: 0, tradeLatencyMs: null };
+    const player = { player_id: "kangheesung_", stats: { name: "KangHeeSung_", kills: 1, damageDealt: 200, processedDamageDealt: 200, winPlace: 5, timeSurvived: 1200 } };
+    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3 }, duelStats: { reversalAttempts: 1, firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 3, firstReplyEvidence:{version:1,eligibleCount:0,alreadyFiringCount:1,unknownCount:0,within3sCount:0,latencySumMs:0,noReplyCount:0} } });
+    const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 }, duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:0,latencySumMs:0,noReplyCount:1}} });
+    const telemetry = createQueryChain({
+      data: [measured, penalty].map((fullResult) => ({ match_id: fullResult.matchId, player_id: "kangheesung_", platform: "kakao", data: { fullResult } })),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain(),
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: ["match-react", "match-penalty"], nickname: "KangHeeSung_", platform: "kakao", force: true }));
+    const text = await response.text();
+    expect(text).toContain("\"type\":\"done\"");
+    const visuals = text.split("\n").filter(Boolean).map(line=>JSON.parse(line)).find(line=>line.type==="visuals")?.data;
+    expect(visuals).toMatchObject({reactionLatency:"측정 불가",reactionTier:"측정 불가"});
+    expect(visuals.roleInfo.evidence.join(" ")).not.toMatch(/반응|반격/);
+    expect(capturedPrompt).toContain("반격 소요 시간: 측정 불가");
+    expect(capturedPrompt).toContain("1/1경기");
+    expect(capturedPrompt).not.toContain("0.00s");
     expect(capturedPrompt).not.toContain("1.55s");
     expect(capturedPrompt).not.toContain("0.09s");
   });

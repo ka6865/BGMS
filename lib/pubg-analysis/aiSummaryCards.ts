@@ -839,7 +839,7 @@ const METRIC_CHECKS: Readonly<Record<string, string>> = {
   damage_average: "다음 교전이 끝난 뒤 피해를 주기 어려웠던 거리와 상대 위치를 돌아보세요.",
   initiative_rate: "다음 교전 전에는 먼저 사격할 수 있는 각도와 상대 위치를 확인해 보세요.",
   pressure_index: "다음 교전에서는 피해를 준 뒤 같은 상대를 계속 압박할 수 있었는지 돌아보세요.",
-  reaction_latency: "다음 경기에서 기습당했을 때 첫 반격까지 걸린 구간을 돌아보세요.",
+  reaction_latency: "다음 경기에서 기습당했을 때 반격 소요 시간을 돌아보세요.",
   counter_failure_rate: "다음 경기에서 기습당한 직후 3초 안에 반격하거나 엄폐할 수 있었는지 확인해 보세요.",
   duel_win_rate: "다음 1:1 교전이 끝난 뒤 먼저 피해를 준 쪽과 엄폐 위치를 돌아보세요.",
   trade_success_rate: "아군이 기절했을 때 기절시킨 적을 견제할 수 있는 위치였는지 확인해 보세요.",
@@ -874,7 +874,7 @@ function serverWinner(card: SummaryCard): SummaryCard["winner"] {
 
 const STRONG_PRAISE = /우수|훌륭|뛰어|탁월|안정적|확보|돋보|압도|완벽|잘\s/u;
 // 칭호는 숫자·인성·진입 위치·측정하지 않은 능력(흐름 읽기, 판단, 지휘 등)을 담을 수 없다.
-const UNSUPPORTED_SIGNATURE = /\d|무책임|무능|민폐|한심|이기적|집중력|판단력|멘탈|습관|성향|돌격|선봉|돌진|최전선|흐름|읽는|판단|지휘|리더|두뇌|전략가|감각|냉철|침착/u;
+const UNSUPPORTED_SIGNATURE = /\d|무책임|무능|민폐|한심|이기적|집중력|판단력|멘탈|습관|성향|돌격|선봉|돌진|최전선|전선|돌파|돌입|진입|흐름|읽는|판단|지휘|리더|두뇌|전략가|감각|냉철|침착/u;
 
 function conditionalCheckText(text: string): string {
   // 관측 결과나 원인 단정을 섞지 않고, 다음 상황에서 확인할 행동만 채택한다.

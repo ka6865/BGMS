@@ -344,6 +344,8 @@ describe("persistMatchAnalysis", () => {
       map_name: "Baltic_Main",
       counter_latency_ms: 1235,
       first_reply_latency_ms: null,
+      eligible_first_reply_latency_ms: null,
+      eligible_counter_failure_rate: null,
       initiative_rate: 68,
       revive_rate: 50,
       is_crossfire: true,
@@ -989,4 +991,11 @@ describe("persistMatchAnalysis", () => {
     expect(result.failures).toContainEqual({ taskName: "match_stats_raw", message: "raw rejected" });
     expect(upserts.get("global_benchmarks")).toHaveBeenCalled();
   });
+});
+
+it('persists raw and eligible reply intervals independently', () => {
+  const result = buildBenchmarkRow({...input, finalResult:{...input.finalResult,
+    duelStats:{...input.finalResult.duelStats,firstReplyWithin3sCount:1,firstReplyLatencySumMs:3,
+      firstReplyEvidence:{version:1,eligibleCount:0,alreadyFiringCount:1,unknownCount:0,within3sCount:0,latencySumMs:0,noReplyCount:0}}}});
+  expect(result).toMatchObject({first_reply_latency_ms:3,eligible_first_reply_latency_ms:null,eligible_counter_failure_rate:null});
 });

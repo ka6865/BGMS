@@ -38,7 +38,7 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({
 const row = (player: string, calculation: number | null) => ({
   player_id: player, platform: 'steam', calculation_version: calculation,
   filter_version: 8, population_evidence_version: 1, match_type: 'competitive', game_mode: 'squad',
-  damage: 400, kills: 3, tier: 'S', score: 99, trade_rate: 100, counter_latency_ms: 0,
+  damage: 400, kills: 3, tier: 'S', score: 99, trade_rate: 100, counter_latency_ms: 0, eligible_first_reply_latency_ms: 0,
   created_at: new Date().toISOString(), map_name: 'Baltic_Main',
 });
 
@@ -112,6 +112,15 @@ describe('calculation rollout preserves official basic records', () => {
     expect(data).toMatchObject({ tier1: null, tier2: null, tierScope1: 'solo', tierScope2: 'team', tierScopeMismatch: true });
   });
 
+  it.each([null, 903])('compares qualified reply %s instead of raw latency', async (qualified) => {
+    rows.push({...row('one', ANALYSIS_CALCULATION_VERSION), counter_latency_ms: 3, eligible_first_reply_latency_ms: qualified},
+      {...row('two', ANALYSIS_CALCULATION_VERSION), counter_latency_ms: 3, eligible_first_reply_latency_ms: qualified});
+    const { GET } = await import('@/app/api/pubg/battle/route');
+    const data = await (await GET(new Request('http://localhost/api/pubg/battle?nick1=one&nick2=two&platform1=steam&platform2=steam'))).json();
+    expect(data.comparisons.find((metric: any) => metric.key === 'counter_latency_ms')).toMatchObject({
+      label: '반격 소요 시간', v1: qualified === null ? null : 0.9, v2: qualified === null ? null : 0.9, comparable: qualified !== null,
+    });
+  });
   it('keeps observed current tactical zero available for comparison', async () => {
     rows.push(row('one', ANALYSIS_CALCULATION_VERSION), row('two', ANALYSIS_CALCULATION_VERSION));
     const { GET } = await import('@/app/api/pubg/battle/route');

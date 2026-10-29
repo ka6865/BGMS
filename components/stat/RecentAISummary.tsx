@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ShieldAlert, Clock, TrendingUp, TrendingDown, Minus, Flame, Skull, Target, HelpCircle, Zap, Brain, X, ChevronDown, ChevronUp } from "lucide-react";
 import { getNextTierInfo } from "@/lib/pubg-analysis/benchmarkScore";
 
@@ -65,9 +65,9 @@ interface DebateData {
     //  API 응답 실제 구조에 맞게 정리: latency 객체는 미사용, counterLatency만 실제 사용됨
     counterLatency?: string;
     tierBreakdown?: {
-      combat: number;
-      tactical: number;
-      survival: number;
+      combat: number | null;
+      tactical: number | null;
+      survival: number | null;
       total: number;
     };
     latestMatchTime?: string;
@@ -244,11 +244,17 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
   const tierBreakdown = source.tierBreakdown;
   if (tierBreakdown && typeof tierBreakdown === "object" && !Array.isArray(tierBreakdown)) {
     const tierSource = tierBreakdown as Record<string, unknown>;
-    const combat = finiteVisualNumber(tierSource.combat, 0, 100);
-    const tactical = finiteVisualNumber(tierSource.tactical, 0, 100);
-    const survival = finiteVisualNumber(tierSource.survival, 0, 100);
-    const total = finiteVisualNumber(tierSource.total, 0, 100);
-    if (combat !== null && tactical !== null && survival !== null && total !== null) {
+    // 축은 숫자와 숫자 문자열만 받는다. boolean·배열 등은 0/1로 바꾸지 않고 측정 불가로 둔다.
+    const axis = (value: unknown) => typeof value === "number" || typeof value === "string" ? finiteVisualNumber(value, 0, 100) : null;
+    const combat = axis(tierSource.combat);
+    const tactical = axis(tierSource.tactical);
+    const survival = axis(tierSource.survival);
+    // 서버 총점은 0~100으로 정규화돼 있다. 범위를 벗어난 총점은 잘못된 값으로 보고 breakdown을 버린다.
+    const rawTotal = typeof tierSource.total === "number" || typeof tierSource.total === "string"
+      ? finiteVisualNumber(tierSource.total, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY) : null;
+    const total = rawTotal !== null && rawTotal >= 0 && rawTotal <= 100 ? rawTotal : null;
+    // 총점이 유효하면 축이 모두 측정 불가여도 총점을 보존한다. 누락 축을 0으로 바꾸지 않는다.
+    if (total !== null) {
       normalized.tierBreakdown = { combat, tactical, survival, total };
     }
   }
@@ -511,6 +517,9 @@ export interface RecentAISummaryProps {
   platform: string;
   isMobile?: boolean;
   onSummaryChange?(summary: AiSummarySnapshot | null): void;
+  /** 수집 완료 후 확인된 새 최근 경기 수. 분석 전이면 바로 반영하고, 분석 중·결과가 있으면 안내만 한다. */
+  pendingMatchCount?: number;
+  onApplyPendingMatches?(): void;
 }
 
 interface SummaryRequestOwner {
@@ -555,6 +564,8 @@ export const RecentAISummary = ({
   platform,
   isMobile,
   onSummaryChange,
+  pendingMatchCount = 0,
+  onApplyPendingMatches,
 }: RecentAISummaryProps) => {
   const [debateData, setDebateData] = useState<DebateData | null>(null);
   const [summaryCards, setSummaryCards] = useState<SummaryCard[] | null>(null);
@@ -1206,8 +1217,28 @@ export const RecentAISummary = ({
     onSummaryChangeRef.current?.(snapshot);
   }, [identity, summaryTier, summaryVerdict, summaryLatestCount, summaryBestCount, summaryAnalysisCount, summaryScope]);
 
+  const summaryIdle = !debateData && !summaryCards && !loading && !error;
+  useEffect(() => {
+    // 아직 분석을 시작하지 않았으면 확인된 최신 경기 목록으로 바로 바꾼다.
+    if (pendingMatchCount > 0 && summaryIdle && !isLoadingRef.current) onApplyPendingMatches?.();
+  }, [pendingMatchCount, summaryIdle, onApplyPendingMatches]);
+
   // Hide the previous selection during the render before its reset effect.
   if (renderIdentity !== identity) return null;
+
+  // 분석 중이거나 결과가 있으면 자동으로 지우지 않고, 사용자가 반영할 때만 새 경기 목록으로 바꾼다.
+  const pendingNotice = pendingMatchCount > 0 && !summaryIdle && onApplyPendingMatches ? (
+    <div role="status" className="flex flex-col gap-3 rounded-2xl border border-sky-400/20 bg-sky-500/5 p-4 text-sm text-sky-100/90 sm:flex-row sm:items-center sm:justify-between">
+      <p className="break-words">새로 저장된 최근 경기 {pendingMatchCount}개가 있습니다. 현재 분석은 이전 경기 목록 기준이며, 반영하면 현재 결과를 닫고 다시 분석할 수 있습니다.</p>
+      <button type="button" onClick={onApplyPendingMatches}
+        className="shrink-0 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20">
+        최신 경기 반영하기
+      </button>
+    </div>
+  ) : null;
+  const withPendingNotice = (content: ReactNode) => pendingNotice
+    ? <div className="flex w-full flex-col gap-3">{pendingNotice}{content}</div>
+    : content;
 
   const retryDisabled = retryAfterSeconds > 0 || loading || isGlobalAnalyzing;
   const retryLabel = retryAfterSeconds > 0 ? `${retryAfterSeconds}초 후 다시 시도하기` : "다시 시도하기";
@@ -1223,14 +1254,16 @@ export const RecentAISummary = ({
 
   if (error && !summaryCards) {
     const calculationUpgradePending = error.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
-    return (
+    const expired = error.errorCode === "PUBG_MATCH_DETAIL_EXPIRED";
+    const canonicalPending = error.errorCode === "PUBG_AI_CANONICAL_NOT_READY";
+    return withPendingNotice(
       <div className="p-6 bg-white/5 border border-white/10 rounded-2xl text-center">
         <BgmsIcon name="info" size={28} className="mx-auto mb-3 text-indigo-300" />
         <p className="text-gray-300 text-sm mb-1">
-          {calculationUpgradePending ? CALCULATION_UPGRADE_MESSAGE : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "AI 해석을 확인할 수 없습니다." : "AI 분석이 잠깐 막혔어요."}
+          {expired ? "분석할 경기의 상세 제공 기간이 지났습니다." : canonicalPending ? "최근 경기의 분석 데이터가 아직 준비되지 않았습니다." : calculationUpgradePending ? CALCULATION_UPGRADE_MESSAGE : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "AI 해석을 확인할 수 없습니다." : "AI 분석이 잠깐 막혔어요."}
         </p>
         <p className="text-gray-500 text-xs mb-4">
-          {calculationUpgradePending ? CALCULATION_UPGRADE_DETAIL : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 잠시 후 다시 시도할 수 있어요." : "서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요."}
+          {expired ? "상단의 전적 갱신을 눌러 최근 경기 목록을 확인해 주세요." : canonicalPending ? "최근 경기의 상세 분석을 확인한 뒤 다시 시도해 주세요." : calculationUpgradePending ? CALCULATION_UPGRADE_DETAIL : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 잠시 후 다시 시도할 수 있어요." : "서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요."}
         </p>
         {!calculationUpgradePending && (
           <button
@@ -1294,7 +1327,7 @@ export const RecentAISummary = ({
 
   // [V46.5] 로딩 중이지만 이미 데이터가 있는 경우(갱신 중)에는 전체 화면 스피너를 보여주지 않음 (Partial Loading)
   if (loading && !debateData && !summaryCards) {
-    return (
+    return withPendingNotice(
       <div className="p-12 bg-white/5 rounded-3xl border border-white/10 text-center">
         <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mx-auto mb-6" />
         <p className="text-gray-400 animate-pulse text-sm">AI 분석 엔진이 최근 유효 {latestMatchRangeLabel} 전체와 점수 상위 {bestMatchRangeLabel}를 확인 중입니다...</p>
@@ -1471,6 +1504,7 @@ export const RecentAISummary = ({
 
   return (
     <div className="w-full flex flex-col gap-6">
+      {pendingNotice}
       {partialSummary && !error && (
         <div role="status" className="p-5 bg-white/5 border border-white/10 rounded-2xl text-center">
           <p className="text-gray-300 text-sm mb-4">{PARTIAL_SUMMARY_MESSAGE}</p>
@@ -1649,7 +1683,8 @@ export const RecentAISummary = ({
         {debateData?.visuals?.tierBreakdown && (
           <SpiderChart
             nickname={nickname}
-            bestMatchCount={debateData.visuals.bestMatchCount}
+            bestMatchCount={debateData.visuals.tierMatchCount}
+            tierScope={debateData.visuals.tierScope}
             data={{
               combat: debateData.visuals.tierBreakdown.combat,
               tactical: debateData.visuals.tierBreakdown.tactical,
@@ -1818,15 +1853,15 @@ export const RecentAISummary = ({
                           <div className="space-y-2.5">
                             <div className="flex justify-between items-center">
                               <span className="text-[11px] text-gray-400 font-bold">교전 점수</span>
-                              <span className="text-[12px] text-indigo-400 font-black">{debateData.visuals.tierBreakdown.combat}</span>
+                              <span className="text-[12px] text-indigo-400 font-black">{debateData.visuals.tierBreakdown.combat ?? "측정 불가"}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-[11px] text-gray-400 font-bold">전술 점수</span>
-                              <span className="text-[12px] text-emerald-400 font-black">{debateData.visuals.tierBreakdown.tactical}</span>
+                              <span className="text-[12px] text-emerald-400 font-black">{debateData.visuals.tierBreakdown.tactical ?? "측정 불가"}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-[11px] text-gray-400 font-bold">생존 점수</span>
-                              <span className="text-[12px] text-yellow-400 font-black">{debateData.visuals.tierBreakdown.survival}</span>
+                              <span className="text-[12px] text-yellow-400 font-black">{debateData.visuals.tierBreakdown.survival ?? "측정 불가"}</span>
                             </div>
                             <div className="pt-2 mt-2 border-t border-white/10 flex justify-between items-center">
                               <span className="text-[11px] text-white font-black uppercase">잠재 점수</span>
@@ -2063,7 +2098,7 @@ export const RecentAISummary = ({
         {debateData?.visuals && <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
 
           <div className="relative group p-6 bg-indigo-500/10 border border-indigo-500/20 rounded-[28px] text-center transition-all hover:bg-indigo-500/15">
-            <div className="text-[10px] text-indigo-400 font-black uppercase mb-1 tracking-widest">선제 타격 효율</div>
+            <div className="text-[10px] text-indigo-400 font-black uppercase mb-1 tracking-widest">선제 타격 성공률</div>
             <div className="text-3xl font-black text-white mb-1">
               {debateData?.visuals?.initiativeSuccess || "0%"}
             </div>
@@ -2072,7 +2107,7 @@ export const RecentAISummary = ({
                 (성공 {debateData.visuals.tactical.counts.initiative.success} / 시도 {debateData.visuals.tactical.counts.initiative.attempts})
               </div>
             )}
-            <div className="text-[9px] text-gray-400 font-medium">먼저 쐈을 때 킬 성공 비율</div>
+            <div className="text-[9px] text-gray-400 font-medium">먼저 피해를 준 교전의 승리·마무리 지원 비율</div>
           </div>
 
           <div className="relative group p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-[28px] text-center transition-all hover:bg-emerald-500/15">
@@ -2088,12 +2123,13 @@ export const RecentAISummary = ({
           </div>
 
           <div className="relative group p-6 bg-orange-500/10 border border-orange-500/20 rounded-[28px] text-center transition-all hover:bg-orange-500/15">
-            <div className="text-[10px] text-orange-400 font-black uppercase mb-1 tracking-widest">대응 사격 속도</div>
+            <div className="text-[10px] text-orange-400 font-black uppercase mb-1 tracking-widest">반격 소요 시간</div>
             <div className="text-3xl font-black text-white mb-1 flex items-center justify-center gap-2">
-              {debateData?.visuals?.reactionLatency || "0.00s"}
+              {debateData?.visuals?.reactionLatency || "측정 불가"}
               {debateData?.visuals?.reactionLatency === "측정 불가" && (
                 <div className="relative" ref={activeStatTooltip === 'reaction' ? statTooltipRef : null}>
                   <button
+                    aria-label="반격 소요 시간 측정 불가 사유"
                     onMouseEnter={() => !isMobile && setActiveStatTooltip('reaction')}
                     onMouseLeave={() => !isMobile && setActiveStatTooltip(null)}
                     onClick={() => isMobile && setActiveStatTooltip(activeStatTooltip === 'reaction' ? null : 'reaction')}
@@ -2110,7 +2146,7 @@ export const RecentAISummary = ({
                         {isMobile && <button onClick={() => setActiveStatTooltip(null)} className="text-white/40"><X size={14} /></button>}
                       </div>
                       <div className="text-[11px] text-orange-200/70 font-medium leading-relaxed text-left">
-                        피격 후 반격에 성공한 교전이 없을 때 표시됩니다. <span className="text-orange-400 font-bold">일방적으로 적을 제압했거나, 기습 당했을 때 반격 없이 즉사 또는 도주한 경우</span> 측정 조건에서 제외됩니다.
+                        상대에게 피해를 받은 뒤 해당 상대에게 처음 피해를 주기까지의 시간입니다. 피격 전 연속 발사가 관측됐거나 발사 기록이 불확실한 교전은 제외합니다. 조준·탄속 등의 영향도 포함되며 반사신경을 직접 측정한 값은 아닙니다. 확인된 교전에서도 3초 안에 첫 반격 명중이 없으면 시간을 계산하지 않습니다. <span className="text-orange-400 font-bold">측정 불가는 느린 반응이나 실력 부족을 뜻하지 않습니다.</span>
                       </div>
                       {!isMobile && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-[#111] border-r border-b border-orange-500/20 rotate-45" />}
                     </div>
@@ -2118,7 +2154,7 @@ export const RecentAISummary = ({
                 </div>
               )}
             </div>
-            <div className="text-[9px] text-gray-400 font-medium">피격 시 교전 대응(반응) 시간</div>
+            <div className="text-[9px] text-gray-400 font-medium">첫 피격부터 해당 상대에게 처음 피해를 줄 때까지</div>
           </div>
 
           <div className="relative p-6 bg-cyan-500/10 border border-cyan-500/20 rounded-[28px] text-center transition-all hover:bg-cyan-500/15">

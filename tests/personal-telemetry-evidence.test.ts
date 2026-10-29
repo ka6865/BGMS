@@ -70,7 +70,7 @@ describe('real Gemini evidence failure regressions',()=>{
     const response=JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({signature:'실속 없는 고립형 생존자',briefFeedback:['피해형 투척물 12회 중 4회를 활용했으나 적중률 25%입니다.','대응 사격 속도가 상위권 기준에 비해 크게 처졌습니다.'],actionItems:[{desc:'다음에는 피해형 투척 3회 사용을 연습해 보세요.'}]}),match));
     expect(response.signature).toBe('대열 유지형 플레이어');
     expect(response.briefFeedback[0]).toContain('총 투척 12회, 피해형 투척 4회');
-    expect(response.briefFeedback[1]).toContain('비교 자료가 없어');
+    expect(response.briefFeedback[1]).toContain('반응 속도 평가는 보류');
     expect(response.actionItems[0].desc).toContain('3회');
   });
   it('keeps user-only qualitative observations without granting benchmark or invented-number claims',()=>{

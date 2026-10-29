@@ -408,3 +408,19 @@ describe("사망 페이즈", () => {
     expect(run([phase(100_000, 1), phase(400_000, 5)]).result.deathPhase).toBe(5);
   });
 });
+
+describe('first reply gun evidence integration', () => {
+ const fire=(t:number,id:number)=>({t,_T:'LogPlayerAttack',attacker:actor('Me'),attackType:'Weapon',attackId:id,weapon:{itemId:'Item_Weapon_HK416_C',category:'Weapon',subCategory:'Main'}});
+ it.each([3,201])('keeps raw %sms and score, but excludes a burst from eligible failure and time',ms=>{
+  const events=[fire(834,1),fire(934,2),damage(1000,'E1','Me'),fire(1000+ms-1,3),damage(1000+ms,'Me','E1',30,{attackId:3})];
+  const {result}=run(events);
+  const baseline=run(events.filter(e=>e._T!=='LogPlayerAttack')).result;
+  expect(result.duelStats.firstReplyLatencySumMs).toBe(ms);
+  expect(result.benchmark).toEqual(baseline.benchmark);
+  expect(result.duelStats.firstReplyEvidence).toMatchObject({alreadyFiringCount:1,eligibleCount:0,noReplyCount:0,within3sCount:0});
+ });
+ it('requires the first reply shot identity to match the player damage',()=>{
+  const {result}=run([damage(1000,'E1','Me'),fire(1300,4),damage(1400,'Me','E1',30,{attackId:4})]);
+  expect(result.duelStats.firstReplyEvidence).toMatchObject({within3sCount:1,latencySumMs:400,eligibleCount:1});
+ });
+});

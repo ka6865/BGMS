@@ -8,8 +8,8 @@ import { applyMatchAiEvidencePolicy } from '../lib/pubg-analysis/matchAiEvidence
 const row = (calculation_version: number, measured: number, failure: number) => ({
   tier: 'B', game_mode: 'squad', match_type: 'official', calculation_version, match_count: 60,
   avg_counter_latency_ms: 2100, avg_counter_latency_ms_count: 18,
-  avg_first_reply_latency_ms: measured, avg_first_reply_latency_ms_count: 32,
-  avg_counter_failure_rate: failure, avg_counter_failure_rate_count: 48,
+  avg_eligible_first_reply_latency_ms: measured, avg_eligible_first_reply_latency_ms_count: 32,
+  avg_eligible_counter_failure_rate: failure, avg_eligible_counter_failure_rate_count: 48,
 });
 
 describe('counter latency benchmark split', () => {
@@ -21,7 +21,7 @@ describe('counter latency benchmark split', () => {
   });
 
   it('keeps an older view without the new columns unavailable instead of defaulting', () => {
-    const { avg_first_reply_latency_ms: _m, avg_counter_failure_rate: _f, ...legacy } = row(5, 600, 60);
+    const { avg_eligible_first_reply_latency_ms: _m, avg_eligible_counter_failure_rate: _f, ...legacy } = row(5, 600, 60);
     const observed = adaptObservedBenchmark(legacy);
     expect(observed?.avgCounterLatency).toBe(2.1);
     expect(observed?.avgFirstReplyLatency).toBeUndefined();
@@ -30,8 +30,8 @@ describe('counter latency benchmark split', () => {
 
   it('compares the split metrics only within the current calculation', () => {
     const combined = combineCalculationBenchmarkRows([row(4, 900, 90), row(5, 500, 50)], 'B');
-    expect(combined.avg_first_reply_latency_ms).toBe(500);
-    expect(combined.avg_counter_failure_rate).toBe(50);
+    expect(combined.avg_eligible_first_reply_latency_ms).toBe(500);
+    expect(combined.avg_eligible_counter_failure_rate).toBe(50);
   });
 });
 
@@ -63,20 +63,20 @@ describe('single match counter comparison', () => {
   const base = { mapName: 'Erangel', gameMode: 'squad', stats: { winPlace: 3, kills: 1, damageDealt: 200, timeSurvived: 900 }, eliteBenchmark };
 
   it('reports the first reply time against the first reply benchmark, not the penalty average', () => {
-    const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { ...base, tradeStats: { reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 900 } } });
-    expect(playerReportSummary).toContain('0.45s (기습당한 교전 2회의 첫 피격→첫 반격 평균, Elite Avg: 0.6s)');
+    const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { ...base, tradeStats: { reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 900, firstReplyEvidence:{version:1,eligibleCount:2,alreadyFiringCount:0,unknownCount:0,within3sCount:2,latencySumMs:900,noReplyCount:0} } } });
+    expect(playerReportSummary).toContain('0.45s (피격 전 사격을 구분한 교전 2회의 첫 피격부터 해당 상대에게 첫 명중까지의 평균, Elite Avg: 0.6s)');
     expect(playerReportSummary).not.toContain('0.09s');
     expect(playerReportSummary).not.toContain('2.1s');
   });
 
   it('does not show the within-fight hit interval as a reaction time for older results', () => {
     const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { ...base, tradeStats: { reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 1 } } });
-    expect(playerReportSummary).toContain('대응 사격 속도(첫 반격): 측정 불가(첫 반격 기록 없음)');
+    expect(playerReportSummary).toContain('반격 소요 시간: 측정 불가(피격 전 사격 검증 기록 없음)');
   });
 
   it('compares a penalty match with the benchmark failure rate', () => {
-    const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { ...base, tradeStats: { reactionLatencyMs: 3000 }, duelStats: { reversalAttempts: 2 } } });
-    expect(playerReportSummary).toContain('3초 안에 첫 반격 없음(기습 2회');
+    const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { ...base, tradeStats: { reactionLatencyMs: 3000 }, duelStats: { reversalAttempts: 2, firstReplyEvidence:{version:1,eligibleCount:2,alreadyFiringCount:0,unknownCount:0,within3sCount:0,latencySumMs:0,noReplyCount:2} } } });
+    expect(playerReportSummary).toContain('3초 안에 첫 반격 없음(적격 교전 2회');
     expect(playerReportSummary).toContain('Elite 3초 내 대응 실패율: 60%');
   });
 
@@ -84,6 +84,16 @@ describe('single match counter comparison', () => {
     const legacy = { sampleCount: 20, avgCounterLatency: 2.1, metricSampleCounts: { avgCounterLatency: 18 } };
     const input = { briefFeedback: ['대응 사격 속도 0.40초로 비교 평균보다 빨랐습니다.'] };
     const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 400 }, eliteBenchmark: legacy }));
-    expect(result.briefFeedback[0]).toBe('같은 조건의 비교 자료가 없어 상대 평가는 보류합니다.');
+    expect(result.briefFeedback[0]).toBe('피격 전 사격을 구분할 근거가 부족하거나 이미 사격 중이던 교전이라 반응 속도 평가는 보류합니다.');
+  });
+});
+
+describe('early elimination prompt contract', () => {
+  it.each([
+    [581, 6, 'byplayer', '해당'], [600, 3, 'byplayer', '해당'],
+    [600, 4, 'byplayer', '해당 없음'], [1200, 0, 'alive', '해당 없음'],
+  ])('uses the score boundary for %s seconds, phase %s, %s', (timeSurvived, deathPhase, deathType, expected) => {
+    const result = buildMatchAiCoachingPrompt({matchData:{stats:{timeSurvived,deathType},deathPhase}});
+    expect(result.playerReportSummary).toContain(`조기 탈락 분류: ${expected}`);
   });
 });
