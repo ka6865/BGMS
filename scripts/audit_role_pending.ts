@@ -2,14 +2,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { aggregateMatches, isCompetitiveMatch } from '../lib/pubg-analysis/summaryAggregate';
+import { aggregateMatches, roleCohortOf } from '../lib/pubg-analysis/summaryAggregate';
 import { selectRecentMatches, selectBestMatches } from '../lib/pubg-analysis/recentMatchSelection';
 import { calculateRoleRawScores, classifyRole, type RoleInfo } from '../lib/pubg-analysis/roleClassifier';
 import { referencePercentile, roleScorePercentile, type RoleScoreKey, type RoleReference } from '../lib/pubg-analysis/roleReference';
 import { buildCalibrationProfile, calibrationMatchWindow, calibrationResults, fitReferenceCandidate, roleWindowStability, quantiles, CALIBRATION_SEED, type CalibrationProfile } from '../lib/pubg-analysis/referenceCalibration';
 
 type Subject = {account:string;target?:string;queriedAt:string;matches:Array<{match_id:string;played_at:string}>;results:any[]};
-const cohortOf = (match:any) => `steam|${String(match.gameMode).trim().toLowerCase()}|${isCompetitiveMatch(match) ? 'competitive' : 'official'}`;
+const cohortOf = (match:any) => roleCohortOf(match) ?? 'unknown';
 const counts = (roles:RoleInfo[]) => roles.reduce((sum, role) => {
   const key = role.status === 'pending' ? role.presentation === 'combined' ? 'combined' : role.presentation === 'observed' ? 'observed' : 'unexplainedPending' : role.status ?? 'unknown';
   sum[key] = (sum[key] ?? 0) + 1; return sum;
@@ -63,6 +63,41 @@ function middleCandidate(profiles:CalibrationProfile[], subjects:Map<string,Subj
   return result;
 }
 
+const topRoles=(stats:any,reference:RoleReference)=>Object.entries(calculateRoleRawScores(stats,reference).rawScores)
+  .map(([key,value])=>[key,value===null?null:roleScorePercentile(key as RoleScoreKey,value,reference)] as const)
+  .filter((row):row is readonly [string,number]=>row[1]!==null).sort((a,b)=>b[1]-a[1]).map(([role,score])=>({role,score:Number(score.toFixed(1))}));
+
+/** 역할별 근거·판정·경기 창 불일치 집계. 판정 규칙을 바꾸지 않고 기존 결과만 센다. */
+function roleSummary(profiles:CalibrationProfile[], windows:Map<string,ReturnType<typeof roleWindowStability>>, cohorts:Array<{cohort:string;reference:RoleReference;roleCoverage:Record<string,{train:number;holdout:number;eligible:boolean}>}>) {
+  const rows:Record<string,any>={};
+  for(const c of cohorts){
+    const group=profiles.filter(p=>p.cohort===c.cohort);
+    for(const [role,coverage] of Object.entries(c.roleCoverage)){
+      const row:any={cohort:c.cohort,role,referenceEligible:coverage.eligible,train:coverage.train,holdout:coverage.holdout,
+        observableProfiles:0,missingRequiredEvidence:0,confirmedPrimary:0,confirmedSecondary:0,
+        pendingTop:{unstable:0,belowThreshold:0,fewChangedVariants:0,cohort:0},observedOrCombinedTop:0,
+        disagreements:{rank_flip:0,lost_confirmation:0,gained_confirmation:0,state_change:0,insufficient:0,commander_change:0}};
+      for(const p of group){
+        const window=windows.get(p.accountKey)!,decision=window.decision,top=topRoles(p.stats,c.reference);
+        const observable=top.some(t=>t.role===role);
+        if(observable)row.observableProfiles++;else row.missingRequiredEvidence++;
+        if(decision.status==='confirmed'&&decision.primaryRole===role)row.confirmedPrimary++;
+        if(decision.status==='confirmed'&&decision.secondaryRole===role)row.confirmedSecondary++;
+        if(top[0]?.role!==role)continue;
+        for(const [key,value] of Object.entries(window.disagreements))row.disagreements[key]+=value;
+        if(decision.status!=='pending')continue;
+        if(decision.cohortCheck&&decision.cohortCheck!=='match')row.pendingTop.cohort++;
+        else if(top[0].score<85)row.pendingTop.belowThreshold++;
+        else if(window.runs<3)row.pendingTop.fewChangedVariants++;
+        else row.pendingTop.unstable++;
+        if(decision.presentation==='observed'||decision.presentation==='combined')row.observedOrCombinedTop++;
+      }
+      rows[`${c.cohort}|${role}`]=row;
+    }
+  }
+  return Object.values(rows);
+}
+
 export function auditRolePending(input:unknown, seed=CALIBRATION_SEED) {
   if(!Array.isArray(input) || input.some(s=>!s || typeof s.account!=='string' || !s.account || !Array.isArray(s.matches) || !Array.isArray(s.results)))throw new Error('invalid_role_snapshot');
   if(new Set(input.map(s=>s.account)).size!==input.length)throw new Error('duplicate_accounts');
@@ -79,15 +114,17 @@ export function auditRolePending(input:unknown, seed=CALIBRATION_SEED) {
     const fit=fitReferenceCandidate(profiles,seed,{evidenceVersion});
     return {evidenceVersion,profiles,fit};
   });
-  const decisions=builds.map(b=>new Map(b.profiles.map(p=>[p.accountKey,roleWindowStability(byAccount.get(p.accountKey)!.results,b.fit.cohorts.find(c=>c.cohort===p.cohort)!.reference).decision])));
+  // 계정별 경기 창 검사는 한 번만 계산해 판정·불일치·대상·역할 요약에 함께 쓴다.
+  const windows=builds.map(b=>new Map(b.profiles.map(p=>[p.accountKey,roleWindowStability(byAccount.get(p.accountKey)!.results,b.fit.cohorts.find(c=>c.cohort===p.cohort)!.reference)])));
+  const decisions=windows.map(w=>new Map([...w].map(([key,window])=>[key,window.decision])));
   const paired=builds[0].profiles.filter(p=>decisions[1].has(p.accountKey));
   return {schemaVersion:1,activationAllowed:false,seed,sourceProfiles:subjects.length,pairedProfiles:paired.length,exclusions,
     validationKind:'fixed development replay; coverage and stability, not accuracy or independent final validation',
     rules:{primaryPercentile:85,changedBest5Stability:.8,minimumChangedVariants:3,minTrainAccounts:50,minHoldoutAccounts:20,
       newTitle:'50m<=distance<200m; own damage >50%; separately fitted metric and role CDF; must beat existing roles in baseline and >=80% changed windows; not added to commander count'},
     paired:builds.map((b,i)=>({evidenceVersion:b.evidenceVersion,counts:counts(paired.map(p=>decisions[i].get(p.accountKey)!))})),
-    windowDisagreements:builds.map(b=>({evidenceVersion:b.evidenceVersion,...b.profiles.reduce((sum,p)=>{
-      const w=roleWindowStability(byAccount.get(p.accountKey)!.results,b.fit.cohorts.find(c=>c.cohort===p.cohort)!.reference);
+    windowDisagreements:builds.map((b,i)=>({evidenceVersion:b.evidenceVersion,...b.profiles.reduce((sum,p)=>{
+      const w=windows[i].get(p.accountKey)!;
       if(w.decision.status!=='pending')return sum;
       for(const [key,value] of Object.entries(w.disagreements))sum[key]=(sum[key]??0)+value;
       if(w.decision.presentation==='combined'){sum.combinedProfiles=(sum.combinedProfiles??0)+1;if(w.disagreements.rank_flip===0)sum.combinedWithoutRankFlip=(sum.combinedWithoutRankFlip??0)+1;}
@@ -98,10 +135,13 @@ export function auditRolePending(input:unknown, seed=CALIBRATION_SEED) {
       cohorts:b.fit.cohorts.map(c=>({cohort:c.cohort,trainAccounts:c.trainAccounts,holdoutAccounts:c.holdoutAccounts,targetAccounts:c.targetAccounts,
         reference:c.reference,coverage:c.coverage,roleCoverage:c.roleCoverage,referenceBootstrap:{runs:c.stability.runs,titleAgreement:c.stability.titleAgreement},
         middleCandidate:middleCandidate(b.profiles.filter(p=>p.cohort===c.cohort),byAccount,c.reference)})),
-      targets:b.profiles.filter(p=>p.target).map(p=>{const window=roleWindowStability(byAccount.get(p.accountKey)!.results,b.fit.cohorts.find(c=>c.cohort===p.cohort)!.reference);const role=window.decision;
+      cohortChecks:[...windows[i].values()].reduce((sum,w)=>{const key=w.decision.cohortCheck??'none';sum[key]=(sum[key]??0)+1;return sum;},{} as Record<string,number>),
+      roleSummary:roleSummary(b.profiles,windows[i],b.fit.cohorts),
+      targets:b.profiles.filter(p=>p.target).map(p=>{const window=windows[i].get(p.accountKey)!;const role=window.decision;
         return {target:p.target,selectedMatches:p.selectedMatchIds.length,title:role.title,status:role.status,presentation:role.presentation??null,
           primaryRole:role.primaryRole,secondaryRole:role.secondaryRole,reason:role.reason,description:role.description,evidence:role.evidence,
-          primaryAgreement:window.agreement,changedOrLegacyRuns:window.runs,disagreements:window.disagreements,midShare:midShare(p.stats)};})})),
+          primaryAgreement:window.agreement,changedOrLegacyRuns:window.runs,disagreements:window.disagreements,cohortCheck:role.cohortCheck??null,
+          topRoles:topRoles(p.stats,b.fit.cohorts.find(c=>c.cohort===p.cohort)!.reference).slice(0,3),midShare:midShare(p.stats)};})})),
   };
 }
 

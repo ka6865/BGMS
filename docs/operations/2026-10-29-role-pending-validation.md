@@ -123,3 +123,37 @@ RUN_SUMMARY_PARTIAL_BROWSER=true npm run test:unit -- tests/recent-ai-summary-pa
 train/holdout은 계정 hash로만 나누며 같은 경기를 공유하는 계정을 분리하지 않는다. 위 holdout 수치는 개발 자료의 한계를 가진다. 기본 API는 여전히 기존 분류를 쓰고 이 후보를 활성화하지 않았다. 같은 계산5로 이미 저장된 운영 결과의 `roleEvidence` 보유율은 조회하지 않았다. 이 보정 전 정의로 저장된 `roleEvidence.version:1`은 구분되지 않으므로, 근거 수집을 배포한 뒤에는 저장 시점을 기준으로 coverage를 읽기 전용으로 먼저 확인해야 한다.
 
 재현: `/tmp/bgms-r1/replay-damage-gun.ts`(로컬 원본 재분석, 익명 집계) → `node --import tsx scripts/audit_role_pending.ts --input /tmp/bgms-role-pending-gun-only-private.json.gz --output <새 경로>`. 보정 후 집계는 [JSON](2026-10-29-role-pending-validation.json)으로 교체했다.
+
+## 지휘관 예외·cohort 사전 조건과 단계별 재검증 (2026-10-29 후속 2)
+
+### 버전 marker와 cohort 계약
+
+- `roleEvidence.version:1`: 경기별 개인 근거 정의(총기 피해 한정 적중·거리 등). 기본 API와 legacy 분류는 이 값을 읽지 않는다.
+- `reference.evidenceVersion:1`: EV1 후보 판정. cohort를 강제하지 않는 이전 후보 규칙이다.
+- `reference.evidenceVersion:2`: EV2 후보 판정. 집계 근거 `roleEvidence.version:2`를 요구한다.
+- EV2 근거 집계(`aggregateMatches(...,{roleEvidenceVersion:2})`)는 같은 선정 경기에서 `roleCohortOf`로 `platform|raw gameMode|official/competitive`를 다시 계산해 `cohort`/`cohortIssue`를 남긴다.
+  - platform은 steam·kakao만 받는다.
+  - FPP·TPP는 raw mode로 구분한다.
+  - 기록되지 않은 platform·mode·matchType은 기본값으로 채우지 않는다.
+- EV2 기준 분포는 적합한 profile 묶음의 cohort를 marker로 가진다. `classifyRole` EV2는 두 값이 같을 때만 확정한다. 아래 경우는 `status:"pending"`과 `cohortCheck`로 구분하고, 관측 성향 설명으로 바꾸지 않는다.
+  - `mismatch`: 기준과 범위가 다름
+  - `mixed`: 범위가 섞임
+  - `evidence_missing`: 범위 기록이 없음
+  - `identity`: 계정·경기 식별이 맞지 않음
+  - `reference_missing`: 기준에 cohort가 없음
+- 입력 stats에 기준 cohort를 써 넣어도 선정 경기에서 다시 계산한 값을 쓴다. legacy 기본 분류는 무작위 2만 입력에서 이전과 같았다.
+- 복합 성향 설명은 두 구체 역할 사이의 실제 `rank_flip`이 있을 때만 쓴다. 지휘관↔역할 변경만 있으면 관측 설명을 유지한다.
+
+### 동결 입력에서 단계별 차이
+
+입력은 같은 gun-only 재생 스냅샷이다. 입력 SHA256은 `f1afd6e7…f470d`이고 엔진·원본 재분석은 없다. asOf/window/최근 10 중 best5/partition/seed는 기존과 같고, 85·80%·최소 3 변형·학습 50·개발 holdout 20도 그대로다.
+
+| 단계(코드) | EV2 확정 | 균형형 | 복합 | 관측 | 비고 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 라벨 정정(`6f667b2d`) | 94 | 1 | 35 | 178 | 공통 308명 |
+| 지휘관 예외(`208fbeb1`) | 94 | 1 | 34 | 179 | 지휘관 변경만 있던 1명이 복합→관측 |
+| cohort 사전 조건(현재) | 94 | 1 | 34 | 179 | 개발 표본 309 프로필 모두 `cohortCheck:match`, 지휘관 단계와 결과 동일 |
+
+benchmark·점수·원점수는 이 단계에서 바뀌지 않는다(엔진 변경 없음, 감사 결과가 새 진단 필드 외에는 동일). cohort 조건은 이 개발 표본(steam, 같은 cohort로 선정)에서는 판정을 바꾸지 않았다. 효과는 기준과 다른 범위가 들어올 때의 방어다.
+
+역할별 집계(`roleSummary`)는 JSON에 있다. 항목은 기준 CDF 적격 여부, 학습·holdout 수, 점수 산출 가능 프로필, 필수 근거 누락, 확정 대표·보조, 대표 후보였지만 보류된 이유(불안정·85 미만·변형 부족·cohort), 해당 역할이 대표 후보였던 프로필의 불일치 사유다. 선봉·복수자·투척 전문가는 세 cohort 모두에서 기준 CDF 표본(학습 50·holdout 20)이 부족해 판정하지 않는다. 지정 계정 두 명은 학습에서 제외한 대상 partition이다.

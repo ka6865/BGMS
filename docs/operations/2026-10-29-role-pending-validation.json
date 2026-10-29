@@ -29,8 +29,8 @@
     {
       "evidenceVersion": 2,
       "counts": {
-        "combined": 35,
-        "observed": 178,
+        "combined": 34,
+        "observed": 179,
         "confirmed": 94,
         "balanced": 1
       }
@@ -54,14 +54,13 @@
       "state_change": 5,
       "insufficient": 60,
       "commander_change": 6,
-      "combinedProfiles": 35,
-      "combinedWithoutRankFlip": 1
+      "combinedProfiles": 34
     }
   ],
   "transitions": {
     "confirmed->pending/combined": 13,
-    "pending->pending/observed": 155,
-    "pending->pending/combined": 22,
+    "pending->pending/observed": 156,
+    "pending->pending/combined": 21,
     "balanced->pending/observed": 1,
     "confirmed->confirmed/role": 88,
     "pending->confirmed/role": 6,
@@ -1797,6 +1796,947 @@
           }
         }
       ],
+      "cohortChecks": {
+        "none": 308
+      },
+      "roleSummary": [
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "pointMan",
+          "referenceEligible": false,
+          "train": 37,
+          "holdout": 17,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 100,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "phantomOverwatch",
+          "referenceEligible": true,
+          "train": 66,
+          "holdout": 28,
+          "observableProfiles": 96,
+          "missingRequiredEvidence": 4,
+          "confirmedPrimary": 8,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 13,
+            "lost_confirmation": 9,
+            "gained_confirmation": 1,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "executor",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 29,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 2,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 2,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 18,
+            "lost_confirmation": 4,
+            "gained_confirmation": 5,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "shield",
+          "referenceEligible": true,
+          "train": 54,
+          "holdout": 26,
+          "observableProfiles": 82,
+          "missingRequiredEvidence": 18,
+          "confirmedPrimary": 5,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 1,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 10,
+            "lost_confirmation": 7,
+            "gained_confirmation": 0,
+            "state_change": 1,
+            "insufficient": 4,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "avenger",
+          "referenceEligible": false,
+          "train": 40,
+          "holdout": 18,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 100,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "zoneController",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 29,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 2,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 3,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 12,
+            "lost_confirmation": 10,
+            "gained_confirmation": 4,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "dropPredator",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 28,
+          "observableProfiles": 98,
+          "missingRequiredEvidence": 2,
+          "confirmedPrimary": 7,
+          "confirmedSecondary": 3,
+          "pendingTop": {
+            "unstable": 2,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 11,
+            "lost_confirmation": 0,
+            "gained_confirmation": 3,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "decoy",
+          "referenceEligible": true,
+          "train": 66,
+          "holdout": 29,
+          "observableProfiles": 97,
+          "missingRequiredEvidence": 3,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 2,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 5,
+            "lost_confirmation": 2,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "grenadier",
+          "referenceEligible": false,
+          "train": 49,
+          "holdout": 16,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 100,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "brawler",
+          "referenceEligible": true,
+          "train": 66,
+          "holdout": 28,
+          "observableProfiles": 96,
+          "missingRequiredEvidence": 4,
+          "confirmedPrimary": 8,
+          "confirmedSecondary": 3,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 8,
+            "lost_confirmation": 9,
+            "gained_confirmation": 6,
+            "state_change": 1,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "mainGun",
+          "referenceEligible": true,
+          "train": 60,
+          "holdout": 27,
+          "observableProfiles": 89,
+          "missingRequiredEvidence": 11,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 4,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 12,
+            "lost_confirmation": 5,
+            "gained_confirmation": 6,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "crossfire",
+          "referenceEligible": true,
+          "train": 64,
+          "holdout": 27,
+          "observableProfiles": 92,
+          "missingRequiredEvidence": 8,
+          "confirmedPrimary": 5,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 2,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 2,
+            "lost_confirmation": 9,
+            "gained_confirmation": 6,
+            "state_change": 0,
+            "insufficient": 1,
+            "commander_change": 5
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "pointMan",
+          "referenceEligible": false,
+          "train": 38,
+          "holdout": 19,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 105,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "phantomOverwatch",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 9,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 2,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 12,
+            "lost_confirmation": 3,
+            "gained_confirmation": 4,
+            "state_change": 0,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "executor",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 1,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 8,
+            "belowThreshold": 1,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 8,
+            "lost_confirmation": 13,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 12,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "shield",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 35,
+          "observableProfiles": 104,
+          "missingRequiredEvidence": 1,
+          "confirmedPrimary": 3,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 1,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 11,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 10,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "avenger",
+          "referenceEligible": false,
+          "train": 36,
+          "holdout": 20,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 105,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "zoneController",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 3,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 2,
+            "belowThreshold": 2,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 5,
+            "lost_confirmation": 1,
+            "gained_confirmation": 4,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 4
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "dropPredator",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 8,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 2,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 5,
+            "lost_confirmation": 7,
+            "gained_confirmation": 7,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "decoy",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 35,
+          "observableProfiles": 104,
+          "missingRequiredEvidence": 1,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 4,
+            "belowThreshold": 3,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 9,
+            "lost_confirmation": 0,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 9,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "grenadier",
+          "referenceEligible": true,
+          "train": 53,
+          "holdout": 27,
+          "observableProfiles": 80,
+          "missingRequiredEvidence": 25,
+          "confirmedPrimary": 1,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 4,
+            "belowThreshold": 2,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 6,
+            "lost_confirmation": 8,
+            "gained_confirmation": 0,
+            "state_change": 2,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "brawler",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 6,
+          "confirmedSecondary": 5,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 10,
+            "lost_confirmation": 11,
+            "gained_confirmation": 3,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "mainGun",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 35,
+          "observableProfiles": 104,
+          "missingRequiredEvidence": 1,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 6,
+            "belowThreshold": 2,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 15,
+            "lost_confirmation": 7,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 1
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "crossfire",
+          "referenceEligible": true,
+          "train": 65,
+          "holdout": 31,
+          "observableProfiles": 96,
+          "missingRequiredEvidence": 9,
+          "confirmedPrimary": 2,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 2,
+            "belowThreshold": 3,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 1,
+            "lost_confirmation": 9,
+            "gained_confirmation": 12,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "pointMan",
+          "referenceEligible": false,
+          "train": 29,
+          "holdout": 19,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 103,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "phantomOverwatch",
+          "referenceEligible": true,
+          "train": 67,
+          "holdout": 33,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 3,
+          "confirmedPrimary": 6,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 1,
+            "belowThreshold": 1,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 8,
+            "lost_confirmation": 2,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "executor",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 34,
+          "observableProfiles": 103,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 3,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 18,
+            "lost_confirmation": 2,
+            "gained_confirmation": 3,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 5
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "shield",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 32,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 3,
+          "confirmedPrimary": 2,
+          "confirmedSecondary": 2,
+          "pendingTop": {
+            "unstable": 4,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 10,
+            "lost_confirmation": 2,
+            "gained_confirmation": 3,
+            "state_change": 0,
+            "insufficient": 8,
+            "commander_change": 1
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "avenger",
+          "referenceEligible": false,
+          "train": 42,
+          "holdout": 22,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 103,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "zoneController",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 34,
+          "observableProfiles": 103,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 2,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 8,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 35,
+            "lost_confirmation": 0,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "dropPredator",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 33,
+          "observableProfiles": 101,
+          "missingRequiredEvidence": 2,
+          "confirmedPrimary": 7,
+          "confirmedSecondary": 4,
+          "pendingTop": {
+            "unstable": 1,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 5,
+            "lost_confirmation": 4,
+            "gained_confirmation": 6,
+            "state_change": 1,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "decoy",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 32,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 3,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 2,
+          "pendingTop": {
+            "unstable": 1,
+            "belowThreshold": 3,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 5,
+            "lost_confirmation": 5,
+            "gained_confirmation": 4,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "grenadier",
+          "referenceEligible": true,
+          "train": 59,
+          "holdout": 28,
+          "observableProfiles": 87,
+          "missingRequiredEvidence": 16,
+          "confirmedPrimary": 2,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 4,
+            "belowThreshold": 2,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 6,
+            "lost_confirmation": 7,
+            "gained_confirmation": 4,
+            "state_change": 0,
+            "insufficient": 4,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "brawler",
+          "referenceEligible": true,
+          "train": 67,
+          "holdout": 33,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 3,
+          "confirmedPrimary": 6,
+          "confirmedSecondary": 4,
+          "pendingTop": {
+            "unstable": 6,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 6,
+            "lost_confirmation": 15,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 3,
+            "commander_change": 1
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "mainGun",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 32,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 3,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 1,
+            "belowThreshold": 2,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 1,
+            "lost_confirmation": 5,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "crossfire",
+          "referenceEligible": true,
+          "train": 63,
+          "holdout": 30,
+          "observableProfiles": 93,
+          "missingRequiredEvidence": 10,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 2,
+          "pendingTop": {
+            "unstable": 2,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 11,
+            "lost_confirmation": 2,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        }
+      ],
       "targets": [
         {
           "target": "MiaeQ_Q",
@@ -1821,6 +2761,21 @@
             "insufficient": 0,
             "commander_change": 0
           },
+          "cohortCheck": null,
+          "topRoles": [
+            {
+              "role": "brawler",
+              "score": 97.5
+            },
+            {
+              "role": "phantomOverwatch",
+              "score": 86.5
+            },
+            {
+              "role": "crossfire",
+              "score": 81.3
+            }
+          ],
           "midShare": 0
         },
         {
@@ -1844,6 +2799,21 @@
             "insufficient": 0,
             "commander_change": 0
           },
+          "cohortCheck": null,
+          "topRoles": [
+            {
+              "role": "brawler",
+              "score": 74.4
+            },
+            {
+              "role": "phantomOverwatch",
+              "score": 47.3
+            },
+            {
+              "role": "mainGun",
+              "score": 42.5
+            }
+          ],
           "midShare": 29.984626065807067
         }
       ]
@@ -1852,8 +2822,8 @@
       "evidenceVersion": 2,
       "profiles": 309,
       "counts": {
-        "combined": 35,
-        "observed": 179,
+        "combined": 34,
+        "observed": 180,
         "confirmed": 94,
         "balanced": 1
       },
@@ -3502,6 +4472,947 @@
           }
         }
       ],
+      "cohortChecks": {
+        "match": 309
+      },
+      "roleSummary": [
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "pointMan",
+          "referenceEligible": false,
+          "train": 37,
+          "holdout": 17,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 100,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "phantomOverwatch",
+          "referenceEligible": true,
+          "train": 66,
+          "holdout": 28,
+          "observableProfiles": 96,
+          "missingRequiredEvidence": 4,
+          "confirmedPrimary": 5,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 6,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 11,
+          "disagreements": {
+            "rank_flip": 13,
+            "lost_confirmation": 9,
+            "gained_confirmation": 4,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "executor",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 29,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 1,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 6,
+            "belowThreshold": 2,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 8,
+          "disagreements": {
+            "rank_flip": 19,
+            "lost_confirmation": 4,
+            "gained_confirmation": 5,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "shield",
+          "referenceEligible": true,
+          "train": 55,
+          "holdout": 26,
+          "observableProfiles": 83,
+          "missingRequiredEvidence": 17,
+          "confirmedPrimary": 3,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 2,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 7,
+          "disagreements": {
+            "rank_flip": 10,
+            "lost_confirmation": 7,
+            "gained_confirmation": 0,
+            "state_change": 3,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "avenger",
+          "referenceEligible": false,
+          "train": 41,
+          "holdout": 18,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 100,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "zoneController",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 29,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 3,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 4,
+            "belowThreshold": 3,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 7,
+          "disagreements": {
+            "rank_flip": 12,
+            "lost_confirmation": 5,
+            "gained_confirmation": 4,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "dropPredator",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 28,
+          "observableProfiles": 98,
+          "missingRequiredEvidence": 2,
+          "confirmedPrimary": 6,
+          "confirmedSecondary": 2,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 7,
+          "disagreements": {
+            "rank_flip": 11,
+            "lost_confirmation": 0,
+            "gained_confirmation": 3,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "decoy",
+          "referenceEligible": true,
+          "train": 67,
+          "holdout": 29,
+          "observableProfiles": 98,
+          "missingRequiredEvidence": 2,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 2,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 2,
+          "disagreements": {
+            "rank_flip": 5,
+            "lost_confirmation": 2,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "grenadier",
+          "referenceEligible": false,
+          "train": 32,
+          "holdout": 11,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 100,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "brawler",
+          "referenceEligible": true,
+          "train": 66,
+          "holdout": 28,
+          "observableProfiles": 96,
+          "missingRequiredEvidence": 4,
+          "confirmedPrimary": 6,
+          "confirmedSecondary": 3,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 10,
+          "disagreements": {
+            "rank_flip": 8,
+            "lost_confirmation": 9,
+            "gained_confirmation": 6,
+            "state_change": 1,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "mainGun",
+          "referenceEligible": true,
+          "train": 61,
+          "holdout": 27,
+          "observableProfiles": 90,
+          "missingRequiredEvidence": 10,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 4,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 8,
+          "disagreements": {
+            "rank_flip": 12,
+            "lost_confirmation": 5,
+            "gained_confirmation": 6,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|duo|competitive",
+          "role": "crossfire",
+          "referenceEligible": true,
+          "train": 65,
+          "holdout": 27,
+          "observableProfiles": 93,
+          "missingRequiredEvidence": 7,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 8,
+          "disagreements": {
+            "rank_flip": 2,
+            "lost_confirmation": 6,
+            "gained_confirmation": 6,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 5
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "pointMan",
+          "referenceEligible": false,
+          "train": 38,
+          "holdout": 19,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 105,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "phantomOverwatch",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 7,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 9,
+          "disagreements": {
+            "rank_flip": 12,
+            "lost_confirmation": 5,
+            "gained_confirmation": 4,
+            "state_change": 0,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "executor",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 10,
+            "belowThreshold": 1,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 11,
+          "disagreements": {
+            "rank_flip": 14,
+            "lost_confirmation": 12,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 12,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "shield",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 3,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 6,
+            "belowThreshold": 1,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 7,
+          "disagreements": {
+            "rank_flip": 2,
+            "lost_confirmation": 11,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 9,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "avenger",
+          "referenceEligible": false,
+          "train": 36,
+          "holdout": 20,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 105,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "zoneController",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 3,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 1,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 4,
+          "disagreements": {
+            "rank_flip": 9,
+            "lost_confirmation": 1,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "dropPredator",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 7,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 7,
+          "disagreements": {
+            "rank_flip": 5,
+            "lost_confirmation": 7,
+            "gained_confirmation": 7,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "decoy",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 2,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 6,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 10,
+          "disagreements": {
+            "rank_flip": 9,
+            "lost_confirmation": 0,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 9,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "grenadier",
+          "referenceEligible": false,
+          "train": 38,
+          "holdout": 17,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 105,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "brawler",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 3,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 10,
+          "disagreements": {
+            "rank_flip": 10,
+            "lost_confirmation": 11,
+            "gained_confirmation": 6,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "mainGun",
+          "referenceEligible": true,
+          "train": 70,
+          "holdout": 35,
+          "observableProfiles": 105,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 6,
+            "belowThreshold": 3,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 9,
+          "disagreements": {
+            "rank_flip": 16,
+            "lost_confirmation": 6,
+            "gained_confirmation": 4,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|competitive",
+          "role": "crossfire",
+          "referenceEligible": true,
+          "train": 65,
+          "holdout": 31,
+          "observableProfiles": 96,
+          "missingRequiredEvidence": 9,
+          "confirmedPrimary": 1,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 3,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 6,
+          "disagreements": {
+            "rank_flip": 3,
+            "lost_confirmation": 4,
+            "gained_confirmation": 10,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "pointMan",
+          "referenceEligible": false,
+          "train": 29,
+          "holdout": 19,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 104,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "phantomOverwatch",
+          "referenceEligible": true,
+          "train": 67,
+          "holdout": 33,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 4,
+          "confirmedPrimary": 5,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 3,
+            "belowThreshold": 1,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 4,
+          "disagreements": {
+            "rank_flip": 8,
+            "lost_confirmation": 3,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "executor",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 35,
+          "observableProfiles": 104,
+          "missingRequiredEvidence": 0,
+          "confirmedPrimary": 3,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 6,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 10,
+          "disagreements": {
+            "rank_flip": 21,
+            "lost_confirmation": 3,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "shield",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 33,
+          "observableProfiles": 101,
+          "missingRequiredEvidence": 3,
+          "confirmedPrimary": 1,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 9,
+          "disagreements": {
+            "rank_flip": 10,
+            "lost_confirmation": 2,
+            "gained_confirmation": 3,
+            "state_change": 0,
+            "insufficient": 6,
+            "commander_change": 1
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "avenger",
+          "referenceEligible": false,
+          "train": 42,
+          "holdout": 22,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 104,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "zoneController",
+          "referenceEligible": true,
+          "train": 69,
+          "holdout": 34,
+          "observableProfiles": 103,
+          "missingRequiredEvidence": 1,
+          "confirmedPrimary": 2,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 9,
+            "belowThreshold": 4,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 13,
+          "disagreements": {
+            "rank_flip": 26,
+            "lost_confirmation": 3,
+            "gained_confirmation": 2,
+            "state_change": 0,
+            "insufficient": 6,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "dropPredator",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 33,
+          "observableProfiles": 101,
+          "missingRequiredEvidence": 3,
+          "confirmedPrimary": 4,
+          "confirmedSecondary": 2,
+          "pendingTop": {
+            "unstable": 4,
+            "belowThreshold": 5,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 9,
+          "disagreements": {
+            "rank_flip": 5,
+            "lost_confirmation": 4,
+            "gained_confirmation": 6,
+            "state_change": 1,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "decoy",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 34,
+          "observableProfiles": 102,
+          "missingRequiredEvidence": 2,
+          "confirmedPrimary": 2,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 5,
+            "belowThreshold": 3,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 8,
+          "disagreements": {
+            "rank_flip": 10,
+            "lost_confirmation": 5,
+            "gained_confirmation": 3,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "grenadier",
+          "referenceEligible": false,
+          "train": 44,
+          "holdout": 20,
+          "observableProfiles": 0,
+          "missingRequiredEvidence": 104,
+          "confirmedPrimary": 0,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 0,
+            "belowThreshold": 0,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 0,
+          "disagreements": {
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "brawler",
+          "referenceEligible": true,
+          "train": 67,
+          "holdout": 33,
+          "observableProfiles": 100,
+          "missingRequiredEvidence": 4,
+          "confirmedPrimary": 6,
+          "confirmedSecondary": 3,
+          "pendingTop": {
+            "unstable": 6,
+            "belowThreshold": 1,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 7,
+          "disagreements": {
+            "rank_flip": 7,
+            "lost_confirmation": 11,
+            "gained_confirmation": 1,
+            "state_change": 0,
+            "insufficient": 3,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "mainGun",
+          "referenceEligible": true,
+          "train": 68,
+          "holdout": 34,
+          "observableProfiles": 102,
+          "missingRequiredEvidence": 2,
+          "confirmedPrimary": 5,
+          "confirmedSecondary": 1,
+          "pendingTop": {
+            "unstable": 1,
+            "belowThreshold": 2,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 3,
+          "disagreements": {
+            "rank_flip": 4,
+            "lost_confirmation": 0,
+            "gained_confirmation": 1,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        },
+        {
+          "cohort": "steam|squad|official",
+          "role": "crossfire",
+          "referenceEligible": true,
+          "train": 63,
+          "holdout": 31,
+          "observableProfiles": 94,
+          "missingRequiredEvidence": 10,
+          "confirmedPrimary": 3,
+          "confirmedSecondary": 0,
+          "pendingTop": {
+            "unstable": 4,
+            "belowThreshold": 6,
+            "fewChangedVariants": 0,
+            "cohort": 0
+          },
+          "observedOrCombinedTop": 10,
+          "disagreements": {
+            "rank_flip": 11,
+            "lost_confirmation": 5,
+            "gained_confirmation": 5,
+            "state_change": 0,
+            "insufficient": 0,
+            "commander_change": 0
+          }
+        }
+      ],
       "targets": [
         {
           "target": "MiaeQ_Q",
@@ -3526,6 +5437,21 @@
             "insufficient": 0,
             "commander_change": 0
           },
+          "cohortCheck": "match",
+          "topRoles": [
+            {
+              "role": "brawler",
+              "score": 97.5
+            },
+            {
+              "role": "phantomOverwatch",
+              "score": 86.5
+            },
+            {
+              "role": "crossfire",
+              "score": 81.5
+            }
+          ],
           "midShare": 0
         },
         {
@@ -3551,6 +5477,21 @@
             "insufficient": 0,
             "commander_change": 0
           },
+          "cohortCheck": "match",
+          "topRoles": [
+            {
+              "role": "brawler",
+              "score": 74.4
+            },
+            {
+              "role": "phantomOverwatch",
+              "score": 47.3
+            },
+            {
+              "role": "mainGun",
+              "score": 43.8
+            }
+          ],
           "midShare": 29.984626065807067
         }
       ]
