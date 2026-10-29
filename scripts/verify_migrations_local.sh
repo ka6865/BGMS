@@ -130,6 +130,7 @@ MIGRATIONS=(
   "20261028120000_benchmark_counter_latency_split"
   "20261028130000_lol_champion_stats"
   "20261028140000_first_reply_evidence"
+  "20261030020000_pubg_benchmark_cohort"
 )
 
 cleanup() {
@@ -442,6 +443,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v5-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/counter-latency-split-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/first-reply-evidence-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/benchmark-cohort-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/public-column-privacy-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/client-grant-hardening-checks.sql
