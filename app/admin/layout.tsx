@@ -12,7 +12,7 @@ export default function AdminLayout({
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col bg-zinc-950">
       <AdminNav showLol={showLol} />
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div data-testid="admin-scroll-area" className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
         {children}
       </div>
     </div>

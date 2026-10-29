@@ -169,7 +169,7 @@ ${rootOriginalContent}
 
   if (isAdmin === null) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-zinc-950 text-zinc-400">
+      <div className="flex h-full min-h-[50vh] w-full items-center justify-center bg-zinc-950 text-zinc-400">
         <Loader2 className="mr-2 h-6 w-6 animate-spin text-amber-500" />
         <span className="text-sm font-medium">관리자 권한 조회 중...</span>
       </div>

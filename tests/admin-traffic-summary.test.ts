@@ -7,7 +7,7 @@ import {
 } from "@/lib/admin-agent/traffic-summary";
 
 function createSupabaseMock(rows: any[], profiles: any[] = []) {
-  const analyticsLimit = vi.fn(async () => ({ data: rows, error: null }));
+  const analyticsLimit = vi.fn(async (filteredRows: any[], limit?: number) => ({ data: filteredRows.slice(0, limit ?? filteredRows.length), error: null }));
   return {
     analyticsLimit,
     client: {
@@ -19,11 +19,18 @@ function createSupabaseMock(rows: any[], profiles: any[] = []) {
           };
           return chain;
         }
+        // DB 처럼 eq("is_internal", ...) 조건으로 행을 거르고, head 조회는 건수만 돌려준다.
+        const state: { internal?: boolean; head: boolean } = { head: false };
+        const filtered = () => rows.filter((row) =>
+          state.internal === undefined ? true : (row.is_internal === true) === state.internal);
         const chain: any = {
-          select: vi.fn(() => chain),
+          select: vi.fn((_columns?: string, options?: { head?: boolean }) => { state.head = Boolean(options?.head); return chain; }),
+          eq: vi.fn((column: string, value: unknown) => { if (column === "is_internal") state.internal = value === true; return chain; }),
           gte: vi.fn(() => chain),
           order: vi.fn(() => chain),
-          limit: analyticsLimit
+          limit: vi.fn((limit: number) => analyticsLimit(filtered(), limit)),
+          then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+            Promise.resolve(state.head ? { count: filtered().length, error: null } : { data: [], error: null }).then(resolve, reject)
         };
         return chain;
       }
@@ -83,7 +90,7 @@ describe("admin traffic summary", () => {
 
     const summary = await buildTrafficSummary(client, 24);
 
-    expect(analyticsLimit).toHaveBeenCalledWith(TRAFFIC_EVENT_ROW_LIMIT);
+    expect(analyticsLimit).toHaveBeenCalledWith(expect.any(Array), TRAFFIC_EVENT_ROW_LIMIT);
     expect(summary.truncated).toBe(true);
     expect(renderTrafficSummaryText(summary)).toContain("최소값");
   });

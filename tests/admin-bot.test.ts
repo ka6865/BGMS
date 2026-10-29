@@ -579,10 +579,12 @@ describe("🤖 Admin AI Bot API Route (E2E Logic Flow Verification)", () => {
     const stepInserts = agentInsertChain.insert.mock.calls.map(([row]: any[]) => row).filter((row: any) => row.tool_name === "ghost_tool");
     expect(stepInserts.length).toBeGreaterThan(0);
     expect(stepInserts.every((row: any) => row.safety_level === "dangerous")).toBe(true);
+    // 자동 중단은 실패 실행으로 집계되지 않도록 completed 로 닫는다.
     expect(agentRunChain.update).toHaveBeenCalledWith(expect.objectContaining({
-      status: "failed",
+      status: "completed",
       error: expect.stringContaining("run_cutoff")
     }));
+    expect(agentRunChain.update).not.toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }));
   });
 
   it("6. map-captures 버킷이 없으면 버킷을 만들지 않고 실패로 보고한다", async () => {

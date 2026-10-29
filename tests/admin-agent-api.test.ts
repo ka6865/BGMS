@@ -2165,8 +2165,40 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     expect(response.status).toBe(200);
     expect(body.aiUsage).toEqual(expect.objectContaining({ totalRequests: 0, totalCostUsd: 0 }));
     expect(body.degradedSources).toEqual(expect.arrayContaining([expect.objectContaining({ source: "aiUsage" })]));
+    // 읽지 못한 집계가 있으면 정상으로 표시하지 않는다.
+    expect(body.severity).not.toBe("ok");
     expect(JSON.stringify(body)).not.toContain("ai usage network down");
   });
+
+  it.each(["flush_old_cache", "flush_player_cache", "flush_match_cache", "reset_benchmarks"])(
+    "제거된 %s 과거 승인 요청은 승인해도 실행하지 않는다",
+    async (actionType) => {
+      tables.agent_approvals = chain({
+        count: 1,
+        singleResult: {
+          data: { id: "legacy-approval", status: "pending", action_type: actionType, payload: { matchId: "match-1", nickname: "player-a" } },
+          error: null
+        },
+        updateResult: { data: null, error: null }
+      });
+      mockAdminAuth();
+
+      const response = await approvalApprovePOST(
+        new Request("http://localhost/api/admin/agent/approvals/legacy-approval/approve", {
+          method: "POST",
+          body: JSON.stringify({ confirmedImpact: true, approvalNote: "과거 요청 확인" })
+        }),
+        { params: Promise.resolve({ id: "legacy-approval" }) }
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.executionGate).toEqual(expect.objectContaining({ status: "block" }));
+      expect(body.executionGate.reasons.join(" ")).toContain("지원하지 않는 승인 작업");
+      // 승인 claim 전에 차단되므로 실행 경로에 도달하지 않는다.
+      expect(tables.agent_approvals.update).not.toHaveBeenCalled();
+    }
+  );
 
   it("POST /memories는 직접 저장하지 않고 승인 요청을 생성한다", async () => {
     mockAdminAuth();

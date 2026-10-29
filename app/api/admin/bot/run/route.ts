@@ -16,8 +16,9 @@ const modelsToTry = GEMINI_MODELS_TO_TRY;
 const AI_RESPONSE_TIMEOUT_MS = 40_000;
 // 모델이 도구 호출을 끝없이 반복하지 않도록 왕복 횟수와 전체 실행 시간을 제한한다.
 const MAX_TOOL_ROUNDS = 6;
-// 클라이언트(AdminAgentChat)는 45초에 연결을 끊으므로 서버 쪽 전체 예산도 그 근처로 둔다.
-const TOTAL_RUN_BUDGET_MS = 55_000;
+// 클라이언트(AdminAgentChat)는 45초에 연결을 끊는다. 자동 중단 안내가 화면에 도착하도록
+// 서버 예산은 그보다 짧게 둔다.
+const TOTAL_RUN_BUDGET_MS = 40_000;
 // 남은 예산이 이보다 적으면 다음 모델 호출을 시작하지 않는다.
 const MIN_MODEL_CALL_BUDGET_MS = 3_000;
 // 등록되지 않은 도구 이름은 가장 보수적인 등급으로 기록한다(agent_steps.safety_level CHECK 허용값).
@@ -30,7 +31,8 @@ const defaultAgentInstruction = [
   "Do not expose raw JSON-style labels as the main explanation. If an identifier such as ADMIN_AGENT_CRON_SECRET is important, show the identifier but explain its meaning in plain Korean.",
   "Prefer operational diagnosis first: cite observed DB/tool facts, summarize likely causes, and propose safe actions.",
   "Read-only tools may run immediately.",
-  "Dangerous actions such as post publishing, cache deletion, user changes, or bulk mutations must only create approval requests.",
+  "Dangerous actions such as post publishing, data cleanup, user changes, or bulk mutations must only create approval requests.",
+  "Bulk analysis cache or benchmark deletion is not available. Do not propose it; matches older than PUBG's 14-day retention cannot be regenerated.",
   "Use saved operational memories when the user asks about recurring incidents, prior fixes, or internal operating policy.",
   "When the user asks how useful the agent has been, what value it created, or what to do next for leverage, use the operator value scorecard.",
   "When you find a repeatable incident resolution or policy worth preserving, request a memory approval instead of writing it directly.",
@@ -100,6 +102,8 @@ export async function POST(request: Request) {
           let result: any = null;
 
           for (const modelName of modelsToTry) {
+            const modelBudgetMs = remainingBudgetMs();
+            if (modelBudgetMs < MIN_MODEL_CALL_BUDGET_MS) break;
             try {
               const model = genAI.getGenerativeModel({
                 model: modelName,
@@ -119,7 +123,7 @@ export async function POST(request: Request) {
                 tools: [{ functionDeclarations: adminAgentFunctionDeclarations }]
               });
 
-              result = await withTimeout<any>(chat.sendMessage(message), AI_RESPONSE_TIMEOUT_MS, `${modelName} 응답 시간이 초과되었습니다.`);
+              result = await withTimeout<any>(chat.sendMessage(message), Math.min(AI_RESPONSE_TIMEOUT_MS, modelBudgetMs), `${modelName} 응답 시간이 초과되었습니다.`);
               break;
             } catch (err: any) {
               console.warn(`[BOT-RUN] Model ${modelName} failed, trying fallback:`, err.message || err);
@@ -226,10 +230,10 @@ export async function POST(request: Request) {
             finalSummary += cutoffMessage;
             enqueue(controller, encoder, { type: "chunk", data: cutoffMessage });
             enqueue(controller, encoder, { type: "run_cutoff", reason: cutoffReason, toolRounds });
-            // agent_runs.status CHECK 는 running/completed/failed 만 허용하므로
-            // 정상 완료와 구분되도록 failed 로 닫고 error 에 중단 사유를 남긴다.
+            // 자동 중단은 장애가 아니라 의도한 제한이다. failed 로 남기면 운영 상태 집계가
+            // 실패 실행으로 세어 critical 이 되므로 completed 로 닫고 error 에 중단 사유를 남긴다.
             await completeAgentRun(supabase, runId, {
-              status: "failed",
+              status: "completed",
               summary: finalSummary,
               error: `run_cutoff: ${cutoffReason}`
             });

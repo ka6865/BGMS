@@ -36,10 +36,10 @@ PUBG API는 경기 원본 텔레메트리를 약 14일만 제공한다. 그보�
 | 회원 관리 | admin 계정 삭제를 거부한다(먼저 강등). 본인 강등과 마지막 admin 강등을 거부한다. | `app/api/admin/users/route.ts` |
 | 게시글 강제 삭제 | `comments`·`post_likes` 등이 `posts(id) ON DELETE CASCADE`이므로 게시글 한 건만 지워 한 트랜잭션으로 처리한다. postId는 양의 정수만 받는다. 이메일 로그와 응답의 role 노출을 없앴다. | `app/api/admin/posts/delete/route.ts` |
 | 승인 gate | 고위험 작업은 영향 계산 오류나 유효 대상 0건 같은 checklist warning이 있으면 차단한다. 승인 요청 저장에 실패하면 "등록되었습니다" 대신 실패를 반환한다. | `lib/admin-agent/impact.ts`, `lib/admin-agent/logging.ts`, `lib/admin-agent/tools.ts` |
-| AI 비서 | 도구 호출은 최대 6회, 전체 55초로 제한한다. 초과하면 `[자동 중단]`을 안내하고 run을 `run_cutoff`로 닫는다. 등록되지 않은 도구는 `dangerous`로 기록한다. 지도 캡처는 버킷을 만들지 않고 `map-captures`가 없으면 실패한다. 외부 API 호출에 8초 timeout이 있다. | `app/api/admin/bot/run/route.ts`, `lib/admin-agent/tools.ts` |
-| 관제 | command-center와 monitor는 조회 항목별로 실패를 분리한다(`degradedSources`). Vercel 조회 timeout은 8초다. cron secret은 상수 시간으로 비교한다. monitor는 POST만 받는다(`daily-tasks.yml`도 `-X POST`로 변경). | `lib/admin-agent/settle.ts`, `lib/admin-agent/cron-auth.ts`, `app/api/admin/agent/{command-center,monitor,rollout}/route.ts` |
-| 방문 지표 | `is_internal=true` 이벤트를 운영 지표에서 빼고 `internalEventsExcluded`로 따로 보고한다. 조회 상한 10,000건에 닿으면 traffic summary가 `truncated=true`다. | `lib/admin-agent/traffic-summary.ts`, `lib/admin-agent/user-metrics.ts` |
-| 입력 검증 | 패치노트 수동 URL은 https이면서 `pubg.com`, `daum.net`, `kakao.com`과 그 하위 도메인만 받는다. `maxDuration=60`이다. 신고 조회는 status를 검증하고 200건으로 제한한다. 브리핑 시간 범위는 1~168시간이다. 응답에서 DB 오류 원문을 뺐다. | `lib/server/patchNoteSource.ts`, `app/api/admin/{patch-notes/sync,reports}/route.ts`, `app/api/admin/agent/briefing/route.ts` |
+| AI 비서 | 도구 호출은 최대 6회, 전체 40초로 제한한다(화면은 45초에 연결을 끊는다). 초과하면 `[자동 중단]`을 안내하고 run을 `completed`, error `run_cutoff: …`로 닫아 실패 실행 집계에 넣지 않는다. 등록되지 않은 도구는 `dangerous`로 기록한다. 지도 캡처는 버킷을 만들지 않고 `map-captures`가 없으면 실패한다. 외부 API 호출에 8초 timeout이 있다. | `app/api/admin/bot/run/route.ts`, `lib/admin-agent/tools.ts` |
+| 관제 | command-center와 monitor는 조회 항목별로 실패를 분리한다(`degradedSources`). command-center는 읽지 못한 항목이 있으면 상태를 최소 `warn`으로 올리고, 대시보드는 해당 수치를 "확인 불가"로 표시한다. Vercel 조회 timeout은 8초다. cron secret은 상수 시간으로 비교한다. monitor는 POST만 받는다(`daily-tasks.yml`도 `-X POST`로 변경). | `lib/admin-agent/settle.ts`, `lib/admin-agent/cron-auth.ts`, `app/api/admin/agent/{command-center,monitor,rollout}/route.ts` |
+| 방문 지표 | `is_internal=true` 이벤트는 쿼리 단계(`eq("is_internal", false)`)에서 빼서 조회 상한을 차지하지 않게 하고, 건수는 별도 count 쿼리로 `internalEventsExcluded`에 보고한다. 조회 상한 10,000건에 닿으면 traffic summary가 `truncated=true`다. | `lib/admin-agent/traffic-summary.ts`, `lib/admin-agent/user-metrics.ts` |
+| 입력 검증 | 패치노트 원문 요청은 https이면서 `pubg.com`, `daum.net`, `kakao.com`과 그 하위 도메인만 받는다. redirect는 자동으로 따라가지 않고 매 단계 주소를 다시 검증하며(최대 3회), 상세 페이지 요청에도 15초 timeout이 있다. `maxDuration=60`이다. 신고 조회는 status를 검증하고 200건으로 제한한다. 브리핑 시간 범위는 1~168시간이다. 응답에서 DB 오류 원문을 뺐다. | `lib/server/patchNoteSource.ts`, `app/api/admin/{patch-notes/sync,reports}/route.ts`, `app/api/admin/agent/briefing/route.ts` |
 
 ## 관리자 화면
 
@@ -54,7 +54,7 @@ PUBG API는 경기 원본 텔레메트리를 약 14일만 제공한다. 그보�
 - 데이터 관리: 권한 확인 중 로딩을 표시한다. 회원 삭제 중에는 중복 실행을 막는다. 캐시·벤치마크 삭제 버튼은 없고, 탭 이름은 "시스템 설정"이다.
 - 맵 설정: 모바일 여백, 탭 가로 스크롤, 라벨 연결을 정리했다.
 - 과거 승인 기록 중 제거된 네 작업은 대시보드 승인 목록에 `(제거된 기능)` 라벨로 표시되고, 실행 gate가 지원하지 않는 작업으로 차단한다.
-- 모바일 확인: 격리 브라우저 하네스(`RUN_ADMIN_BROWSER_SMOKE=true npx vitest run tests/admin-dashboard-browser-smoke.test.ts`)로 375x667, 390x844, 430x932, 1440x900을 확인했다. 대시보드(정리·승인·거절·신고·메뉴·병아리 겹침), 지도 제보 심사, 맵 설정, 데이터 관리를 다룬다. 실기기, iOS Safari, 앱 WebView는 확인하지 않았다.
+- 모바일 확인: 격리 브라우저 하네스(`RUN_ADMIN_BROWSER_SMOKE=true npx vitest run tests/admin-dashboard-browser-smoke.test.ts`)로 375x667, 390x844, 430x932, 1440x900을 확인했다. 대시보드(정리·승인·거절·신고·메뉴·병아리 겹침·일부 조회 실패 표시), 지도 제보 심사, 맵 설정, 데이터 관리, AI 코칭 품질, AI 비서(대화·커뮤니티 운영)를 다룬다. 실기기, iOS Safari, 앱 WebView는 확인하지 않았다.
 
 ## DB 마이그레이션 적용 절차
 
@@ -68,6 +68,6 @@ PUBG API는 경기 원본 텔레메트리를 약 14일만 제공한다. 그보�
 
 - `npm run verify:core`: 통과(오류 0, 기존 경고 44건).
 - `npx vitest run`: 419 files, 5737 tests 통과(15 files, 256 tests skip).
-- `RUN_ADMIN_BROWSER_SMOKE=true npx vitest run tests/admin-dashboard-browser-smoke.test.ts`: 13 tests 통과.
+- `RUN_ADMIN_BROWSER_SMOKE=true npx vitest run tests/admin-dashboard-browser-smoke.test.ts`: 21 tests 통과.
 - `npm run verify:migrations`: 통과.
 - 실행하지 않은 것: `tests/lol-dev-browser.test.ts`(`RUN_LOL_DEV_BROWSER` 필요), 실제 운영 DB·Discord·Gemini 연결, workflow 실제 실행(로컬 YAML 파싱과 `bash -n`만 확인).

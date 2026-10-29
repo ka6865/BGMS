@@ -13,6 +13,30 @@ export const maxDuration = 60;
 
 // 외부 페이지 응답 대기 상한
 const SOURCE_FETCH_TIMEOUT_MS = 15_000;
+const MAX_SOURCE_REDIRECTS = 3;
+
+/**
+ * 패치노트 원문을 가져온다. redirect 를 자동으로 따라가지 않고, 매 단계 주소가
+ * 허용 도메인(parseManualPatchSource)일 때만 다음 단계로 넘어간다.
+ * 허용 도메인의 리다이렉터를 거쳐 서버가 임의 주소로 요청을 보내지 않게 하기 위함이다.
+ */
+async function fetchPatchSource(url: string, init: RequestInit = {}): Promise<Response> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_SOURCE_REDIRECTS; hop += 1) {
+    if (!parseManualPatchSource(current)) throw new Error("허용되지 않은 패치노트 주소입니다.");
+    const response = await fetch(current, {
+      cache: "no-store",
+      ...init,
+      redirect: "manual",
+      signal: AbortSignal.timeout(SOURCE_FETCH_TIMEOUT_MS)
+    });
+    if (response.status < 300 || response.status >= 400) return response;
+    const location = response.headers.get("location");
+    if (!location) return response;
+    current = new URL(location, current).toString();
+  }
+  throw new Error("패치노트 주소의 redirect 가 너무 많습니다.");
+}
 
 // URL 정제 헬퍼 (트래커 제거 및 필수 파라미터만 유지)
 function cleanUrl(url: string) {
@@ -126,7 +150,7 @@ ${textToProcess}`;
 // 1. 글로벌 공식 패치노트 파싱
 async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
   const targetUrl = manualUrl ? cleanUrl(manualUrl) : "https://pubg.com/ko/news?category=patch_notes";
-  const response = await fetch(targetUrl, { cache: 'no-store', headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(SOURCE_FETCH_TIMEOUT_MS) });
+  const response = await fetchPatchSource(targetUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
   if (!response.ok) throw new Error("공식 홈페이지 접속 실패");
   const html = await response.text();
   let title = "";
@@ -154,7 +178,7 @@ async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
   // 무기도감 갱신 제안에 사용할 원문. 요약과 달리 잘라내지 않는다.
   let sourceText = "";
   try {
-    const detailRes = await fetch(fullUrl, { cache: 'no-store' });
+    const detailRes = await fetchPatchSource(fullUrl);
     if (detailRes.ok) {
       const detailHtmlText = await detailRes.text();
       const root = parse(detailHtmlText);
@@ -194,7 +218,7 @@ async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
 // 2. 카카오 무점검 패치 파싱
 async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
   const targetUrl = cleanUrl(manualUrl);
-  const response = await fetch(targetUrl, { cache: 'no-store', headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(SOURCE_FETCH_TIMEOUT_MS) });
+  const response = await fetchPatchSource(targetUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
   if (!response.ok) throw new Error(`카카오 페이지 접속 실패 (${response.status})`);
 
   const rawHtml = await response.text();
@@ -206,8 +230,7 @@ async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
   let sourceText = "";
   try {
     const ajaxUrl = targetUrl.replace("/notice/read?", "/notice/ajax/read?");
-    const detailRes = await fetch(ajaxUrl, {
-      cache: 'no-store',
+    const detailRes = await fetchPatchSource(ajaxUrl, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": targetUrl }
     });
 

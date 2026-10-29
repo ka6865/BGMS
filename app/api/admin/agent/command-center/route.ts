@@ -33,7 +33,7 @@ import { buildAgentRolloutReadiness } from "@/lib/admin-agent/rollout";
 import { getAgentThresholds } from "@/lib/admin-agent/thresholds";
 import { buildAgentToolCatalog } from "@/lib/admin-agent/tool-catalog";
 import { buildTrafficSummary, buildUnavailableTrafficSummary } from "@/lib/admin-agent/traffic-summary";
-import { createSourceSettler, type AgentSourceFailure } from "@/lib/admin-agent/settle";
+import { AGENT_SOURCE_FAILURE_MESSAGE, createSourceSettler, type AgentSourceFailure } from "@/lib/admin-agent/settle";
 import type { AgentRolloutReadiness } from "@/lib/admin-agent/rollout";
 import type { AgentSelfTest } from "@/lib/admin-agent/self-test";
 import { withAuthGuard } from "@/utils/supabase/guard";
@@ -449,7 +449,22 @@ async function buildCommandCenterPayload(supabase: any) {
     settle("trafficSummary7d", () => buildTrafficSummary(supabase, 168), (message) => buildUnavailableTrafficSummary(168, message))
   ]);
 
-  const severity = getSeverity({
+  // 예외 없이 { error } 를 돌려준 핵심 집계도 실패한 소스로 본다. 이 값들의 0은 "정상"이 아니라 "모름"이다.
+  const coreSources: Array<[string, any]> = [
+    ["pendingApprovals", pendingApprovals],
+    ["approvalGateSummary", approvalGateSummary],
+    ["failedRuns", failedRuns],
+    ["apiErrors", latestErrors],
+    ["aiUsage", aiUsage],
+    ["trafficSummary", trafficSummary]
+  ];
+  for (const [source, value] of coreSources) {
+    if (value?.error && !degradedSources.some((item) => item.source === source)) {
+      degradedSources.push({ source, message: AGENT_SOURCE_FAILURE_MESSAGE });
+    }
+  }
+
+  const baseSeverity = getSeverity({
     pendingApprovals: pendingApprovals.count,
     staleApprovals: pendingApprovals.staleCount,
     highRiskApprovals: pendingApprovals.highRiskCount,
@@ -459,6 +474,8 @@ async function buildCommandCenterPayload(supabase: any) {
     deploymentSeverity: deploymentHealth.severity,
     thresholds
   });
+  // 일부 집계를 읽지 못했으면 정상으로 단정하지 않고 최소 주의로 올린다.
+  const severity: typeof baseSeverity = baseSeverity === "ok" && degradedSources.length > 0 ? "warn" : baseSeverity;
   const nextActions = buildNextBestActions({
     pendingApprovals: pendingApprovals.count,
     staleApprovals: pendingApprovals.staleCount,

@@ -22,7 +22,6 @@ type AnalyticsUserRow = {
   page_path: string | null;
   params: Record<string, unknown> | null;
   created_at: string;
-  is_internal?: boolean | null;
 };
 
 export type UserMetricsSummary = {
@@ -47,7 +46,7 @@ export type UserMetricsSummary = {
     analyticsMemberSessions: number;
     analyticsLoggedInUsers: number;
     analyticsEvents: number;
-    /** 운영 지표에서 제외한 내부(is_internal=true) 이벤트 수. 조회된 행 기준이다. */
+    /** 운영 지표에서 제외한 내부(is_internal=true) 이벤트 수. 조회 기간 기준이다. */
     internalEventsExcluded: number;
   };
   topActiveUsers: Array<{
@@ -71,16 +70,15 @@ export async function buildUserMetricsSummary(supabase: any, windowHours = 24): 
   const since = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
 
   try {
-    const [authResult, profileResult, analyticsResult] = await Promise.all([
+    const [authResult, profileResult, analyticsResult, internalEventsExcluded] = await Promise.all([
       fetchAllAuthUsers(supabase),
       fetchProfiles(supabase),
-      fetchAnalyticsRows(supabase, since)
+      fetchAnalyticsRows(supabase, since),
+      countInternalAnalyticsEvents(supabase, since)
     ]);
     const authUsers = authResult.rows;
     const profiles = profileResult.rows;
-    // is_internal 은 NOT NULL DEFAULT false(20260611133705). true 인 행만 내부 이벤트로 보고 제외한다.
-    const internalEventsExcluded = analyticsResult.rows.filter((row) => row.is_internal === true).length;
-    const analyticsRows = analyticsResult.rows.filter((row) => row.is_internal !== true);
+    const analyticsRows = analyticsResult.rows;
     const partialSources = [
       authResult.partial ? "Auth 유저" : null,
       profileResult.partial ? "profiles" : null,
@@ -272,16 +270,35 @@ async function fetchProfiles(supabase: any): Promise<{ rows: UserProfileRow[]; p
   return { rows, partial: count == null || count > rows.length };
 }
 
+/**
+ * is_internal 은 NOT NULL DEFAULT false 이고 (is_internal, created_at desc) 인덱스가 있다(20260611133705).
+ * 내부(로컬/개발) 이벤트가 조회 상한을 차지하지 않도록 쿼리 단계에서 운영 이벤트만 읽는다.
+ */
 async function fetchAnalyticsRows(supabase: any, since: string): Promise<{ rows: AnalyticsUserRow[]; partial: boolean }> {
   const { data, error, count } = await supabase
     .from("analytics_events")
-    .select("event_name, session_id, user_id, page_path, params, created_at, is_internal", { count: "exact" })
+    .select("event_name, session_id, user_id, page_path, params, created_at", { count: "exact" })
+    .eq("is_internal", false)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(10000);
   if (error) throw error;
   const rows = (data || []) as AnalyticsUserRow[];
   return { rows, partial: count == null || count > rows.length };
+}
+
+async function countInternalAnalyticsEvents(supabase: any, since: string): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from("analytics_events")
+      .select("id", { count: "exact", head: true })
+      .eq("is_internal", true)
+      .gte("created_at", since);
+    if (error) return 0;
+    return count || 0;
+  } catch {
+    return 0;
+  }
 }
 
 function buildUserMetricNotes(input: {

@@ -42,7 +42,7 @@ export type TrafficSummary = {
   highlights: string[];
   /** 조회 상한(TRAFFIC_EVENT_ROW_LIMIT)에 걸려 일부 이벤트가 빠졌을 수 있으면 true */
   truncated: boolean;
-  /** 운영 지표에서 제외한 내부(is_internal=true) 이벤트 수. 조회된 행 기준이다. */
+  /** 운영 지표에서 제외한 내부(is_internal=true) 이벤트 수. 현재 기간 기준이다. */
   internalEventsExcluded: number;
   error?: string;
 };
@@ -54,7 +54,6 @@ type AnalyticsEventRow = {
   page_path: string | null;
   params: Record<string, unknown> | null;
   created_at: string;
-  is_internal?: boolean | null;
 };
 
 type AnalyticsUserProfile = {
@@ -105,11 +104,21 @@ export function buildUnavailableTrafficSummary(windowHours: number, error: strin
 }
 
 /**
- * is_internal 은 NOT NULL DEFAULT false 컬럼이다(20260611133705).
- * 명시적으로 true 인 행만 내부 이벤트로 보고, null/누락은 운영 이벤트로 취급한다.
+ * is_internal 은 NOT NULL DEFAULT false 컬럼이고 (is_internal, created_at desc) 인덱스가 있다(20260611133705).
+ * 내부 이벤트가 조회 상한을 차지하지 않도록 쿼리 단계에서 운영 이벤트만 읽는다.
  */
-function isInternalEvent(row: AnalyticsEventRow) {
-  return row.is_internal === true;
+async function countInternalEvents(supabase: any, since: string): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from("analytics_events")
+      .select("id", { count: "exact", head: true })
+      .eq("is_internal", true)
+      .gte("created_at", since);
+    if (error) return 0;
+    return count || 0;
+  } catch {
+    return 0;
+  }
 }
 
 export async function buildTrafficSummary(supabase: any, windowHours = 24): Promise<TrafficSummary> {
@@ -117,22 +126,24 @@ export async function buildTrafficSummary(supabase: any, windowHours = 24): Prom
   const currentSince = new Date(now - windowHours * 60 * 60 * 1000).toISOString();
   const previousSince = new Date(now - windowHours * 2 * 60 * 60 * 1000).toISOString();
 
-  const { data, error } = await supabase
-    .from("analytics_events")
-    .select("event_name, session_id, user_id, page_path, params, created_at, is_internal")
-    .gte("created_at", previousSince)
-    .order("created_at", { ascending: false })
-    .limit(TRAFFIC_EVENT_ROW_LIMIT);
+  const [{ data, error }, internalEventsExcluded] = await Promise.all([
+    supabase
+      .from("analytics_events")
+      .select("event_name, session_id, user_id, page_path, params, created_at")
+      .eq("is_internal", false)
+      .gte("created_at", previousSince)
+      .order("created_at", { ascending: false })
+      .limit(TRAFFIC_EVENT_ROW_LIMIT),
+    // 로컬/개발 등 내부 이벤트는 운영 지표에 섞지 않고 현재 기간 건수만 따로 보고한다.
+    countInternalEvents(supabase, currentSince)
+  ]);
 
   if (error) {
     return buildUnavailableTrafficSummary(windowHours, error.message);
   }
 
-  const fetchedRows = (data || []) as AnalyticsEventRow[];
-  const truncated = fetchedRows.length >= TRAFFIC_EVENT_ROW_LIMIT;
-  // 로컬/개발 등 내부 이벤트는 운영 지표에 섞지 않고 건수만 따로 보고한다.
-  const rows = fetchedRows.filter((row) => !isInternalEvent(row));
-  const internalEventsExcluded = fetchedRows.filter((row) => row.created_at >= currentSince && isInternalEvent(row)).length;
+  const rows = (data || []) as AnalyticsEventRow[];
+  const truncated = rows.length >= TRAFFIC_EVENT_ROW_LIMIT;
   const profilesById = await fetchProfilesByUserId(supabase, rows);
   const nonAdminRows = rows.filter((row) => !row.user_id || profilesById.get(row.user_id)?.role !== "admin");
   const currentRows = nonAdminRows.filter((row) => row.created_at >= currentSince);

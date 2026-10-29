@@ -150,14 +150,24 @@ function createSupabaseMock(input: {
       }
     },
     from(table: string) {
+      // DB 처럼 eq("is_internal", ...) 조건으로 analytics 행을 거르고, head 조회는 건수만 돌려준다.
+      const state: { internal?: boolean; head: boolean } = { head: false };
+      const analyticsRows = () => input.analyticsRows.filter((row: any) =>
+        state.internal === undefined ? true : (row.is_internal === true) === state.internal);
       const chain: any = {
-        select: vi.fn(() => chain),
+        select: vi.fn((_columns?: string, options?: { head?: boolean }) => { state.head = Boolean(options?.head); return chain; }),
+        eq: vi.fn((column: string, value: unknown) => { if (column === "is_internal") state.internal = value === true; return chain; }),
         gte: vi.fn(() => chain),
         order: vi.fn(() => chain),
         range: vi.fn(async () => ({ data: table === "profiles" ? input.profiles : [], error: input.profileError || null,
           count: input.profileCount === undefined ? input.profiles.length : input.profileCount })),
-        limit: vi.fn(async () => ({ data: table === "analytics_events" ? input.analyticsRows : [],
-          error: input.analyticsError || null, count: input.analyticsCount ?? input.analyticsRows.length }))
+        limit: vi.fn(async () => {
+          const rows = table === "analytics_events" ? analyticsRows() : [];
+          return { data: rows, error: input.analyticsError || null, count: input.analyticsCount ?? rows.length };
+        }),
+        then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+          Promise.resolve(state.head ? { count: table === "analytics_events" ? analyticsRows().length : 0, error: null } : { data: [], error: null })
+            .then(resolve, reject)
       };
       return chain;
     }

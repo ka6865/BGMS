@@ -165,7 +165,6 @@ export default function AdminDashboardPage() {
   // 3단계 알럿 모달화 상태
   const [isHighRiskConfirmOpen, setIsHighRiskConfirmOpen] = useState(false);
   const [highRiskApproval, setHighRiskApproval] = useState<AgentApproval | null>(null);
-  const [highRiskAction, setHighRiskAction] = useState<"approve" | "reject" | null>(null);
 
   const [isHideMemoryConfirmOpen, setIsHideMemoryConfirmOpen] = useState(false);
   const [hideMemoryId, setHideMemoryId] = useState<string | null>(null);
@@ -643,7 +642,6 @@ export default function AdminDashboardPage() {
       const highRisk = isHighRiskApproval(approval);
       if (highRisk) {
         setHighRiskApproval(approval);
-        setHighRiskAction("approve");
         setIsHighRiskConfirmOpen(true);
         return;
       }
@@ -825,6 +823,15 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
+        {(commandCenter?.degradedSources?.length || 0) > 0 && (
+          <div role="status" data-testid="dashboard-degraded-sources" className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-relaxed text-amber-100">
+            <p className="font-semibold">일부 운영 정보를 불러오지 못했습니다.</p>
+            <p className="mt-1 break-words text-amber-100/80">
+              확인 불가: {formatDegradedSources(commandCenter?.degradedSources || [])}. 이 항목의 0건은 정상이라는 뜻이 아닙니다.
+            </p>
+          </div>
+        )}
+
         <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard
             label="승인 대기"
@@ -947,8 +954,14 @@ export default function AdminDashboardPage() {
                 <div className="mt-3 space-y-2 text-xs leading-relaxed text-zinc-300">
                   <ChecklistLine ok={pendingApprovals.length === 0} text={pendingApprovals.length === 0 ? "승인 대기 작업 없음" : `승인 대기 ${pendingApprovals.length}건 확인 필요`} />
                   <ChecklistLine ok={commandCenter?.severity === "ok"} text={`운영 상태 ${commandCenter ? severityLabel(commandCenter.severity) : "확인 전"}`} />
-                  <ChecklistLine ok={(commandCenter?.failedRuns.count || 0) === 0} text={`실패한 Agent 실행 ${commandCenter?.failedRuns.count || 0}건`} />
-                  <ChecklistLine ok={(commandCenter?.apiErrors.total || 0) === 0} text={`PUBG API 에러 ${commandCenter?.apiErrors.total || 0}건`} />
+                  <ChecklistLine
+                    ok={!isDegraded(commandCenter, "failedRuns") && (commandCenter?.failedRuns?.count || 0) === 0}
+                    text={isDegraded(commandCenter, "failedRuns") ? "실패한 Agent 실행 확인 불가" : `실패한 Agent 실행 ${commandCenter?.failedRuns?.count || 0}건`}
+                  />
+                  <ChecklistLine
+                    ok={!isDegraded(commandCenter, "apiErrors") && (commandCenter?.apiErrors?.total || 0) === 0}
+                    text={isDegraded(commandCenter, "apiErrors") ? "PUBG API 에러 확인 불가" : `PUBG API 에러 ${commandCenter?.apiErrors?.total || 0}건`}
+                  />
                 </div>
               </section>
             </div>
@@ -1041,9 +1054,13 @@ export default function AdminDashboardPage() {
         {activeSection === "status" && (
           <section className="space-y-3">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <MetricCard label="실패한 실행" value={commandCenter?.failedRuns.count ?? "-"} detail="최근 Agent 실행 기준" />
-              <MetricCard label="PUBG API 에러" value={commandCenter?.apiErrors.total ?? "-"} detail="최근 운영 창 기준" />
-              <MetricCard label="AI 비용" value={commandCenter ? `$${commandCenter.aiUsage.totalCostUsd.toFixed(4)}` : "-"} detail={`${commandCenter?.aiUsage.totalRequests || 0} requests`} />
+              <MetricCard label="실패한 실행" value={isDegraded(commandCenter, "failedRuns") ? "확인 불가" : commandCenter?.failedRuns?.count ?? "-"} detail="최근 Agent 실행 기준" />
+              <MetricCard label="PUBG API 에러" value={isDegraded(commandCenter, "apiErrors") ? "확인 불가" : commandCenter?.apiErrors?.total ?? "-"} detail="최근 운영 창 기준" />
+              <MetricCard
+                label="AI 비용"
+                value={isDegraded(commandCenter, "aiUsage") ? "확인 불가" : typeof commandCenter?.aiUsage?.totalCostUsd === "number" ? `$${commandCenter.aiUsage.totalCostUsd.toFixed(4)}` : "-"}
+                detail={`${commandCenter?.aiUsage?.totalRequests || 0} requests`}
+              />
               <MetricCard label="배포 상태" value={translateStatus(commandCenter?.deploymentHealth?.severity || commandCenter?.rollout?.status || "-")} detail="배포/준비 점검" />
             </div>
 
@@ -1799,6 +1816,35 @@ function ApprovalDecisionBadge({ approval }: { approval: AgentApproval }) {
         ? "bg-amber-500/10 text-amber-300"
         : "bg-emerald-500/10 text-emerald-300";
   return <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-bold ${className}`}>{label}</span>;
+}
+
+const DEGRADED_SOURCE_LABELS: Record<string, string> = {
+  latestRun: "최근 실행",
+  latestMonitorSnapshot: "최근 운영 점검",
+  monitorTrend: "점검 추세",
+  pendingApprovals: "승인 대기",
+  approvalGateSummary: "승인 실행 조건",
+  failedRuns: "실패한 실행",
+  apiErrors: "PUBG API 에러",
+  aiUsage: "AI 사용량",
+  memories: "내부 기록",
+  latestReport: "최근 운영 일지",
+  readiness: "준비 점검",
+  deploymentHealth: "배포 상태",
+  contentPerformance: "콘텐츠 성과",
+  rollout: "배포 준비",
+  recentAgentActivity: "AI 비서 활동",
+  approvalOutcomes: "승인 처리 결과",
+  trafficSummary: "유저 활동(24시간)",
+  trafficSummary7d: "유저 활동(7일)"
+};
+
+function isDegraded(commandCenter: AgentCommandCenter | null, source: string) {
+  return Boolean(commandCenter?.degradedSources?.some((item) => item.source === source));
+}
+
+function formatDegradedSources(sources: Array<{ source: string }>) {
+  return Array.from(new Set(sources.map((item) => DEGRADED_SOURCE_LABELS[item.source] || item.source))).join(", ");
 }
 
 function ChecklistLine({ ok, text }: { ok: boolean; text: string }) {

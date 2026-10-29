@@ -467,6 +467,105 @@ describe.skipIf(!enabled)("관리자 대시보드 격리 브라우저 검증", (
     }
   }, 120_000);
 
+  it.each(viewports)("일부 운영 정보 조회 실패를 확인 불가로 표시 $width × $height", async (viewport) => {
+    // 서버가 일부 집계를 읽지 못해 기본값(0)으로 채운 응답. 화면은 0건을 정상으로 보여주면 안 된다.
+    const degradedPayload = {
+      generatedAt: new Date().toISOString(),
+      severity: "warn",
+      degradedSources: [
+        { source: "failedRuns", message: "이 항목을 불러오지 못해 기본값으로 대체했습니다." },
+        { source: "apiErrors", message: "이 항목을 불러오지 못해 기본값으로 대체했습니다." },
+      ],
+      failedRuns: { count: 0, error: "이 항목을 불러오지 못해 기본값으로 대체했습니다." },
+      apiErrors: { total: 0, latest: [], error: "이 항목을 불러오지 못해 기본값으로 대체했습니다." },
+      aiUsage: { totalRequests: 3, totalCostUsd: 0.0123 },
+      pendingApprovals: { count: 0, highRiskCount: 0, staleCount: 0, items: [] },
+    };
+    const { context, page, errors } = await openAdminPage({
+      browser, baseUrl: server.baseUrl, supabaseUrl, viewport, unexpected,
+      handler: ({ path }) => {
+        if (path === "/api/admin/agent/command-center") return { body: degradedPayload };
+        if (path === "/api/admin/agent/memories") return { body: { memories: [] } };
+        if (path === "/api/admin/agent/approvals") return { body: { approvals: [] } };
+        return undefined;
+      },
+    });
+    try {
+      await page.goto(`${server.baseUrl}/admin/dashboard`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector('[data-testid="dashboard-degraded-sources"]', { timeout: 20_000 });
+      await waitText(page, "확인 불가: 실패한 실행, PUBG API 에러");
+      await waitText(page, "실패한 Agent 실행 확인 불가");
+      await waitText(page, "PUBG API 에러 확인 불가");
+      expect(await hasNoHorizontalOverflow(page)).toBe(true);
+      await page.screenshot({ path: shot("dashboard-degraded", viewport) });
+
+      await page.goto(`${server.baseUrl}/admin/dashboard?section=status`, { waitUntil: "domcontentloaded" });
+      // 운영 상태 지표는 응답이 도착한 뒤 채워지므로 값이 나타날 때까지 기다린다.
+      await waitText(page, "$0.0123");
+      const statusText = await page.evaluate(() => document.body.innerText);
+      expect(statusText).toMatch(/실패한 실행\s*확인 불가/);
+      expect(statusText).toMatch(/PUBG API 에러\s*확인 불가/);
+      expect(errors).toEqual([]);
+      expect(unexpected).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 90_000);
+
+  it.each(viewports)("AI 코칭·AI 비서 화면이 메뉴 아래에서 이중 스크롤되지 않음 $width × $height", async (viewport) => {
+    const { context, page, errors } = await openAdminPage({
+      browser, baseUrl: server.baseUrl, supabaseUrl, viewport, unexpected,
+      handler: ({ path }) => {
+        // 레이아웃 높이만 확인하므로 데이터는 빈 응답이나 실패로 둔다.
+        if (path.startsWith("/api/admin/ai-coaching/cases")) return { body: { cases: [], page: 1, pageSize: 20, total: 0, counts: {} } };
+        if (path.startsWith("/api/admin/agent/")) return { status: 503, body: { code: "fixture_unavailable" } };
+        if (path.startsWith("/api/admin/")) return { status: 503, body: {} };
+        return undefined;
+      },
+    });
+    // 화면 루트가 min-h-screen(100vh)이면 메뉴 아래 스크롤 영역보다 커져 메뉴 높이만큼 빈 스크롤이 생긴다.
+    // 루트 최소 높이가 스크롤 영역 높이를 넘지 않는지 본다.
+    const rootMinHeightFits = () => page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>('[data-testid="admin-scroll-area"]');
+      const root = scroller?.querySelector<HTMLElement>("main");
+      if (!scroller || !root) return null;
+      return parseFloat(getComputedStyle(root).minHeight || "0") <= scroller.clientHeight + 1;
+    });
+    const layoutOverflow = () => page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>('[data-testid="admin-scroll-area"]');
+      if (!scroller) return null;
+      return scroller.scrollHeight - scroller.clientHeight;
+    });
+    try {
+      await page.goto(`${server.baseUrl}/admin/ai-coaching`, { waitUntil: "domcontentloaded" });
+      await waitText(page, "아직 사례가 없습니다");
+      await page.waitForSelector('[data-testid="admin-nav"]', { timeout: 20_000 });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(await hasNoHorizontalOverflow(page)).toBe(true);
+      expect(await rootMinHeightFits()).toBe(true);
+      await page.screenshot({ path: shot("ai-coaching", viewport) });
+
+      await page.goto(`${server.baseUrl}/admin/bot?tab=community`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector('[data-testid="admin-nav"]', { timeout: 20_000 });
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(await hasNoHorizontalOverflow(page)).toBe(true);
+      expect(await rootMinHeightFits()).toBe(true);
+      await page.screenshot({ path: shot("bot-community", viewport) });
+
+      await page.goto(`${server.baseUrl}/admin/bot`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector('[data-testid="admin-nav"]', { timeout: 20_000 });
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      // AI 비서 채팅은 화면 높이 안에서 입력창이 보여야 한다.
+      const botFits = await layoutOverflow();
+      expect(botFits).not.toBeNull();
+      expect(botFits!).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: shot("bot-chat", viewport) });
+      expect(errors).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 90_000);
+
   it("패치된 sharp로 Next 이미지 최적화를 실행한다", async () => {
     const response = await fetch(`${server.baseUrl}/_next/image?url=%2Ficon-512.png&w=64&q=75`, {
       headers: { Accept: "image/webp" },
