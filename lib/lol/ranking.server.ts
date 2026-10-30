@@ -1,0 +1,17 @@
+import "server-only";
+import { unstable_cache } from "next/cache";
+import { getLolMasteryPublication, getLolRankingPublication } from "./persistence.server";
+import { toPublicMasteryBoard, toPublicRankingBoard } from "./ranking";
+
+// 게시본은 수집기가 하루 한 번 바꾼다. 수집기는 Next 밖에서 돌아 태그를 비울 수 없으므로 시간 기준으로 1시간마다 다시 읽는다.
+const REVALIDATE_SECONDS = 3600;
+
+export const getCachedLolRankingBoard = unstable_cache(async () => {
+  if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return null;
+  return toPublicRankingBoard(await getLolRankingPublication());
+}, ["lol-ranking-board-v1"], { revalidate: REVALIDATE_SECONDS });
+
+export const getCachedLolMasteryBoard = unstable_cache(async () => {
+  if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return null;
+  return toPublicMasteryBoard(await getLolMasteryPublication());
+}, ["lol-mastery-board-v1"], { revalidate: REVALIDATE_SECONDS });

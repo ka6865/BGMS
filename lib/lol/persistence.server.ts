@@ -331,3 +331,28 @@ export async function hasLolKnownMatch(matchId: string): Promise<boolean> {
     return (summaries?.length ?? 0) > 0;
   } catch (error) { return persistenceFailure("has_lol_known_match", error, signal); }
 }
+
+// 랭킹·장인 게시본. 공개 화면은 서버만 읽고, 수집기는 전체 입력이 유효할 때만 저장한다.
+export async function getLolRankingPublication(): Promise<unknown | null> {
+  return rpc<unknown | null>("get_lol_ranking_publication", {});
+}
+
+export async function getLolMasteryPublication(): Promise<unknown | null> {
+  return rpc<unknown | null>("get_lol_mastery_publication", {});
+}
+
+export async function saveLolRankingPublication(input: {
+  rows: unknown[]; playerCount: number; masteries: unknown[]; observedAt: string;
+}): Promise<void> {
+  await rpc<void>("save_lol_ranking_publication", {
+    p_rows: input.rows, p_player_count: input.playerCount, p_masteries: input.masteries, p_observed_at: input.observedAt,
+  });
+}
+
+export async function listLolRankingExclusionKeys(): Promise<string[]> {
+  return (await rpc<string[] | null>("list_lol_ranking_exclusion_keys", {})) ?? [];
+}
+
+export async function addLolRankingExclusion(riotIdHmac: string): Promise<number> {
+  return rpc<number>("add_lol_ranking_exclusion", { p_hmac: riotIdHmac });
+}

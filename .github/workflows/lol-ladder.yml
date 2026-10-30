@@ -23,12 +23,13 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: 하루 6회 랭크 집계
+      - name: 하루 1회 랭크 집계
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
           LOL_PERSISTENCE_ENABLED: 'true'
+          LOL_RIOT_PRIORITY: background
           LOL_LADDER_ENABLED: ${{ vars.LOL_LADDER_ENABLED }}
         run: |
           if [ "$LOL_LADDER_ENABLED" = 'true' ]; then
