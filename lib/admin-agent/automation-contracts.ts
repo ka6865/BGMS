@@ -39,7 +39,7 @@ export function buildAgentAutomationContracts(input?: {
       risk: "safe",
       whatRuns: "PUBG API 에러, AI 비용, 승인 대기열, 배포 상태, daily checkout을 읽고 agent_runs에 기록합니다.",
       guardrail: "정상 상태는 Discord로 보내지 않고 로그만 남깁니다.",
-      whereToCheck: "/admin/bot · Monitor Snapshot",
+      whereToCheck: "/admin/dashboard?section=status · 운영 상태의 수동 운영 점검",
       prompt: "오늘 운영 브리핑 해줘"
     },
     {
@@ -51,7 +51,7 @@ export function buildAgentAutomationContracts(input?: {
       risk: "safe",
       whatRuns: "문제 유형, 현재 수치, 확인 위치를 짧게 알립니다.",
       guardrail: "DISCORD_WEBHOOK_URL이 없으면 실패로 보지 않고 조용히 건너뜁니다.",
-      whereToCheck: "Discord 채널 또는 /admin/bot · Latest Monitor",
+      whereToCheck: "Discord 채널 또는 /admin/dashboard?section=status · 운영 상태",
       prompt: "최근 monitor 알림이 왜 발생했는지 요약해줘"
     },
     {
@@ -61,9 +61,9 @@ export function buildAgentAutomationContracts(input?: {
       cadence: "승인 목록 조회 및 승인 직전",
       owner: "agent",
       risk: "approval_required",
-      whatRuns: "게시글 발행, 캐시 삭제, benchmark reset의 예상 영향 범위를 계산합니다.",
+      whatRuns: "게시글 발행, 운영 기록 저장, identity 정리의 예상 영향 범위를 계산합니다.",
       guardrail: "위험 작업은 승인 전 impact를 다시 계산하고 confirmedImpact가 없으면 실행하지 않습니다.",
-      whereToCheck: "/admin/bot · Approval Panel",
+      whereToCheck: "/admin/dashboard?section=approvals · 승인 대기",
       prompt: "승인 대기 작업을 impact 기준으로 검토해줘"
     },
     {
@@ -75,7 +75,7 @@ export function buildAgentAutomationContracts(input?: {
       risk: "safe",
       whatRuns: "지금 할 일, 에이전트에게 맡길 일, 직접 봐야 할 일을 분리합니다.",
       guardrail: "읽기 전용으로만 계산하며 위험 작업을 자동 실행하지 않습니다.",
-      whereToCheck: "/admin/bot · Owner Brief",
+      whereToCheck: "/admin/dashboard?section=today · 오늘 할 일",
       prompt: "30초 운영자 브리핑으로 지금 할 일만 알려줘"
     },
     {
@@ -99,7 +99,7 @@ export function buildAgentAutomationContracts(input?: {
       risk: "approval_required",
       whatRuns: "커뮤니티 AI 비서가 자료를 확인해 글·답글 초안을 작성합니다. 운영자 승인을 받아야 실제로 게시됩니다.",
       guardrail: "수집 중지, 하루 한도, 허용 카테고리, 출처 설정, 자료 부족 보류를 지키며 글·답글 모두 운영자 검토를 거칩니다.",
-      whereToCheck: "/admin/bot · 커뮤니티 운영",
+      whereToCheck: "/admin/bot?tab=community · 커뮤니티 운영",
       prompt: "커뮤니티 운영 상태와 보류 사유를 요약해줘"
     }
   ];

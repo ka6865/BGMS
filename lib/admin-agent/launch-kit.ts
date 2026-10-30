@@ -199,7 +199,7 @@ function buildRoutines(input: {
       title: "승인 대기 검토",
       cadence: "approval",
       owner: "admin",
-      why: "캐시 삭제, 게시글 발행, memory 저장 같은 위험 작업의 영향 범위를 승인 전에 확인합니다.",
+      why: "게시글 초안 저장, identity 정리, memory 저장 같은 위험 작업의 영향 범위를 승인 전에 확인합니다.",
       steps: [
         {
           label: "Approval Advisor로 권고 확인",

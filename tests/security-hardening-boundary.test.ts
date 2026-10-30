@@ -38,15 +38,27 @@ describe("공유 서버 인증 헬퍼", () => {
 
 describe("패치노트 관리자 동기화가 관리자 인증을 요구한다", () => {
   const source = read("app/api/admin/patch-notes/sync/route.ts");
+  // 라우트는 공용 requireAdmin 을 쓰고, 401/403 판정은 adminGuard -> withAuthGuard 가 맡는다.
+  const adminGuard = read("lib/server/adminGuard.ts");
+  const authGuard = read("utils/supabase/guard.ts");
 
   it("로그인하지 않은 요청을 거부한다", () => {
-    expect(source).toContain("auth.getUser()");
-    expect(source).toContain("status: 401");
+    expect(source).toContain("await requireAdmin()");
+    expect(source).toContain("if (!admin.ok) return admin.error;");
+    expect(adminGuard).toContain("await withAuthGuard()");
+    expect(authGuard).toContain("auth.getUser()");
+    expect(authGuard).toContain("status: 401");
   });
 
   it("관리자 역할이 아닌 요청을 거부한다", () => {
-    expect(source).toContain('profile?.role !== "admin"');
-    expect(source).toContain("status: 403");
+    expect(adminGuard).toContain('profile?.role !== "admin"');
+    expect(adminGuard).toContain("status: 403");
+  });
+
+  it("수동 URL 은 https pubg.com 계열만 허용하고 실행 시간 상한을 둔다", () => {
+    expect(source).toContain("parseManualPatchSource(rawUrl)");
+    expect(source).toContain("status: 400");
+    expect(source).toContain("export const maxDuration = 60;");
   });
 });
 

@@ -153,7 +153,7 @@ function proceduresFromIncidents(input: Parameters<typeof buildAgentOperatingSop
       ],
       doneWhen: [
         "원인이 API quota, 외부 5xx, 내부 요청량 중 하나로 분리됩니다.",
-        "재처리/캐시 삭제 같은 위험 작업은 승인 요청으로만 남습니다."
+        "identity 정리·게시글 초안 같은 위험 작업은 승인 요청으로만 남습니다."
       ],
       nextPrompt: "최근 PUBG API 에러 원인을 분석해줘"
     });
@@ -189,7 +189,7 @@ function proceduresFromIncidents(input: Parameters<typeof buildAgentOperatingSop
       steps: [
         step("inspect-deploy", "배포 로그 요약", "agent", "read", "최근 실패 배포와 빌드 로그 원인을 요약합니다.", "최근 Vercel 배포 실패 원인을 분석해줘"),
         step("compare-actions", "Actions 비교", "github_actions", "manual_check", "daily-tasks 마지막 monitor snapshot과 배포 시간을 비교합니다."),
-        step("hold-risk", "위험 작업 보류", "admin", "manual_check", "배포 불안정 중에는 캐시 삭제/대량 작업 승인을 보류합니다.")
+        step("hold-risk", "위험 작업 보류", "admin", "manual_check", "배포 불안정 중에는 identity 정리/대량 작업 승인을 보류합니다.")
       ],
       doneWhen: [
         "실패 배포 ID 또는 runtime 원인이 확인됩니다.",

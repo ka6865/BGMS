@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import getApiUrl from "../../lib/api-config";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
@@ -19,24 +20,14 @@ export default function GameDataEditor() {
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [flushNickname, setFlushNickname] = useState("");
-  const [flushMatchId, setFlushMatchId] = useState("");
 
   // 3단계 모달화 상태
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [isSyncConfirmOpen, setIsSyncConfirmOpen] = useState(false);
   const [syncTargetUrl, setSyncTargetUrl] = useState<string | null>(null);
-
-  const [isFlushCacheConfirmOpen, setIsFlushCacheConfirmOpen] = useState(false);
-  const [isResetBenchmarkConfirmOpen, setIsResetBenchmarkConfirmOpen] = useState(false);
-
-  const [isFlushUserConfirmOpen, setIsFlushUserConfirmOpen] = useState(false);
-  const [flushUserTarget, setFlushUserTarget] = useState("");
-
-  const [isFlushMatchConfirmOpen, setIsFlushMatchConfirmOpen] = useState(false);
-  const [flushMatchTarget, setFlushMatchTarget] = useState("");
 
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
@@ -582,9 +573,10 @@ export default function GameDataEditor() {
   };
 
   const executeDelete = async () => {
-    if (!deleteTargetId) return;
+    // 삭제 요청이 끝나기 전 다시 누르면 같은 대상에 두 번 요청하지 않는다.
+    if (!deleteTargetId || isDeleting) return;
     const id = deleteTargetId;
-    setIsDeleteConfirmOpen(false);
+    setIsDeleting(true);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -637,6 +629,8 @@ export default function GameDataEditor() {
     } catch (err: any) {
       toast.error("삭제 중 오류 발생: " + err.message);
     } finally {
+      setIsDeleting(false);
+      setIsDeleteConfirmOpen(false);
       setDeleteTargetId(null);
     }
   };
@@ -669,92 +663,6 @@ export default function GameDataEditor() {
     } finally {
       setIsSaving(false);
       setSyncTargetUrl(null);
-    }
-  };
-
-  const executeFlushCache = async () => {
-    setIsFlushCacheConfirmOpen(false);
-    setIsSaving(true);
-    try {
-      const res = await fetch("/api/admin/system", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "flush_old_cache" })
-      });
-      const data = await res.json();
-      if (data.success) toast.success(data.message);
-      else throw new Error(data.error);
-    } catch (err: any) {
-      toast.error("처리 중 오류: " + err.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const executeResetBenchmark = async () => {
-    setIsResetBenchmarkConfirmOpen(false);
-    setIsSaving(true);
-    try {
-      const res = await fetch("/api/admin/system", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reset_benchmarks" })
-      });
-      const data = await res.json();
-      if (data.success) toast.success(data.message);
-      else throw new Error(data.error);
-    } catch (err: any) {
-      toast.error("처리 중 오류: " + err.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const executeFlushUser = async () => {
-    setIsFlushUserConfirmOpen(false);
-    setIsSaving(true);
-    try {
-      const res = await fetch("/api/admin/system", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "flush_player_cache", nickname: flushUserTarget })
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success(data.message);
-        setFlushNickname("");
-      } else throw new Error(data.error);
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setIsSaving(false);
-      setFlushUserTarget("");
-    }
-  };
-
-  const executeFlushMatch = async () => {
-    setIsFlushMatchConfirmOpen(false);
-    setIsSaving(true);
-    try {
-      const res = await fetch("/api/admin/system", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "flush_match_cache", matchId: flushMatchTarget })
-      });
-      const data = await res.json();
-      if (data.success) {
-        if (data.storageCleared === false) {
-          toast.warning(data.message || "DB 캐시는 삭제됐지만 Storage 캐시 삭제에 실패했습니다. 다시 시도해 주세요.");
-        } else {
-          toast.success(data.message);
-          setFlushMatchId("");
-        }
-      } else throw new Error(data.error);
-    } catch (err: any) {
-      toast.error(err.message);
-    } finally {
-      setIsSaving(false);
-      setFlushMatchTarget("");
     }
   };
 
@@ -835,18 +743,26 @@ export default function GameDataEditor() {
     }
   };
 
-  if (!isAuthorized) return null;
+  if (!isAuthorized) {
+    return (
+      <div role="status" className="flex h-full min-h-[50vh] items-center justify-center gap-2 text-sm font-bold text-[#F2A900]">
+        <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[#F2A900] border-t-transparent" />
+        관리자 권한을 확인하는 중입니다...
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-screen text-gray-200">
-      <header className="flex flex-col md:flex-row items-center justify-between min-h-[60px] py-3 md:py-0 px-6 bg-[#1a1a1a] border-b border-[#333] gap-3 md:gap-0">
+    <div data-testid="game-data-editor" className="flex h-full min-h-0 flex-col text-gray-200">
+      <header className="flex shrink-0 flex-col md:flex-row items-center justify-between min-h-[60px] py-3 md:py-0 px-3 sm:px-6 bg-[#1a1a1a] border-b border-[#333] gap-3 md:gap-0">
         <div className="flex flex-col md:flex-row items-center gap-3 md:gap-6 w-full md:w-auto">
           <div className="text-xl font-black text-[#F2A900] italic self-start md:self-auto">배그<span className="text-white"> 데이터 관리자</span></div>
           {isMobile ? (
             <select
               value={activeCategory}
               onChange={(e) => setActiveCategory(e.target.value as ItemCategory)}
-              className="w-full bg-[#252525] text-white border border-[#444] rounded px-3 py-2 text-xs font-bold focus:outline-none focus:border-[#F2A900]"
+              aria-label="편집할 데이터 분류"
+              className="min-h-11 w-full bg-[#252525] text-white border border-[#444] rounded px-3 py-2 text-xs font-bold focus:outline-none focus:border-[#F2A900]"
             >
               {[
                 { id: "weapons", label: "무기" },
@@ -858,7 +774,7 @@ export default function GameDataEditor() {
                 { id: "crates", label: "은신처 상점" },
                 { id: "users", label: "유저 관리" },
                 { id: "weapon-patch", label: "패치 제안" },
-                { id: "system", label: "시스템/캐시" }
+                { id: "system", label: "시스템 설정" }
               ].map(cat => (
                 <option key={cat.id} value={cat.id}>
                   {cat.label}
@@ -877,7 +793,7 @@ export default function GameDataEditor() {
                 { id: "crates", label: "은신처 상점" },
                 { id: "users", label: "유저 관리" },
                 { id: "weapon-patch", label: "패치 제안" },
-                { id: "system", label: "시스템/캐시" }
+                { id: "system", label: "시스템 설정" }
               ].map(cat => (
                 <button
                   key={cat.id}
@@ -907,13 +823,13 @@ export default function GameDataEditor() {
               {selectedItem ? "← 리스트 보기" : "← 대시보드"}
             </button>
           )}
-          <button onClick={() => router.push("/")} className="text-sm font-bold text-gray-400 hover:text-white transition-colors ml-auto md:ml-0">
-            나가기
-          </button>
+          <Link href="/admin/dashboard" className="ml-auto flex min-h-11 items-center text-sm font-bold text-gray-400 transition-colors hover:text-white md:ml-0">
+            운영 대시보드로
+          </Link>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className={`w-full md:w-[300px] bg-[#141414] border-r border-[#333] flex-col ${shouldShowAside ? 'flex' : 'hidden'}`}>
           {isMobile && activeCategory === "users" && showUserListOnMobile && (
             <div className="px-4 pt-4">
@@ -1072,7 +988,7 @@ export default function GameDataEditor() {
             </div>
           ) : activeCategory === "system" ? (
             <div className="max-w-[750px] mx-auto space-y-8">
-              <h2 className="text-2xl font-black text-white border-b border-[#333] pb-4">시스템 통합 관제탑 및 캐시 관리</h2>
+              <h2 className="text-2xl font-black text-white border-b border-[#333] pb-4">시스템 상태와 설정</h2>
               
               {/* 시스템 모니터링 대시보드 */}
               {isLoadingDashboard && !dashboardData ? (
@@ -1223,8 +1139,15 @@ export default function GameDataEditor() {
                             const maxCost = Math.max(...dashboardData.aiUsage.map((x: any) => x.cost), 0.001);
                             const percent = Math.min((u.cost / maxCost) * 100, 100);
                             return (
-                              <div key={idx} className="flex-1 flex flex-col items-center group relative h-full justify-end">
-                                <div className="absolute bottom-full mb-1 bg-black text-[9px] text-white p-1.5 rounded border border-[#333] hidden group-hover:block whitespace-nowrap z-10">
+                              <div
+                                key={idx}
+                                tabIndex={0}
+                                role="img"
+                                aria-label={`${u.date} 비용 $${u.cost.toFixed(4)}, 토큰 ${u.promptTokens + u.completionTokens}`}
+                                title={`${u.date} · $${u.cost.toFixed(4)} · ${u.promptTokens + u.completionTokens}T`}
+                                className="flex-1 flex flex-col items-center group relative h-full justify-end outline-none focus-visible:ring-1 focus-visible:ring-emerald-400"
+                              >
+                                <div className="absolute bottom-full mb-1 bg-black text-xs text-white p-1.5 rounded border border-[#333] hidden group-hover:block group-focus:block whitespace-nowrap z-10">
                                   {u.date}<br/>
                                   비용: ${u.cost.toFixed(4)}<br/>
                                   토큰: {u.promptTokens + u.completionTokens}T
@@ -1342,91 +1265,6 @@ export default function GameDataEditor() {
                     </button>
                   </div>
                 </div>
-                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333]">
-                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">전체 분석 캐시 초기화</h3>
-                  <p className="text-sm text-gray-400 mb-4">
-                    데이터베이스에 저장된 모든 분석 결과값(processed_match_telemetry)을 삭제합니다.<br/>
-                    원본 데이터는 보존되며, 사용자가 전적을 조회할 때 최신 엔진으로 다시 계산됩니다.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setIsFlushCacheConfirmOpen(true);
-                    }}
-                    disabled={isSaving}
-                    className="px-6 py-3 bg-red-600/20 text-red-500 border border-red-600/30 rounded-lg font-bold hover:bg-red-600/30 transition-all"
-                  >
-                    전체 분석 데이터 삭제 (초기화)
-                  </button>
-                </div>
-
-                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333]">
-                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">글로벌 벤치마크 초기화</h3>
-                  <p className="text-sm text-gray-400 mb-4">
-                    엘리트 선수들의 통계 데이터(global_benchmarks)를 모두 비웁니다.<br/>
-                    수행 후 &apos;벤치마커 스크립트&apos;를 다시 돌려야 최신 데이터로 채워집니다.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setIsResetBenchmarkConfirmOpen(true);
-                    }}
-                    disabled={isSaving}
-                    className="px-6 py-3 bg-orange-600/20 text-orange-500 border border-orange-600/30 rounded-lg font-bold hover:bg-orange-600/30 transition-all"
-                  >
-                    벤치마크 데이터 전체 초기화
-                  </button>
-                </div>
-
-                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333]">
-                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">플레이어/매치 정밀 초기화</h3>
-                  <p className="text-sm text-gray-400 mb-6">
-                    특정 플레이어나 매치의 데이터만 골라서 삭제합니다. 버그 수정 후 테스트 시 유용합니다.
-                  </p>
-                  
-                  <div className="space-y-4">
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        placeholder="플레이어 닉네임 (예: KangHeeSung_)"
-                        className="flex-1 bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
-                        value={flushNickname}
-                        onChange={(e) => setFlushNickname(e.target.value)}
-                      />
-                      <button
-                        onClick={() => {
-                          if (!flushNickname) return toast.error("닉네임을 입력하세요.");
-                          setFlushUserTarget(flushNickname);
-                          setIsFlushUserConfirmOpen(true);
-                        }}
-                        disabled={isSaving}
-                        className="px-4 py-2 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded font-bold hover:bg-blue-600/30 transition-all text-sm"
-                      >
-                        유저 데이터 삭제
-                      </button>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        placeholder="매치 ID (Match ID)"
-                        className="flex-1 bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
-                        value={flushMatchId}
-                        onChange={(e) => setFlushMatchId(e.target.value)}
-                      />
-                      <button
-                        onClick={() => {
-                          if (!flushMatchId) return toast.error("매치 ID를 입력하세요.");
-                          setFlushMatchTarget(flushMatchId);
-                          setIsFlushMatchConfirmOpen(true);
-                        }}
-                        disabled={isSaving}
-                        className="px-4 py-2 bg-purple-600/20 text-purple-400 border border-purple-600/30 rounded font-bold hover:bg-purple-600/30 transition-all text-sm"
-                      >
-                        매치 데이터 삭제
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
                 {/* 전역 공지 노출 설정 */}
                 <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333] space-y-4">
                   <h3 className="text-lg font-bold text-[#F2A900] mb-2">전역 공지 노출 제어</h3>
@@ -1892,7 +1730,7 @@ export default function GameDataEditor() {
                                       />
                                       <button
                                         type="button"
-                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-[10px] font-bold"
+                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-xs font-bold"
                                       >
                                         업로드
                                       </button>
@@ -1986,7 +1824,7 @@ export default function GameDataEditor() {
                                       />
                                       <button
                                         type="button"
-                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-[10px] font-bold"
+                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-xs font-bold"
                                       >
                                         업로드
                                       </button>
@@ -2105,7 +1943,7 @@ export default function GameDataEditor() {
                                       />
                                       <button
                                         type="button"
-                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-[10px] font-bold"
+                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-xs font-bold"
                                       >
                                         업로드
                                       </button>
@@ -2338,12 +2176,14 @@ export default function GameDataEditor() {
       <ConfirmModal
         isOpen={isDeleteConfirmOpen}
         onCancel={() => {
+          if (isDeleting) return;
           setIsDeleteConfirmOpen(false);
           setDeleteTargetId(null);
         }}
         onConfirm={executeDelete}
         title="항목 삭제 확인"
         type="danger"
+        isPending={isDeleting}
         description={
           activeCategory === "users"
             ? (selectedItem as any)?.is_orphan_profile
@@ -2367,48 +2207,6 @@ export default function GameDataEditor() {
             ? `입력하신 URL(${syncTargetUrl})로 강제 동기화를 진행할까요?`
             : "모든 공식 뉴스를 훑어보고 최신 패치노트 전 내용을 동기화할까요?"
         }
-      />
-
-      <ConfirmModal
-        isOpen={isFlushCacheConfirmOpen}
-        onCancel={() => setIsFlushCacheConfirmOpen(false)}
-        onConfirm={executeFlushCache}
-        title="전체 분석 캐시 초기화"
-        type="danger"
-        description="정말 모든 분석 캐시를 삭제하시겠습니까? (복구 불가능)"
-      />
-
-      <ConfirmModal
-        isOpen={isResetBenchmarkConfirmOpen}
-        onCancel={() => setIsResetBenchmarkConfirmOpen(false)}
-        onConfirm={executeResetBenchmark}
-        title="글로벌 벤치마크 초기화"
-        type="danger"
-        description="벤치마크 데이터를 초기화하시겠습니까? (복구 불가능)"
-      />
-
-      <ConfirmModal
-        isOpen={isFlushUserConfirmOpen}
-        onCancel={() => {
-          setIsFlushUserConfirmOpen(false);
-          setFlushUserTarget("");
-        }}
-        onConfirm={executeFlushUser}
-        title="플레이어 분석 데이터 삭제"
-        type="danger"
-        description={`${flushUserTarget}님의 모든 분석 데이터를 삭제하시겠습니까?`}
-      />
-
-      <ConfirmModal
-        isOpen={isFlushMatchConfirmOpen}
-        onCancel={() => {
-          setIsFlushMatchConfirmOpen(false);
-          setFlushMatchTarget("");
-        }}
-        onConfirm={executeFlushMatch}
-        title="매치 분석 데이터 삭제"
-        type="danger"
-        description={`해당 매치(${flushMatchTarget})의 모든 분석 데이터를 삭제하시겠습니까?`}
       />
     </div>
   );

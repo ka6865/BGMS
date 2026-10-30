@@ -59,7 +59,7 @@ export function buildAgentRunTimeline(input: {
       : ["- No approval requests linked to this run."]),
     "",
     "## Operator Notes",
-    "- 확인 위치: `/admin/bot` 승인 패널 및 최근 실행 기록",
+    "- 확인 위치: `/admin/dashboard?section=approvals` 승인 대기 및 최근 실행 기록",
     "- 위험 작업은 승인 이력과 impact/result를 함께 확인하세요."
   ];
 

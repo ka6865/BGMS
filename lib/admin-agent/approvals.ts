@@ -38,8 +38,18 @@ export type ApprovalGateSummary = {
   error?: string;
 };
 
-const HIGH_RISK_ACTIONS = new Set(["flush_old_cache", "flush_player_cache", "flush_match_cache", "reset_benchmarks", "repair_processed_telemetry_identity"]);
+const HIGH_RISK_ACTIONS = new Set(["repair_processed_telemetry_identity"]);
 const MEDIUM_RISK_ACTIONS = new Set(["create_board_post", "update_board_post", "save_agent_memory"]);
+
+/** 승인 대기열을 조회하지 못했을 때 쓰는 빈 요약입니다. */
+export function emptyApprovalQueueSummary(error: string): ApprovalQueueSummary {
+  return { count: 0, highRiskCount: 0, staleCount: 0, oldestAgeHours: 0, oldest: null, items: [], error };
+}
+
+/** Execution Gate 표본을 조회하지 못했을 때 쓰는 빈 요약입니다. */
+export function emptyApprovalGateSummary(error: string): ApprovalGateSummary {
+  return { sampledCount: 0, passCount: 0, reviewCount: 0, blockCount: 0, items: [], error };
+}
 
 export async function fetchApprovalQueueSummary(supabase: any, limit = 50): Promise<ApprovalQueueSummary> {
   const { data, error } = await supabase

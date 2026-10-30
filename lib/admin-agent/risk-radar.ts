@@ -93,7 +93,7 @@ function approvalRisks(input: Parameters<typeof buildAgentRiskRadar>[0]): AgentR
       impact: high > 0 ? 85 : 66,
       horizon: "today",
       title: "오래된/고위험 승인 요청이 누적될 수 있음",
-      why: "승인 큐가 쌓이면 캐시 삭제, 발행, 리포트 저장 같은 작업의 맥락이 흐려져 잘못 승인할 가능성이 커집니다.",
+      why: "승인 큐가 쌓이면 identity 정리, 게시글 초안, 리포트 저장 같은 작업의 맥락이 흐려져 잘못 승인할 가능성이 커집니다.",
       evidence: [`stale ${stale}건`, `high risk ${high}건`, `oldest ${Number(input.pendingApprovals?.oldestAgeHours || 0)}h`],
       prevention: "고위험과 오래된 요청부터 impact, preview, checklist를 보고 승인 또는 거절합니다.",
       prompt: "승인 대기 작업을 impact 기준으로 검토해줘"

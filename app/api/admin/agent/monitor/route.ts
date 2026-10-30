@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
-import { fetchApprovalGateSummary, fetchApprovalQueueSummary } from "@/lib/admin-agent/approvals";
+import { emptyApprovalGateSummary, emptyApprovalQueueSummary, fetchApprovalGateSummary, fetchApprovalQueueSummary } from "@/lib/admin-agent/approvals";
+import { isAdminAgentCronRequest } from "@/lib/admin-agent/cron-auth";
+import { createSourceSettler, type AgentSourceFailure } from "@/lib/admin-agent/settle";
 import { buildAgentDailyCheckout } from "@/lib/admin-agent/daily-checkout";
 import {
   auditProcessedTelemetryIdentity,
   buildProcessedTelemetryIdentityRepairPayload,
   type ProcessedTelemetryIdentityAudit
 } from "@/lib/admin-agent/data-quality";
-import { fetchVercelDeploymentHealth } from "@/lib/admin-agent/deployments";
+import { fetchVercelDeploymentHealth, unavailableDeploymentHealth } from "@/lib/admin-agent/deployments";
 import { buildAgentGrowthRoadmap } from "@/lib/admin-agent/growth-roadmap";
 import { completeAgentRun, createAgentRun, createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
 import { buildNextBestActions } from "@/lib/admin-agent/next-actions";
@@ -17,7 +19,7 @@ import { buildApiErrorSummary, getApiErrorSeverity } from "@/lib/admin-agent/api
 import { buildMatchCollectionProgress } from "@/lib/admin-agent/match-collection-progress";
 import { matchPlaybooks } from "@/lib/admin-agent/playbooks";
 import { getAgentThresholds } from "@/lib/admin-agent/thresholds";
-import { buildTrafficSummary } from "@/lib/admin-agent/traffic-summary";
+import { buildTrafficSummary, buildUnavailableTrafficSummary } from "@/lib/admin-agent/traffic-summary";
 import { withAuthGuard } from "@/utils/supabase/guard";
 
 const clean = (value: string | undefined) => (value || "").replace(/['";\s]+/g, "").trim();
@@ -29,16 +31,19 @@ type MonitorAlert = {
   value?: unknown;
 };
 
-export async function GET(request: Request) {
-  return runMonitor(request);
-}
-
+// 점검은 실행 기록과 승인 요청을 쓰므로 POST 로만 받는다(링크 클릭 같은 GET 으로 실행되지 않게 한다).
 export async function POST(request: Request) {
   return runMonitor(request);
 }
 
 async function runMonitor(request: Request) {
-  const authContext = await resolveMonitorAuth(request);
+  let authContext: Awaited<ReturnType<typeof resolveMonitorAuth>>;
+  try {
+    authContext = await resolveMonitorAuth(request);
+  } catch (error: any) {
+    console.error("[ADMIN-AGENT-MONITOR] Auth resolution failed:", error?.message || error);
+    return NextResponse.json({ error: "운영 점검 권한을 확인하지 못했습니다." }, { status: 500 });
+  }
   if ("response" in authContext) return authContext.response;
 
   const { supabase, userId, source } = authContext;
@@ -64,28 +69,28 @@ async function runMonitor(request: Request) {
       && ["http_error", "receipt_missing", "timeout", "send_failed"].includes(notification.reason);
     return NextResponse.json(snapshotWithNotification, { status: deliveryFailed ? 502 : 200 });
   } catch (error: any) {
+    console.error("[ADMIN-AGENT-MONITOR] Monitor failed:", error?.message || error);
     const failureSnapshot = {
       generatedAt: new Date().toISOString(),
       severity: "critical",
-      alerts: [{ type: "monitor_failed", severity: "critical", message: error.message || String(error) }],
-      recommendations: ["운영 점검 API 자체가 실패했습니다. /admin/bot 또는 server logs에서 확인하세요."]
+      alerts: [{ type: "monitor_failed", severity: "critical", message: "운영 점검 실행 중 오류가 발생했습니다. 서버 로그를 확인하세요." }],
+      recommendations: ["운영 점검 API 자체가 실패했습니다. /admin/dashboard?section=status 또는 서버 로그에서 확인하세요."]
     };
-    await sendDiscordMonitorAlert(failureSnapshot, supabase);
+    try {
+      await sendDiscordMonitorAlert(failureSnapshot, supabase);
+    } catch (notifyError: any) {
+      console.error("[ADMIN-AGENT-MONITOR] Failure alert delivery failed:", notifyError?.message || notifyError);
+    }
     await completeAgentRun(supabase, runId, {
       status: "failed",
       error: error.message || String(error)
     });
-    return NextResponse.json({ error: error.message || "운영 점검 실패" }, { status: 500 });
+    return NextResponse.json({ error: "운영 점검에 실패했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
   }
 }
 
 async function resolveMonitorAuth(request: Request) {
-  const cronSecret = process.env.ADMIN_AGENT_CRON_SECRET || process.env.CRON_SECRET;
-  const authorization = request.headers.get("authorization") || "";
-  const headerSecret = request.headers.get("x-admin-agent-secret") || "";
-  const providedSecret = authorization.replace(/^Bearer\s+/i, "") || headerSecret;
-
-  if (cronSecret && providedSecret === cronSecret) {
+  if (isAdminAgentCronRequest(request)) {
     return {
       source: "cron" as const,
       userId: null,
@@ -114,21 +119,36 @@ async function buildOperationalSnapshot(
 ) {
   const thresholds = getAgentThresholds();
   const since = new Date(Date.now() - thresholds.windowHours * 60 * 60 * 1000).toISOString();
+  // 소스 하나의 예외가 점검 전체를 실패시키지 않도록 각각 감싼다.
+  const degradedSources: AgentSourceFailure[] = [];
+  const settle = createSourceSettler(degradedSources, "[ADMIN-AGENT-MONITOR]");
   const [apiErrors, aiUsage, pendingApprovals, approvalGateSummary, telemetryRows, latestPubgStatus, deploymentHealth, trafficSummary, dataQualityAudit, matchCollection] = await Promise.all([
-    fetchApiErrors(supabase, since),
-    fetchAiUsage(supabase, since),
-    fetchApprovalQueueSummary(supabase),
-    fetchApprovalGateSummary(supabase),
-    countTable(supabase, "processed_match_telemetry"),
-    fetchLatestPubgStatus(supabase),
-    fetchVercelDeploymentHealth(),
-    buildTrafficSummary(supabase, thresholds.windowHours),
+    settle<Awaited<ReturnType<typeof fetchApiErrors>>>("apiErrors", () => fetchApiErrors(supabase, since), (message) => ({ total: 0, actionableTotal: 0, expectedCount: 0, rateLimitedCount: 0, serverErrorCount: 0, otherClientErrorCount: 0, byStatus: {}, error: message })),
+    settle<Awaited<ReturnType<typeof fetchAiUsage>>>("aiUsage", () => fetchAiUsage(supabase, since), (message) => ({ totalRequests: 0, totalCostUsd: 0, error: message })),
+    settle("pendingApprovals", () => fetchApprovalQueueSummary(supabase), emptyApprovalQueueSummary),
+    settle("approvalGateSummary", () => fetchApprovalGateSummary(supabase), emptyApprovalGateSummary),
+    settle<Awaited<ReturnType<typeof countTable>>>("processedTelemetryRows", () => countTable(supabase, "processed_match_telemetry"), (message) => ({ count: 0, error: message })),
+    settle<Awaited<ReturnType<typeof fetchLatestPubgStatus>>>("pubgApiStatus", () => fetchLatestPubgStatus(supabase), (message) => ({ error: message })),
+    settle("deploymentHealth", () => fetchVercelDeploymentHealth(), unavailableDeploymentHealth),
+    settle("trafficSummary", () => buildTrafficSummary(supabase, thresholds.windowHours), (message) => buildUnavailableTrafficSummary(thresholds.windowHours, message)),
     fetchDataQualityAudit(supabase),
-    fetchMatchCollectionProgress(supabase)
+    settle<Awaited<ReturnType<typeof fetchMatchCollectionProgress>>>("matchCollection", () => fetchMatchCollectionProgress(supabase), () => ({ available: false as const, status: "unknown" as const }))
   ]);
-  const dataQualityApproval = await ensureDataQualityApproval(supabase, dataQualityAudit, options);
+  const dataQualityApproval: { created: boolean; approvalId?: string | null; reason: string; createdAt?: string } = await settle(
+    "dataQualityApproval",
+    () => ensureDataQualityApproval(supabase, dataQualityAudit, options),
+    () => ({ created: false, approvalId: null, reason: "create_failed" })
+  );
 
   const alerts: MonitorAlert[] = [];
+  if (degradedSources.length > 0) {
+    alerts.push({
+      type: "monitor_sources_unavailable",
+      severity: "warn",
+      message: `일부 점검 항목을 불러오지 못했습니다: ${degradedSources.map((item) => item.source).join(", ")}. 해당 항목의 0건은 정상이라는 뜻이 아닙니다.`,
+      value: degradedSources
+    });
+  }
   if (dataQualityAudit.error) {
     alerts.push({
       type: "data_quality_audit_failed",
@@ -148,7 +168,7 @@ async function buildOperationalSnapshot(
     alerts.push({
       type: "data_quality_identity_mismatch",
       severity: dataQualityAudit.mismatchCount >= 500 ? "critical" : "warn",
-      message: `processed_match_telemetry identity mismatch ${dataQualityAudit.mismatchCount}건 감지${dataQualityApproval.approvalId ? `, 승인 요청 ${dataQualityApproval.approvalId} 생성/유지` : ""}`,
+      message: `processed_match_telemetry identity mismatch ${dataQualityAudit.mismatchCount}건 감지${dataQualityApproval.approvalId ? `, 승인 요청 ${dataQualityApproval.approvalId} 생성/유지` : dataQualityApproval.reason === "create_failed" ? ", 승인 요청 생성 실패(대기열에 등록되지 않음)" : ""}`,
       value: {
         ...dataQualityAudit,
         approval: dataQualityApproval
@@ -327,6 +347,7 @@ async function buildOperationalSnapshot(
     thresholds,
     severity,
     alerts,
+    degradedSources,
     apiErrors,
     matchCollection,
     aiUsage,
@@ -377,18 +398,19 @@ function buildRecommendations(alerts: MonitorAlert[], dailyCheckout?: { status: 
   if (alerts.length === 0) return ["운영 상태가 정상 범위입니다."];
   return [
     ...alerts.map((alert) => {
-      if (alert.type === "api_errors") return "PUBG API 에러가 감지되었습니다. /admin/bot에서 route/status별 원인을 확인하세요.";
-      if (alert.type === "api_errors_unavailable") return "오류 집계가 확인되지 않았습니다. /admin/bot의 최근 실행 기록과 PUBG API 오류 기록을 확인하세요.";
+      if (alert.type === "api_errors") return "PUBG API 에러가 감지되었습니다. /admin/dashboard?section=status에서 route/status별 원인을 확인하세요.";
+      if (alert.type === "monitor_sources_unavailable") return "일부 점검 항목 조회가 실패했습니다. 서버 로그에서 해당 소스의 오류를 확인하고 다시 점검하세요.";
+      if (alert.type === "api_errors_unavailable") return "오류 집계가 확인되지 않았습니다. /admin/dashboard?section=status의 최근 실행 기록과 PUBG API 오류 기록을 확인하세요.";
       if (alert.type === "match_collection_stalled") return "전적 수집 대기열과 마지막 저장 시각을 확인하세요. 대기 건수만으로는 수집 완료 여부를 판단할 수 없습니다.";
       if (alert.type === "match_collection_unavailable") return "전적 수집 상태를 확인하지 못했습니다. Supabase 연결과 pubg_player_match_discovery 테이블 접근을 확인하세요.";
       if (alert.type === "ai_cost") return "AI 비용이 임계치를 넘었습니다. 고비용 모델/분석 타입을 점검하세요.";
-      if (alert.type === "pending_approvals") return "승인 대기 작업이 있습니다. /admin/bot 승인 패널에서 오래된 작업과 high risk 작업부터 검토하세요.";
+      if (alert.type === "pending_approvals") return "승인 대기 작업이 있습니다. /admin/dashboard?section=approvals에서 오래된 작업과 고위험 작업부터 검토하세요.";
       if (alert.type === "approval_gate_block") return "Execution Gate block 요청이 있습니다. 필수 대상값 누락을 해결하기 전에는 승인하지 마세요.";
       if (alert.type === "data_quality_identity_mismatch") return "전적 분석 identity mismatch가 감지되었습니다. Agent가 만든 승인 요청의 impact와 샘플을 확인한 뒤 필요한 범위만 승인하세요.";
       if (alert.type === "data_quality_schema_incomplete") return "전적 분석 identity 정리 전에 Supabase platform 컬럼 마이그레이션 적용 여부를 먼저 확인하세요.";
       if (alert.type === "data_quality_audit_failed") return "데이터 품질 감사가 실패했습니다. Supabase env와 processed_match_telemetry 스키마를 확인하세요.";
       if (alert.type === "pubg_quota") return "PUBG API quota가 낮습니다. 강제 재분석/스크래핑을 잠시 보류하세요.";
-      if (alert.type === "deployment_failure") return "Vercel 배포 상태가 불안정합니다. /admin/bot에서 배포 조회 후 실패 배포 로그를 확인하세요.";
+      if (alert.type === "deployment_failure") return "Vercel 배포 상태가 불안정합니다. AI 비서(/admin/bot)에서 배포 조회 후 실패 배포 로그를 확인하세요.";
       return alert.message;
     }),
     ...(dailyCheckout?.status === "blocked" ? [`Daily Checkout: ${dailyCheckout.summary} / 추천 프롬프트: ${dailyCheckout.handoffPrompt}`] : [])
@@ -457,7 +479,7 @@ function buildMonitorDiscordContent(snapshot: any): string {
       `**참고 절차**: ${cleanDiscordLine(snapshot.playbooks[0].title)}`,
     ] : []),
     "",
-    "확인 위치: `/admin/bot` 최근 운영 점검·오류 기록",
+    "확인 위치: `/admin/dashboard?section=status` 최근 운영 점검·오류 기록",
   ].filter(Boolean).join("\n").slice(0, 1900);
 }
 

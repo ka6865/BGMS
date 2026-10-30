@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import ConfirmModal from "@/components/common/ConfirmModal";
 
 interface ProposalChange {
   id: string;
@@ -114,6 +115,9 @@ export default function WeaponPatchReview() {
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [backfill, setBackfill] = useState<BackfillSummary | null>(null);
+  // 무기도감 DB를 바꾸는 반영·되돌리기는 확인 모달을 거친 뒤에만 실행한다.
+  const [applyTarget, setApplyTarget] = useState<Proposal | null>(null);
+  const [revertTarget, setRevertTarget] = useState<ApplyLog | null>(null);
 
   const loadLogs = useCallback(async () => {
     try {
@@ -197,10 +201,20 @@ export default function WeaponPatchReview() {
     return true;
   };
 
+  const requestApply = (proposal: Proposal) => {
+    const changeIds = selectedByProposal.get(proposal.id) ?? [];
+    if (changeIds.length === 0) {
+      toast.warning("반영할 항목을 먼저 선택해 주세요.");
+      return;
+    }
+    setApplyTarget(proposal);
+  };
+
   const handleApply = async (proposal: Proposal) => {
     const changeIds = selectedByProposal.get(proposal.id) ?? [];
     if (changeIds.length === 0) {
       toast.warning("반영할 항목을 먼저 선택해 주세요.");
+      setApplyTarget(null);
       return;
     }
 
@@ -229,6 +243,7 @@ export default function WeaponPatchReview() {
       toast.error(err instanceof Error ? err.message : "DB 반영 실패", { id: toastId });
     } finally {
       setBusy(false);
+      setApplyTarget(null);
     }
   };
 
@@ -311,6 +326,7 @@ export default function WeaponPatchReview() {
       toast.error(err instanceof Error ? err.message : "되돌리기 실패", { id: toastId });
     } finally {
       setBusy(false);
+      setRevertTarget(null);
     }
   };
 
@@ -414,9 +430,10 @@ export default function WeaponPatchReview() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => handleRevert(log)}
+                  onClick={() => setRevertTarget(log)}
                   disabled={busy}
-                  className="shrink-0 rounded bg-[#252525] px-3 py-1.5 text-[11px] font-black text-gray-300 transition-colors hover:bg-[#333] disabled:opacity-40"
+                  aria-label={`${log.target_id} ${log.column_name} 반영 되돌리기`}
+                  className="min-h-11 shrink-0 rounded bg-[#252525] px-3 py-1.5 text-xs font-black text-gray-300 transition-colors hover:bg-[#333] disabled:opacity-40 md:min-h-9"
                 >
                   되돌리기
                 </button>
@@ -427,6 +444,47 @@ export default function WeaponPatchReview() {
       </section>
     );
   };
+
+
+  const applyCount = applyTarget ? (selectedByProposal.get(applyTarget.id) ?? []).length : 0;
+  const confirmModals = (
+    <>
+      <ConfirmModal
+        isOpen={applyTarget !== null}
+        title="무기도감 DB 반영"
+        description={applyTarget
+          ? `${applyTarget.patchLabel ? `${applyTarget.patchLabel} 패치노트의 ` : ""}선택한 변경 ${applyCount}건을 승인하고 무기도감 DB에 바로 기록합니다. 사용자 화면의 무기 수치가 바뀝니다. 잘못 반영했다면 아래 최근 반영 이력에서 항목별로 되돌릴 수 있습니다.`
+          : ""}
+        confirmText={`${applyCount}건 반영`}
+        cancelText="취소"
+        type="warning"
+        isPending={busy}
+        onConfirm={() => {
+          if (applyTarget) handleApply(applyTarget);
+        }}
+        onCancel={() => {
+          if (!busy) setApplyTarget(null);
+        }}
+      />
+      <ConfirmModal
+        isOpen={revertTarget !== null}
+        title="반영 되돌리기"
+        description={revertTarget
+          ? `${revertTarget.target_id}의 ${revertTarget.column_name} 값을 이 반영 전 값과 패치 버전으로 되돌립니다. 무기도감 DB가 다시 바뀌며, 같은 변경이 필요하면 제안을 다시 반영해야 합니다.`
+          : ""}
+        confirmText="되돌리기"
+        cancelText="취소"
+        type="warning"
+        isPending={busy}
+        onConfirm={() => {
+          if (revertTarget) handleRevert(revertTarget);
+        }}
+        onCancel={() => {
+          if (!busy) setRevertTarget(null);
+        }}
+      />
+    </>
+  );
 
   if (loading) {
     return (
@@ -454,6 +512,7 @@ export default function WeaponPatchReview() {
         </div>
         {renderBackfillPanel()}
         {renderApplyHistory()}
+        {confirmModals}
       </div>
     );
   }
@@ -523,7 +582,7 @@ export default function WeaponPatchReview() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleApply(proposal)}
+                  onClick={() => requestApply(proposal)}
                   disabled={busy || selectedCount === 0}
                   className="rounded bg-[#F2A900] px-4 py-2 text-xs font-black text-black transition-colors hover:bg-[#cc8b00] disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -631,6 +690,7 @@ export default function WeaponPatchReview() {
       })}
 
       {renderApplyHistory()}
+      {confirmModals}
     </div>
   );
 }

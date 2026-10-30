@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchApprovalGateSummary, fetchApprovalQueueSummary } from "@/lib/admin-agent/approvals";
+import { emptyApprovalGateSummary, emptyApprovalQueueSummary, fetchApprovalGateSummary, fetchApprovalQueueSummary } from "@/lib/admin-agent/approvals";
 import { buildTodayActionBoard } from "@/lib/admin-agent/action-board";
 import { buildAgentApprovalAdvisor } from "@/lib/admin-agent/approval-advisor";
 import { buildAgentAutomationContracts } from "@/lib/admin-agent/automation-contracts";
@@ -8,7 +8,7 @@ import { buildCommandCenterMarkdown, buildDailyDigestMarkdown, buildFinalReadine
 import { buildContentPerformanceReport } from "@/lib/admin-agent/content-performance";
 import { buildAgentDailyCheckout } from "@/lib/admin-agent/daily-checkout";
 import { buildAgentDecisionTrace } from "@/lib/admin-agent/decision-trace";
-import { fetchVercelDeploymentHealth } from "@/lib/admin-agent/deployments";
+import { fetchVercelDeploymentHealth, unavailableDeploymentHealth } from "@/lib/admin-agent/deployments";
 import { buildAgentFinalReadiness } from "@/lib/admin-agent/final-readiness";
 import { buildAgentGrowthRoadmap } from "@/lib/admin-agent/growth-roadmap";
 import { buildAgentImprovementBacklog } from "@/lib/admin-agent/improvement-backlog";
@@ -16,7 +16,7 @@ import { buildAgentLaunchKit } from "@/lib/admin-agent/launch-kit";
 import { buildMemorySuggestions } from "@/lib/admin-agent/memory-suggestions";
 import { buildAgentMissionControl } from "@/lib/admin-agent/mission-control";
 import { buildAgentMonitorTrend } from "@/lib/admin-agent/monitor-trend";
-import { createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
+import { approvalCreationFailedResponse, createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
 import { buildNextBestActions } from "@/lib/admin-agent/next-actions";
 import { buildAgentOperatingMode } from "@/lib/admin-agent/operating-mode";
 import { buildAgentOperatingSop } from "@/lib/admin-agent/operating-sop";
@@ -32,10 +32,33 @@ import { runAgentSelfTest } from "@/lib/admin-agent/self-test";
 import { buildAgentRolloutReadiness } from "@/lib/admin-agent/rollout";
 import { getAgentThresholds } from "@/lib/admin-agent/thresholds";
 import { buildAgentToolCatalog } from "@/lib/admin-agent/tool-catalog";
-import { buildTrafficSummary } from "@/lib/admin-agent/traffic-summary";
+import { buildTrafficSummary, buildUnavailableTrafficSummary } from "@/lib/admin-agent/traffic-summary";
+import { AGENT_SOURCE_FAILURE_MESSAGE, createSourceSettler, type AgentSourceFailure } from "@/lib/admin-agent/settle";
+import type { AgentRolloutReadiness } from "@/lib/admin-agent/rollout";
+import type { AgentSelfTest } from "@/lib/admin-agent/self-test";
 import { withAuthGuard } from "@/utils/supabase/guard";
 
+const COMMAND_CENTER_ERROR_MESSAGE = "운영 커맨드센터 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+
 export async function GET(request: Request) {
+  try {
+    return await handleGet(request);
+  } catch (error: any) {
+    console.error("[COMMAND-CENTER] GET failed:", error?.message || error);
+    return NextResponse.json({ error: COMMAND_CENTER_ERROR_MESSAGE }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    return await handlePost(request);
+  } catch (error: any) {
+    console.error("[COMMAND-CENTER] POST failed:", error?.message || error);
+    return NextResponse.json({ error: COMMAND_CENTER_ERROR_MESSAGE }, { status: 500 });
+  }
+}
+
+async function handleGet(request: Request) {
   const auth = await withAuthGuard();
   if (auth.error) return auth.error;
   const { supabaseAdmin: supabase, user } = auth;
@@ -69,7 +92,7 @@ export async function GET(request: Request) {
   return NextResponse.json(payload);
 }
 
-export async function POST(request: Request) {
+async function handlePost(request: Request) {
   const auth = await withAuthGuard();
   if (auth.error) return auth.error;
   const { supabaseAdmin: supabase, user } = auth;
@@ -352,6 +375,10 @@ export async function POST(request: Request) {
     }
   });
 
+  if (!approvalId) {
+    return approvalCreationFailedResponse("운영 커맨드센터 리포트 저장", { format, markdown, commandCenter: payload });
+  }
+
   return NextResponse.json({
     success: true,
     approvalId,
@@ -361,30 +388,83 @@ export async function POST(request: Request) {
   });
 }
 
+function fallbackSelfTest(message: string): AgentSelfTest {
+  return {
+    generatedAt: new Date().toISOString(),
+    status: "warn",
+    checks: [{ id: "selftest:unavailable", label: "Agent self-test", status: "warn", message }],
+    toolCount: 0
+  };
+}
+
+function fallbackRollout(message: string): AgentRolloutReadiness {
+  return {
+    generatedAt: new Date().toISOString(),
+    status: "warn",
+    checks: [{
+      id: "rollout:unavailable",
+      label: "배포 전 점검",
+      status: "warn",
+      message,
+      action: "잠시 후 커맨드센터를 다시 불러오고, 계속 실패하면 서버 로그를 확인하세요."
+    }],
+    selfTest: fallbackSelfTest(message)
+  };
+}
+
 async function buildCommandCenterPayload(supabase: any) {
   const thresholds = getAgentThresholds();
+  // 병렬 조회 하나가 실패해도 나머지로 커맨드센터를 그린다. 실패한 소스는 degradedSources 에 남긴다.
+  const degradedSources: AgentSourceFailure[] = [];
+  const settle = createSourceSettler(degradedSources, "[COMMAND-CENTER]");
   const [latestRun, latestMonitorSnapshot, monitorTrend, pendingApprovals, approvalGateSummary, failedRuns, latestErrors, aiUsage, memories, latestReport, readiness, deploymentHealth, contentPerformance, rollout, recentAgentActivity, approvalOutcomes, trafficSummary, trafficSummary7d] = await Promise.all([
-    fetchLatestRun(supabase),
-    fetchLatestMonitorSnapshot(supabase),
-    fetchMonitorTrend(supabase),
-    fetchApprovalQueueSummary(supabase),
-    fetchApprovalGateSummary(supabase),
-    countRecentFailedRuns(supabase, thresholds.windowHours),
-    fetchRecentApiErrors(supabase, thresholds.windowHours),
-    fetchRecentAiUsage(supabase, thresholds.windowHours),
-    fetchRecentMemories(supabase),
-    fetchLatestReport(supabase),
-    runAgentSelfTest(supabase),
-    fetchVercelDeploymentHealth(),
-    fetchContentPerformance(supabase),
-    buildAgentRolloutReadiness(supabase),
-    fetchRecentAgentActivity(supabase, thresholds.windowHours),
-    fetchRecentApprovalOutcomes(supabase, thresholds.windowHours),
-    buildTrafficSummary(supabase, thresholds.windowHours),
-    buildTrafficSummary(supabase, 168)
+    settle<any>("latestRun", () => fetchLatestRun(supabase), (message) => ({ error: message })),
+    settle<Awaited<ReturnType<typeof fetchLatestMonitorSnapshot>>>("latestMonitorSnapshot", () => fetchLatestMonitorSnapshot(supabase), (message) => ({ item: null, error: message })),
+    settle<Awaited<ReturnType<typeof fetchMonitorTrend>>>("monitorTrend", () => fetchMonitorTrend(supabase), (message) => ({ ...buildAgentMonitorTrend([]), error: message })),
+    settle("pendingApprovals", () => fetchApprovalQueueSummary(supabase), emptyApprovalQueueSummary),
+    settle("approvalGateSummary", () => fetchApprovalGateSummary(supabase), emptyApprovalGateSummary),
+    settle<{ count: number; error?: string }>("failedRuns", () => countRecentFailedRuns(supabase, thresholds.windowHours), (message) => ({ count: 0, error: message })),
+    settle<{ total: number; latest: any[]; error?: string }>("apiErrors", () => fetchRecentApiErrors(supabase, thresholds.windowHours), (message) => ({ total: 0, latest: [], error: message })),
+    settle<{ totalRequests: number; totalCostUsd: number; error?: string }>("aiUsage", () => fetchRecentAiUsage(supabase, thresholds.windowHours), (message) => ({ totalRequests: 0, totalCostUsd: 0, error: message })),
+    settle<{ items: any[]; error?: string }>("memories", () => fetchRecentMemories(supabase), (message) => ({ items: [], error: message })),
+    settle<{ item: any; error?: string }>("latestReport", () => fetchLatestReport(supabase), (message) => ({ item: null, error: message })),
+    settle("readiness", () => runAgentSelfTest(supabase), fallbackSelfTest),
+    settle("deploymentHealth", () => fetchVercelDeploymentHealth(), unavailableDeploymentHealth),
+    settle<Awaited<ReturnType<typeof fetchContentPerformance>>>("contentPerformance", () => fetchContentPerformance(supabase), (message) => ({
+      totalPosts: 0,
+      totalViews: 0,
+      averageEngagementRate: 0,
+      momentum: { score: 0, label: "no_data", reason: "콘텐츠 성과 조회 실패" },
+      topPost: null,
+      topCategory: null,
+      lowEffortWins: [],
+      weeklyPlan: [],
+      recommendations: [],
+      error: message
+    } as any)),
+    settle("rollout", () => buildAgentRolloutReadiness(supabase), fallbackRollout),
+    settle<Awaited<ReturnType<typeof fetchRecentAgentActivity>>>("recentAgentActivity", () => fetchRecentAgentActivity(supabase, thresholds.windowHours), (message) => ({ totalRuns: 0, completedRuns: 0, failedRuns: 0, monitorRuns: 0, error: message })),
+    settle<Awaited<ReturnType<typeof fetchRecentApprovalOutcomes>>>("approvalOutcomes", () => fetchRecentApprovalOutcomes(supabase, thresholds.windowHours), (message) => ({ executed: 0, rejected: 0, failed: 0, error: message })),
+    settle("trafficSummary", () => buildTrafficSummary(supabase, thresholds.windowHours), (message) => buildUnavailableTrafficSummary(thresholds.windowHours, message)),
+    settle("trafficSummary7d", () => buildTrafficSummary(supabase, 168), (message) => buildUnavailableTrafficSummary(168, message))
   ]);
 
-  const severity = getSeverity({
+  // 예외 없이 { error } 를 돌려준 핵심 집계도 실패한 소스로 본다. 이 값들의 0은 "정상"이 아니라 "모름"이다.
+  const coreSources: Array<[string, any]> = [
+    ["pendingApprovals", pendingApprovals],
+    ["approvalGateSummary", approvalGateSummary],
+    ["failedRuns", failedRuns],
+    ["apiErrors", latestErrors],
+    ["aiUsage", aiUsage],
+    ["trafficSummary", trafficSummary]
+  ];
+  for (const [source, value] of coreSources) {
+    if (value?.error && !degradedSources.some((item) => item.source === source)) {
+      degradedSources.push({ source, message: AGENT_SOURCE_FAILURE_MESSAGE });
+    }
+  }
+
+  const baseSeverity = getSeverity({
     pendingApprovals: pendingApprovals.count,
     staleApprovals: pendingApprovals.staleCount,
     highRiskApprovals: pendingApprovals.highRiskCount,
@@ -394,6 +474,8 @@ async function buildCommandCenterPayload(supabase: any) {
     deploymentSeverity: deploymentHealth.severity,
     thresholds
   });
+  // 일부 집계를 읽지 못했으면 정상으로 단정하지 않고 최소 주의로 올린다.
+  const severity: typeof baseSeverity = baseSeverity === "ok" && degradedSources.length > 0 ? "warn" : baseSeverity;
   const nextActions = buildNextBestActions({
     pendingApprovals: pendingApprovals.count,
     staleApprovals: pendingApprovals.staleCount,
@@ -698,6 +780,8 @@ async function buildCommandCenterPayload(supabase: any) {
   return {
     generatedAt: new Date().toISOString(),
     severity,
+    // 병렬 조회 중 실패해 기본값으로 대체된 항목 목록(정상이면 빈 배열)
+    degradedSources,
     operatingMode,
     dailyCheckout,
     todayActionBoard,

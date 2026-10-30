@@ -112,6 +112,8 @@ export interface AgentStep {
 export interface AgentCommandCenter {
   generatedAt: string;
   severity: "ok" | "warn" | "critical";
+  /** 읽지 못해 기본값(0 등)으로 대체한 집계 목록. 이 항목의 0은 정상이 아니라 확인 불가다. */
+  degradedSources?: Array<{ source: string; message: string }>;
   operatingMode?: {
     mode: "normal" | "watch" | "incident" | "approval_review" | "deploy_guard";
     label: string;

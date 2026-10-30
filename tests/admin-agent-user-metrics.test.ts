@@ -67,6 +67,24 @@ describe("admin agent user metrics", () => {
     expect(renderUserMetricsSummaryText(summary)).not.toContain("수집 세션 0개");
   });
 
+  it("내부(is_internal=true) 이벤트는 운영 지표에서 빼고 제외 건수를 따로 보고한다", async () => {
+    const now = new Date().toISOString();
+    const summary = await buildUserMetricsSummary(createSupabaseMock({
+      authUsers: [], profiles: [],
+      analyticsRows: [
+        { event_name: "page_view", session_id: "prod-session", user_id: null, page_path: "/", params: {}, created_at: now, is_internal: false },
+        { event_name: "page_view", session_id: "legacy-session", user_id: null, page_path: "/", params: {}, created_at: now, is_internal: null },
+        { event_name: "page_view", session_id: "local-session", user_id: null, page_path: "/", params: {}, created_at: now, is_internal: true },
+        { event_name: "stats_searched", session_id: "local-session", user_id: null, page_path: "/stats", params: { nickname: "LocalOnly", platform: "steam" }, created_at: now, is_internal: true }
+      ]
+    }));
+    const text = renderUserMetricsSummaryText(summary);
+
+    expect(summary.activity).toMatchObject({ analyticsEvents: 2, analyticsSessions: 2, internalEventsExcluded: 2 });
+    expect(summary.topSearchedTargets).toEqual([]);
+    expect(text).toContain("내부(로컬/개발) 이벤트 2건은 운영 지표에서 제외했습니다.");
+  });
+
   it("전적 검색 대상 닉네임과 로그인 활동 회원을 분리한다", async () => {
     const supabase = createSupabaseMock({
       authUsers: [
@@ -132,14 +150,24 @@ function createSupabaseMock(input: {
       }
     },
     from(table: string) {
+      // DB 처럼 eq("is_internal", ...) 조건으로 analytics 행을 거르고, head 조회는 건수만 돌려준다.
+      const state: { internal?: boolean; head: boolean } = { head: false };
+      const analyticsRows = () => input.analyticsRows.filter((row: any) =>
+        state.internal === undefined ? true : (row.is_internal === true) === state.internal);
       const chain: any = {
-        select: vi.fn(() => chain),
+        select: vi.fn((_columns?: string, options?: { head?: boolean }) => { state.head = Boolean(options?.head); return chain; }),
+        eq: vi.fn((column: string, value: unknown) => { if (column === "is_internal") state.internal = value === true; return chain; }),
         gte: vi.fn(() => chain),
         order: vi.fn(() => chain),
         range: vi.fn(async () => ({ data: table === "profiles" ? input.profiles : [], error: input.profileError || null,
           count: input.profileCount === undefined ? input.profiles.length : input.profileCount })),
-        limit: vi.fn(async () => ({ data: table === "analytics_events" ? input.analyticsRows : [],
-          error: input.analyticsError || null, count: input.analyticsCount ?? input.analyticsRows.length }))
+        limit: vi.fn(async () => {
+          const rows = table === "analytics_events" ? analyticsRows() : [];
+          return { data: rows, error: input.analyticsError || null, count: input.analyticsCount ?? rows.length };
+        }),
+        then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+          Promise.resolve(state.head ? { count: table === "analytics_events" ? analyticsRows().length : 0, error: null } : { data: [], error: null })
+            .then(resolve, reject)
       };
       return chain;
     }

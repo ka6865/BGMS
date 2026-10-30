@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
+import { approvalCreationFailedResponse, createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
 import { withAuthGuard } from "@/utils/supabase/guard";
 
 export async function GET(request: Request) {
@@ -25,7 +25,10 @@ export async function GET(request: Request) {
   query = query.limit(limit);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[ADMIN-AGENT] Memory list failed:", error.message || error);
+    return NextResponse.json({ error: "운영 기억 목록을 불러오지 못했습니다." }, { status: 500 });
+  }
 
   const activeFiltered = includeInactive
     ? data || []
@@ -104,6 +107,8 @@ export async function POST(request: Request) {
       }
     }
   });
+
+  if (!approvalId) return approvalCreationFailedResponse("운영 기억 저장");
 
   return NextResponse.json({ success: true, approvalId });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildContentDraft } from "@/lib/admin-agent/content";
-import { createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
+import { approvalCreationFailedResponse, createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
 import { withAuthGuard } from "@/utils/supabase/guard";
 
 export async function GET(request: Request) {
@@ -48,6 +48,8 @@ export async function POST(request: Request) {
       draft
     }
   });
+
+  if (!approvalId) return approvalCreationFailedResponse("콘텐츠 초안 저장", { draft });
 
   return NextResponse.json({ success: true, approvalId, draft });
 }

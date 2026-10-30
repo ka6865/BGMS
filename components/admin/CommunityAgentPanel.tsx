@@ -269,7 +269,7 @@ export default function CommunityAgentPanel() {
 
   if (!status) {
     return (
-      <main className="min-h-screen bg-zinc-950 px-4 py-6 text-zinc-100 sm:px-6">
+      <main className="min-h-full bg-zinc-950 px-4 py-6 text-zinc-100 sm:px-6">
         <section className="mx-auto max-w-5xl rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
           <h1 className="text-base font-semibold">커뮤니티 운영</h1>
           {error ? <p role="alert" className="mt-3 text-sm text-rose-300">{error}</p> : <p className="mt-3 text-sm text-zinc-400">운영 상태를 확인하고 있습니다.</p>}
@@ -292,7 +292,7 @@ export default function CommunityAgentPanel() {
   const setSources = (source: CollectSource, enabled: boolean) => void updatePolicy({ sourceEnabled: { ...policy.sourceEnabled, [source]: enabled } }, `source-${source}`);
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-4 py-5 text-zinc-100 sm:px-6 sm:py-7">
+    <main className="min-h-full bg-zinc-950 px-4 py-5 text-zinc-100 sm:px-6 sm:py-7">
       <div className="mx-auto max-w-5xl space-y-4">
         <header className="flex flex-col gap-3 border-b border-zinc-800 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>

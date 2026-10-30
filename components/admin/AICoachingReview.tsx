@@ -108,7 +108,7 @@ export default function AICoachingReview() {
   const approvalReady = !!draft && Object.values(draft).every(value => value.trim());
   const total = list ? Object.values(list.counts).reduce((sum, count) => sum + count, 0) : 0;
 
-  return <main className="min-h-screen bg-[#090b10] px-4 py-6 text-zinc-100 sm:px-6">
+  return <main className="min-h-full bg-[#090b10] px-4 py-6 text-zinc-100 sm:px-6">
     <div className="mx-auto max-w-7xl space-y-6">
       <header className="space-y-3">
         <Link href="/admin/dashboard" className="inline-flex min-h-11 items-center gap-2 text-sm text-zinc-400" onClick={event => { if (saving || !canLeave()) event.preventDefault(); }}><ArrowLeft className="h-4 w-4" />관리자 대시보드</Link>

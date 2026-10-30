@@ -1,42 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const {
-  mockCreateServerClient,
-  mockCreateSupabaseAdminClient,
+  mockAdminClient,
   mockDeleteUser,
   mockListUsers,
   mockProfileMaybeSingle,
   mockProfileDeleteEq,
   mockProfilesRange,
   mockSaveProfile,
-  mockAiUsageLimit
+  mockAiUsageLimit,
+  mockAdminCount,
+  mockAuditInsert
 } = vi.hoisted(() => {
-  const serverProfileChain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    single: vi.fn().mockResolvedValue({ data: { role: "admin" }, error: null })
-  };
-  const mockCreateServerClient = vi.fn().mockResolvedValue({
-    auth: {
-      getUser: vi.fn().mockResolvedValue({ data: { user: { id: "admin-user" } }, error: null })
-    },
-    from: vi.fn(() => serverProfileChain)
-  });
-
   const mockDeleteUser = vi.fn().mockResolvedValue({ error: null });
   const mockListUsers = vi.fn().mockResolvedValue({
     data: { users: [{ id: "target-user" }] },
     error: null
   });
-  const mockProfileMaybeSingle = vi.fn().mockResolvedValue({ data: { id: "target-user" }, error: null });
+  const mockProfileMaybeSingle = vi.fn().mockResolvedValue({ data: { id: "target-user", role: "user" }, error: null });
   const mockProfileDeleteEq = vi.fn().mockResolvedValue({ data: null, error: null });
   const mockProfilesRange = vi.fn().mockResolvedValue({ data: [], error: null });
   const mockAiUsageLimit = vi.fn().mockResolvedValue({ data: [], error: null });
+  // 관리자 수 count(head) 조회 결과
+  const mockAdminCount = vi.fn().mockReturnValue({ count: 2, error: null });
+  const mockAuditInsert = vi.fn().mockResolvedValue({ data: null, error: null });
   const aiUsageChain = { select: vi.fn().mockReturnThis(), gte: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), limit: mockAiUsageLimit };
   const mockSaveProfile = vi.fn().mockResolvedValue({ data: null, error: null });
   const adminProfileSelectChain: any = {
     maybeSingle: mockProfileMaybeSingle,
-    range: mockProfilesRange
+    range: mockProfilesRange,
+    then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+      Promise.resolve(mockAdminCount()).then(resolve, reject)
   };
   adminProfileSelectChain.select = vi.fn(() => adminProfileSelectChain);
   adminProfileSelectChain.eq = vi.fn(() => adminProfileSelectChain);
@@ -47,7 +41,8 @@ const {
     select: vi.fn(() => adminProfileSelectChain),
     delete: vi.fn(() => adminProfileDeleteChain)
   };
-  const mockCreateSupabaseAdminClient = vi.fn(() => ({
+  const auditTable = { insert: mockAuditInsert };
+  const mockAdminClient = {
     rpc: mockSaveProfile,
     auth: {
       admin: {
@@ -55,28 +50,32 @@ const {
         deleteUser: mockDeleteUser
       }
     },
-    from: vi.fn((table: string) => table === "ai_usage_logs" ? aiUsageChain : adminProfilesTable)
-  }));
+    from: vi.fn((table: string) => table === "ai_usage_logs"
+      ? aiUsageChain
+      : table === "admin_audit_events" ? auditTable : adminProfilesTable)
+  };
 
   return {
-    mockCreateServerClient,
-    mockCreateSupabaseAdminClient,
+    mockAdminClient,
     mockDeleteUser,
     mockListUsers,
     mockProfileMaybeSingle,
     mockProfileDeleteEq,
     mockProfilesRange,
     mockSaveProfile,
-    mockAiUsageLimit
+    mockAiUsageLimit,
+    mockAdminCount,
+    mockAuditInsert
   };
 });
 
-vi.mock("@/utils/supabase/server", () => ({
-  createClient: mockCreateServerClient
-}));
-
-vi.mock("@supabase/supabase-js", () => ({
-  createClient: mockCreateSupabaseAdminClient
+vi.mock("@/lib/server/adminGuard", () => ({
+  requireAdmin: vi.fn(async () => ({
+    ok: true,
+    user: { id: "admin-user" },
+    supabaseAdmin: mockAdminClient,
+    nickname: "관리자"
+  }))
 }));
 
 import { DELETE, GET, POST } from "../app/api/admin/users/route";
@@ -92,7 +91,9 @@ describe("admin users API", () => {
       error: null
     });
     mockDeleteUser.mockResolvedValue({ error: null });
-    mockProfileMaybeSingle.mockResolvedValue({ data: { id: "target-user" }, error: null });
+    mockProfileMaybeSingle.mockResolvedValue({ data: { id: "target-user", role: "user" }, error: null });
+    mockAdminCount.mockReturnValue({ count: 2, error: null });
+    mockAuditInsert.mockResolvedValue({ data: null, error: null });
     mockProfileDeleteEq.mockResolvedValue({ data: null, error: null });
     mockProfilesRange.mockResolvedValue({ data: [], error: null });
     mockSaveProfile.mockResolvedValue({ data: null, error: null });
@@ -227,5 +228,84 @@ describe("admin users API", () => {
     expect(response.status).toBe(200);
     expect(mockProfilesRange).toHaveBeenNthCalledWith(1, 0, 999);
     expect(mockProfilesRange).toHaveBeenNthCalledWith(2, 1000, 1999);
+  });
+
+  it("관리자 역할 계정은 강등 전에는 삭제하지 않는다", async () => {
+    mockProfileMaybeSingle.mockResolvedValueOnce({ data: { id: "other-admin", role: "admin" }, error: null });
+
+    const response = await DELETE(new Request("http://localhost/api/admin/users?id=other-admin", { method: "DELETE" }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toContain("관리자 계정은 삭제할 수 없습니다");
+    expect(mockDeleteUser).not.toHaveBeenCalled();
+    expect(mockProfileDeleteEq).not.toHaveBeenCalled();
+  });
+
+  it("회원 삭제는 실행 전후로 감사 로그를 남긴다", async () => {
+    const response = await DELETE(new Request("http://localhost/api/admin/users?id=target-user", { method: "DELETE" }));
+
+    expect(response.status).toBe(200);
+    const phases = mockAuditInsert.mock.calls.map(([row]) => row.detail.phase);
+    expect(phases).toEqual(["requested", "succeeded"]);
+    expect(mockAuditInsert.mock.calls[0][0]).toMatchObject({ actor_id: "admin-user", action: "users.delete", target_type: "user", target_id: "target-user" });
+  });
+
+  it("삭제 실패 응답에 DB 원문 오류를 노출하지 않는다", async () => {
+    mockDeleteUser.mockResolvedValueOnce({ error: { message: "internal auth detail" } });
+
+    const response = await DELETE(new Request("http://localhost/api/admin/users?id=target-user", { method: "DELETE" }));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error).not.toContain("internal auth detail");
+    expect(mockAuditInsert.mock.calls.map(([row]) => row.detail.phase)).toEqual(["requested", "failed"]);
+  });
+
+  it("현재 로그인한 관리자 본인의 강등은 막는다", async () => {
+    mockProfileMaybeSingle.mockResolvedValueOnce({ data: { id: "admin-user", role: "admin" }, error: null });
+
+    const response = await POST(new Request("http://localhost/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({ id: "admin-user", role: "user" })
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toContain("직접 낮출 수 없습니다");
+    expect(mockSaveProfile).not.toHaveBeenCalled();
+  });
+
+  it("마지막 관리자는 강등하지 않는다", async () => {
+    mockProfileMaybeSingle.mockResolvedValueOnce({ data: { id: "other-admin", role: "admin" }, error: null });
+    mockAdminCount.mockReturnValue({ count: 1, error: null });
+
+    const response = await POST(new Request("http://localhost/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({ id: "other-admin", role: "user" })
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toContain("마지막 관리자");
+    expect(mockSaveProfile).not.toHaveBeenCalled();
+  });
+
+  it("다른 관리자가 남아 있으면 강등하고 역할 변경을 감사 로그에 남긴다", async () => {
+    mockProfileMaybeSingle.mockResolvedValueOnce({ data: { id: "other-admin", role: "admin" }, error: null });
+    mockAdminCount.mockReturnValue({ count: 2, error: null });
+
+    const response = await POST(new Request("http://localhost/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({ id: "other-admin", role: "user" })
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mockSaveProfile).toHaveBeenCalledWith("save_admin_profile", { p_user_id: "other-admin", p_profile: { role: "user" } });
+    expect(mockAuditInsert).toHaveBeenCalledWith(expect.objectContaining({
+      action: "users.role_change",
+      target_id: "other-admin",
+      detail: expect.objectContaining({ from: "admin", to: "user", phase: "succeeded" })
+    }));
   });
 });

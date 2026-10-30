@@ -132,7 +132,7 @@ function buildGuardrails(input: OperatingModeInput, mode: AgentOperatingModeName
     "정상 상태에서는 Discord 알림을 보내지 않는다."
   ];
 
-  if (mode === "incident") guardrails.push("장애 대응 중에는 캐시 삭제보다 원인 로그와 quota 확인을 먼저 한다.");
+  if (mode === "incident") guardrails.push("장애 대응 중에는 데이터 정리 승인보다 원인 로그와 quota 확인을 먼저 한다.");
   if (mode === "approval_review") guardrails.push("고위험 승인은 impact 재계산과 승인 메모를 남긴 뒤 실행한다.");
   if (mode === "deploy_guard") guardrails.push("배포 보호 모드에서는 rollout block 항목 해소 전 위험 작업을 미룬다.");
   if (input.aiUsage.totalCostUsd >= input.thresholds.aiCostWarnUsd) guardrails.push("AI 비용 상승 시 긴 분석/콘텐츠 생성 요청은 수동 확인 후 진행한다.");

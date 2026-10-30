@@ -46,15 +46,11 @@ export type ApprovalExecutionGate = {
 const SUPPORTED_APPROVAL_ACTIONS = new Set([
   "create_board_post",
   "update_board_post",
-  "flush_old_cache",
-  "flush_player_cache",
-  "flush_match_cache",
-  "reset_benchmarks",
   "repair_processed_telemetry_identity",
   "save_agent_memory",
   "save_agent_report"
 ]);
-const HIGH_RISK_GATE_ACTIONS = new Set(["flush_old_cache", "flush_player_cache", "flush_match_cache", "reset_benchmarks", "repair_processed_telemetry_identity"]);
+const HIGH_RISK_GATE_ACTIONS = new Set(["repair_processed_telemetry_identity"]);
 
 export function buildApprovalExecutionGate(
   actionType: string,
@@ -95,16 +91,6 @@ export function buildApprovalExecutionGate(
     }
   }
 
-  if (actionType === "flush_player_cache" && !String(payload.nickname || "").trim()) {
-    reasons.push("플레이어 캐시 삭제 대상 nickname이 없습니다.");
-    requiredBeforeApproval.push("대상 player를 지정한 캐시 삭제 요청을 다시 생성하세요.");
-  }
-
-  if (actionType === "flush_match_cache" && !String(payload.matchId || "").trim()) {
-    reasons.push("매치 캐시 삭제 대상 matchId가 없습니다.");
-    requiredBeforeApproval.push("대상 matchId를 지정한 캐시 삭제 요청을 다시 생성하세요.");
-  }
-
   if (actionType === "repair_processed_telemetry_identity") {
     const targets = Array.isArray(payload.targets) ? payload.targets : [];
     if (targets.length === 0) {
@@ -128,8 +114,13 @@ export function buildApprovalExecutionGate(
     }
   }
 
-  if ((impact?.checklist || []).some((item) => item.status === "warning")) {
+  const warningItems = (impact?.checklist || []).filter((item) => item.status === "warning");
+  if (warningItems.length) {
     reasons.push("impact checklist에 warning 항목이 있습니다.");
+    // 고위험 작업은 impact 계산 오류나 유효 대상 0건 같은 warning 을 재확인으로 넘기지 않고 차단한다.
+    if (HIGH_RISK_GATE_ACTIONS.has(actionType)) {
+      requiredBeforeApproval.push("impact checklist의 warning 항목(계산 오류, 유효 대상 0건 등)을 해소한 뒤 impact를 다시 계산하세요.");
+    }
   }
 
   if (reasons.length && requiredBeforeApproval.length) {
@@ -305,132 +296,6 @@ export async function calculateApprovalImpact(
           message: `게시글 #${payload.postId}의 원본 반영은 수정 초안 확인 후 별도 발행이 필요합니다.`
         }
       ]
-    };
-  }
-
-  if (actionType === "flush_old_cache") {
-    const olderThanDays = Number(payload.olderThanDays || 14);
-    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
-    const rows = await countRows(supabase, "processed_match_telemetry", "updated_at", cutoff, "lt");
-    return {
-      risk: "high",
-      estimatedRows: rows.count,
-      summary: `${olderThanDays}일 이상 지난 processed_match_telemetry 캐시 ${rows.count}개 삭제 예상`,
-      details: { olderThanDays, cutoff, ...rows },
-      preview: {
-        headline: "오래된 분석 캐시 삭제 미리보기",
-        items: [
-          { label: "대상", value: "processed_match_telemetry" },
-          { label: "조건", value: `updated_at < ${cutoff}` },
-          { label: "기준", value: `${olderThanDays}일 이상 경과` },
-          { label: "예상 row", value: `${rows.count.toLocaleString("ko-KR")}개` }
-        ],
-        warnings: [
-          "승인 직전 impact를 다시 계산합니다.",
-          "삭제 후 해당 분석은 재요청 시 다시 생성됩니다."
-        ]
-      },
-      checklist: cacheChecklist([
-        `${olderThanDays}일 이상 지난 데이터만 삭제 대상입니다.`,
-        rows.error ? `영향 계산 오류: ${rows.error}` : `삭제 예상 row: ${rows.count.toLocaleString("ko-KR")}개`,
-        "승인 직전 impact를 다시 계산합니다."
-      ], rows.error)
-    };
-  }
-
-  if (actionType === "flush_player_cache") {
-    const nickname = String(payload.nickname || "").toLowerCase().trim();
-    const rows = nickname
-      ? await countRows(supabase, "processed_match_telemetry", "player_id", nickname)
-      : { count: 0, error: "nickname is missing" };
-    return {
-      risk: "high",
-      estimatedRows: rows.count,
-      summary: `${nickname || "unknown"} 플레이어 캐시 ${rows.count}개 삭제 예상`,
-      details: { playerId: nickname || null, ...rows },
-      preview: {
-        headline: "플레이어 분석 캐시 삭제 미리보기",
-        items: [
-          { label: "대상 player", value: nickname || "미지정" },
-          { label: "테이블", value: "processed_match_telemetry" },
-          { label: "조건", value: nickname ? `player_id = ${nickname}` : "player_id 미지정" },
-          { label: "예상 row", value: `${rows.count.toLocaleString("ko-KR")}개` }
-        ],
-        warnings: [
-          ...(nickname ? [] : ["대상 player가 비어 있습니다. 승인하지 말고 재요청하세요."]),
-          "해당 플레이어 분석 캐시만 정리합니다."
-        ]
-      },
-      checklist: cacheChecklist([
-        nickname ? `대상 player_id: ${nickname}` : "대상 player가 비어 있습니다.",
-        rows.error ? `영향 계산 오류: ${rows.error}` : `삭제 예상 row: ${rows.count.toLocaleString("ko-KR")}개`,
-        "해당 플레이어 분석 캐시만 정리합니다."
-      ], rows.error || !nickname)
-    };
-  }
-
-  if (actionType === "flush_match_cache") {
-    const matchId = String(payload.matchId || "").trim();
-    const nickname = payload.nickname ? String(payload.nickname).toLowerCase().trim() : null;
-    const rows = matchId
-      ? await countMatchCacheRows(supabase, matchId, nickname)
-      : { count: 0, error: "matchId is missing" };
-    return {
-      risk: "high",
-      estimatedRows: rows.count,
-      summary: `${matchId || "unknown"} 매치 캐시 ${rows.count}개 및 telemetry/${matchId || "unknown"}.json 삭제 예상`,
-      details: {
-        matchId: matchId || null,
-        playerId: nickname,
-        storageObject: matchId ? `${matchId}.json` : null,
-        ...rows
-      },
-      preview: {
-        headline: "매치 분석 캐시 삭제 미리보기",
-        items: [
-          { label: "대상 match", value: matchId || "미지정" },
-          { label: "대상 player", value: nickname || "전체 매치" },
-          { label: "예상 row", value: `${rows.count.toLocaleString("ko-KR")}개` },
-          { label: "Storage 파일", value: matchId ? `telemetry/${matchId}.json` : "계산 불가" }
-        ],
-        warnings: [
-          ...(matchId ? [] : ["대상 matchId가 비어 있습니다. 승인하지 말고 재요청하세요."]),
-          "Storage 파일과 DB 캐시가 함께 정리될 수 있습니다."
-        ]
-      },
-      checklist: cacheChecklist([
-        matchId ? `대상 match_id: ${matchId}` : "대상 matchId가 비어 있습니다.",
-        nickname ? `대상 player_id: ${nickname}` : "전체 매치 캐시 기준입니다.",
-        rows.error ? `영향 계산 오류: ${rows.error}` : `삭제 예상 row: ${rows.count.toLocaleString("ko-KR")}개`,
-        matchId ? `R2 telemetry object 후보: ${matchId}.json` : "R2 파일명 계산 불가"
-      ], rows.error || !matchId)
-    };
-  }
-
-  if (actionType === "reset_benchmarks") {
-    const rows = await countRows(supabase, "global_benchmarks");
-    return {
-      risk: "high",
-      estimatedRows: rows.count,
-      summary: `global_benchmarks ${rows.count}개 초기화 예상`,
-      details: rows,
-      preview: {
-        headline: "벤치마크 초기화 미리보기",
-        items: [
-          { label: "대상", value: "global_benchmarks" },
-          { label: "예상 row", value: `${rows.count.toLocaleString("ko-KR")}개` },
-          { label: "영향", value: "재계산 전까지 통계 기준값에 영향" }
-        ],
-        warnings: [
-          "트래픽이 낮은 시간대 실행을 권장합니다.",
-          "초기화 직후 일부 통계 비교값이 일시적으로 비어 보일 수 있습니다."
-        ]
-      },
-      checklist: cacheChecklist([
-        rows.error ? `영향 계산 오류: ${rows.error}` : `초기화 예상 benchmark row: ${rows.count.toLocaleString("ko-KR")}개`,
-        "벤치마크는 재계산 전까지 통계 기준값에 영향을 줄 수 있습니다.",
-        "서비스 트래픽이 낮은 시간대 실행을 권장합니다."
-      ], rows.error)
     };
   }
 
@@ -779,29 +644,3 @@ function cacheChecklist(messages: string[], hasWarning?: unknown): ApprovalImpac
   }));
 }
 
-async function countRows(
-  supabase: any,
-  table: string,
-  column?: string,
-  value?: string,
-  operator: "eq" | "lt" = "eq"
-) {
-  let query = supabase.from(table).select("*", { count: "exact", head: true });
-  if (column && value !== undefined) query = operator === "lt" ? query.lt(column, value) : query.eq(column, value);
-
-  const { count, error } = await query;
-  if (error) return { count: 0, error: error.message };
-  return { count: count || 0 };
-}
-
-async function countMatchCacheRows(supabase: any, matchId: string, nickname: string | null) {
-  let query = supabase
-    .from("processed_match_telemetry")
-    .select("*", { count: "exact", head: true })
-    .eq("match_id", matchId);
-  if (nickname) query = query.eq("player_id", nickname);
-
-  const { count, error } = await query;
-  if (error) return { count: 0, error: error.message };
-  return { count: count || 0 };
-}

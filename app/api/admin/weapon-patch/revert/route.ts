@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/server/adminGuard";
+import { recordAdminAudit } from "@/lib/server/adminAudit";
 
 /**
  * 적용 로그 1건을 되돌립니다.
@@ -24,8 +25,24 @@ export async function POST(request: Request) {
   });
 
   if (error) {
-    return NextResponse.json({ error: `되돌리기 실패: ${error.message}` }, { status: 500 });
+    console.error("[WEAPON-PATCH] revert failed:", logId, error.message || error);
+    await recordAdminAudit(admin.supabaseAdmin, {
+      actorId: admin.user.id,
+      action: "weapon_patch.revert",
+      targetType: "weapon_patch_apply_log",
+      targetId: logId,
+      phase: "failed"
+    });
+    return NextResponse.json({ error: "되돌리기 실패: 적용 이력을 되돌리지 못했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
   }
+
+  await recordAdminAudit(admin.supabaseAdmin, {
+    actorId: admin.user.id,
+    action: "weapon_patch.revert",
+    targetType: "weapon_patch_apply_log",
+    targetId: logId,
+    phase: "succeeded"
+  });
 
   return NextResponse.json({ success: true });
 }
@@ -50,7 +67,8 @@ export async function GET(request: Request) {
 
   const { data, error } = await query;
   if (error) {
-    return NextResponse.json({ error: `이력 조회 실패: ${error.message}` }, { status: 500 });
+    console.error("[WEAPON-PATCH] apply log list failed:", error.message || error);
+    return NextResponse.json({ error: "이력 조회 실패: 적용 이력을 불러오지 못했습니다." }, { status: 500 });
   }
 
   return NextResponse.json({ logs: data ?? [] });

@@ -45,6 +45,8 @@ interface AdminAgentChatProps {
   onOpenDashboard?: () => void;
   onOpenApprovals?: (approvalId?: string) => void;
   onApprovalCreated?: (approvalId?: string) => void;
+  /** 페이지 모드 헤더 왼쪽에 뒤로가기·제목 대신 넣을 요소(예: 화면 탭). 세로 공간을 아끼기 위해 쓴다. */
+  headerLeading?: React.ReactNode;
   className?: string;
 }
 
@@ -58,6 +60,7 @@ export default function AdminAgentChat({
   onOpenDashboard,
   onOpenApprovals,
   onApprovalCreated,
+  headerLeading,
   className = ""
 }: AdminAgentChatProps) {
   const isSheet = mode === "sheet";
@@ -336,7 +339,7 @@ export default function AdminAgentChat({
 
   return (
     <div className={`${isSheet ? "flex h-full min-h-0 w-full flex-col overflow-hidden bg-zinc-950 text-zinc-50" : "flex h-full min-h-0 w-full flex-col overflow-hidden bg-zinc-950 font-sans text-zinc-50 antialiased"} ${className}`}>
-      <header className={`${isSheet ? "z-10 shrink-0 border-b border-zinc-800 bg-zinc-950 px-4 py-3" : "sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-900/90 p-3 backdrop-blur-md sm:p-4"}`}>
+      <header className={`${isSheet ? "z-10 shrink-0 border-b border-zinc-800 bg-zinc-950 px-4 py-3" : "sticky top-0 z-10 flex items-center justify-between gap-1 border-b border-zinc-800 bg-zinc-900/90 px-2 py-1 backdrop-blur-md sm:gap-2 sm:p-3"}`}>
         {isSheet ? (
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -362,21 +365,29 @@ export default function AdminAgentChat({
                   </span>
                 )}
               </button>
-              <button type="button" onClick={handleReset} className="rounded-full p-2 text-zinc-500 active:bg-zinc-900 active:text-zinc-100" title="대화 리셋">
+              <button type="button" onClick={handleReset} aria-label="대화 리셋" className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 active:bg-zinc-900 active:text-zinc-100" title="대화 리셋">
                 <RotateCcw className="h-4 w-4" />
               </button>
-              <button type="button" onClick={onClose} className="rounded-full p-2 text-zinc-400 active:bg-zinc-900 active:text-zinc-100" title="닫기">
+              <button type="button" onClick={onClose} aria-label="AI 비서 닫기" className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-400 active:bg-zinc-900 active:text-zinc-100" title="닫기">
                 <X className="h-4 w-4" />
               </button>
             </div>
           </div>
         ) : (
           <>
+            {headerLeading ? (
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <h1 className="sr-only">{settings.botName}</h1>
+                {headerLeading}
+              </div>
+            ) : (
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
               <button
+                type="button"
                 onClick={onBack}
-                className="rounded-full p-1.5 text-zinc-400 transition-colors active:bg-zinc-800 active:text-zinc-100"
-                title="운영 대시보드"
+                aria-label="운영 대시보드로 돌아가기"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors active:bg-zinc-800 active:text-zinc-100"
+                title="운영 대시보드로 돌아가기"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
@@ -388,11 +399,14 @@ export default function AdminAgentChat({
                 <p className="truncate text-[11px] text-zinc-400 sm:text-xs">말로 요청하고, 실행 관리는 대시보드에서 합니다.</p>
               </div>
             </div>
+            )}
 
             <div className="flex shrink-0 items-center gap-1">
               <button
+                type="button"
                 onClick={onOpenDashboard}
-                className="relative flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs font-semibold text-amber-300 transition-colors active:border-amber-400 sm:px-3"
+                aria-label={pendingApprovalCount > 0 ? `운영 대시보드 열기, 승인 대기 ${pendingApprovalCount}건` : "운영 대시보드 열기"}
+                className="relative flex min-h-11 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs font-semibold text-amber-300 transition-colors active:border-amber-400 sm:px-3"
                 title="운영 대시보드"
               >
                 <Activity className="h-4 w-4" />
@@ -404,15 +418,20 @@ export default function AdminAgentChat({
                 )}
               </button>
               <button
+                type="button"
                 onClick={handleReset}
-                className="rounded-full p-2 text-zinc-400 transition-colors active:bg-zinc-800 active:text-zinc-100"
+                aria-label="대화 리셋"
+                className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-400 transition-colors active:bg-zinc-800 active:text-zinc-100"
                 title="대화 리셋"
               >
                 <RotateCcw className="h-4 w-4" />
               </button>
               <button
+                type="button"
                 onClick={() => setShowSettings(!showSettings)}
-                className={`rounded-full p-2 transition-colors ${showSettings ? "bg-amber-500/10 text-amber-500" : "text-zinc-400 active:bg-zinc-800"}`}
+                aria-label="봇 설정"
+                aria-expanded={showSettings}
+                className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors ${showSettings ? "bg-amber-500/10 text-amber-500" : "text-zinc-400 active:bg-zinc-800"}`}
                 title="봇 설정"
               >
                 <Settings className="h-4 w-4" />
@@ -424,8 +443,9 @@ export default function AdminAgentChat({
 
       {!isSheet && showSettings && (
         <div className="border-b border-zinc-800 bg-zinc-900/90 p-4">
-          <h2 className="mb-2 text-xs font-semibold text-amber-500">에이전트 페르소나 지침</h2>
+          <label htmlFor="admin-agent-system-prompt" className="mb-2 block text-xs font-semibold text-amber-500">에이전트 페르소나 지침</label>
           <textarea
+            id="admin-agent-system-prompt"
             value={settings.systemPrompt}
             onChange={(event) => setSettings({ ...settings, systemPrompt: event.target.value })}
             className="w-full rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 text-xs text-zinc-300 focus:border-amber-500 focus:outline-none"
@@ -522,13 +542,15 @@ export default function AdminAgentChat({
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
             placeholder="운영 점검이나 승인 요청을 말로 시켜주세요..."
+            aria-label="AI 비서에게 보낼 메시지"
             disabled={isLoading}
             className="min-w-0 flex-1 rounded-full border border-zinc-800 bg-zinc-950 px-4 py-2.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-50"
           />
           <button
             type="submit"
             disabled={!inputValue.trim() || isLoading}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500 text-zinc-950 transition-transform active:scale-95 disabled:bg-zinc-800 disabled:text-zinc-600"
+            aria-label={isLoading ? "응답을 기다리는 중" : "메시지 보내기"}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-500 text-zinc-950 transition-transform active:scale-95 disabled:bg-zinc-800 disabled:text-zinc-600"
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </button>
@@ -632,7 +654,6 @@ function getToolLabel(toolName: string) {
     inspect_final_readiness: "최종 점검",
     inspect_user_activity: "유저 활동",
     inspect_user_metrics: "유저 지표",
-    request_cache_cleanup: "캐시 정리",
     search_agent_memories: "기억 검색",
     request_agent_memory: "기억 저장",
     generate_operations_briefing: "브리핑 생성",

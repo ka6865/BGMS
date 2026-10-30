@@ -157,7 +157,7 @@ function buildDecisions(input: Parameters<typeof buildAgentDecisionTrace>[0], ob
       conclusion: "위험 작업 실행보다 Execution Gate block과 승인 대기열 정리가 우선입니다.",
       basedOn: ["gate", "checkout", "approvals"],
       confidence: blockCount > 0 ? "high" : "medium",
-      nextCheck: "/admin/bot 승인 패널",
+      nextCheck: "/admin/dashboard?section=approvals · 승인 대기",
       prompt: "승인 대기 작업을 impact 기준으로 검토해줘"
     }));
   }
@@ -169,7 +169,7 @@ function buildDecisions(input: Parameters<typeof buildAgentDecisionTrace>[0], ob
       conclusion: `${topRisk.title} 항목이 다음 예방 우선순위입니다.`,
       basedOn: ["risk-radar", "signals", "monitor-trend"],
       confidence: topRisk.score >= 70 ? "high" : "medium",
-      nextCheck: "/admin/bot Risk Radar",
+      nextCheck: "/admin/bot · AI 비서에게 선제 위험 점검 요청",
       prompt: topRisk.prompt
     }));
   }
@@ -181,7 +181,7 @@ function buildDecisions(input: Parameters<typeof buildAgentDecisionTrace>[0], ob
       conclusion: `${topSop.title} 절차를 따르면 지금 상태의 조치 경계를 유지할 수 있습니다.`,
       basedOn: ["severity", "checkout", "risk-radar"],
       confidence: input.operatingSop?.status === "blocked" ? "high" : "medium",
-      nextCheck: "/admin/bot Operating SOP",
+      nextCheck: "/admin/bot · AI 비서에게 운영 절차 안내 요청",
       prompt: topSop.nextPrompt
     }));
   }
@@ -193,7 +193,7 @@ function buildDecisions(input: Parameters<typeof buildAgentDecisionTrace>[0], ob
       conclusion: input.ownerBrief?.headline || "Owner Brief의 지금 할 일을 우선 처리합니다.",
       basedOn: ["severity", "checkout", "risk-radar"],
       confidence: input.ownerBrief?.confidence >= 70 ? "high" : "medium",
-      nextCheck: "/admin/bot Owner Brief",
+      nextCheck: "/admin/dashboard?section=today · 오늘 할 일",
       prompt: ownerPrompt
     }));
   }
@@ -205,7 +205,7 @@ function buildDecisions(input: Parameters<typeof buildAgentDecisionTrace>[0], ob
       conclusion: "뚜렷한 차단 위험이 없으므로 Daily Checkout, 리포트 저장, 콘텐츠 운영 루프를 유지합니다.",
       basedOn: observations.slice(0, 4).map((item) => item.id),
       confidence: "medium",
-      nextCheck: "/admin/bot Daily Checkout",
+      nextCheck: "/admin/dashboard?section=today · 마감 전에 확인할 것",
       prompt: "오늘 운영 마감 가능한지 남은 위험과 내일 포커스를 점검해줘"
     }));
   }

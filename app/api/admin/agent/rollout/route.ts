@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
+import { isAdminAgentCronRequest } from "@/lib/admin-agent/cron-auth";
 import { verifyAdminRole } from "@/lib/admin-agent/logging";
 import { buildAgentRolloutReadiness } from "@/lib/admin-agent/rollout";
 import { withAuthGuard } from "@/utils/supabase/guard";
@@ -23,12 +24,8 @@ export async function GET(request: Request) {
 }
 
 function resolveCronAuth(request: Request) {
-  const cronSecret = process.env.ADMIN_AGENT_CRON_SECRET || process.env.CRON_SECRET;
-  const authorization = request.headers.get("authorization") || "";
-  const headerSecret = request.headers.get("x-admin-agent-secret") || "";
-  const providedSecret = authorization.replace(/^Bearer\s+/i, "") || headerSecret;
-
-  if (!cronSecret || providedSecret !== cronSecret) return null;
+  // 상수 시간 비교(lib/server/secretAuth matchesSecret)를 쓰는 공용 판정
+  if (!isAdminAgentCronRequest(request)) return null;
 
   return {
     supabase: createSupabaseAdminClient(

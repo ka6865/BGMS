@@ -3,7 +3,7 @@
 import React, { useState, useEffect, startTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, User, Hammer, Database, LogIn, Settings, Bot, MessageSquare } from 'lucide-react';
+import { Bell, User, Hammer, LogIn, LayoutDashboard, MessageSquare } from 'lucide-react';
 import { useAuth } from "../AuthProvider";
 import { supabase } from "@/lib/supabase";
 import NotificationDropdown from "../map/NotificationDropdown";
@@ -303,25 +303,18 @@ export default function GlobalHeader() {
           <>
             {isAdmin && !isMobile && (
               <div className="flex gap-2 mr-2">
-                <Link href="/map-editor" className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-accent border border-black/10 rounded-lg font-black text-[10px] uppercase">
+                <Link href="/map-editor" className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-accent border border-black/10 rounded-lg font-black text-xs">
                   <Hammer size={12} />
                   <span>맵 에디터</span>
                 </Link>
-                <Link href="/admin/game-data" className="flex items-center gap-1.5 px-3 py-1.5 bg-[#34A853] text-white rounded-lg font-black text-[10px] uppercase shadow-sm">
-                  <Database size={12} />
-                  <span>데이터 관리</span>
+                {/* 관리자 화면은 운영 대시보드를 입구로 두고, 나머지는 관리자 공통 메뉴에서 이동한다. */}
+                <Link href="/admin/dashboard" className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-zinc-950 rounded-lg font-black text-xs shadow-sm">
+                  <LayoutDashboard size={12} />
+                  <span>관리자</span>
                 </Link>
-                <Link href="/admin/support" className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg font-black text-[10px] uppercase shadow-sm">
+                <Link href="/admin/support" className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg font-black text-xs shadow-sm">
                   <MessageSquare size={12} />
                   <span>고객센터 관리</span>
-                </Link>
-                <Link href="/admin/map-settings" className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase shadow-sm">
-                  <Settings size={12} />
-                  <span>맵 설정</span>
-                </Link>
-                <Link href="/admin/bot" className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-zinc-950 rounded-lg font-black text-[10px] uppercase shadow-sm">
-                  <Bot size={12} />
-                  <span>AI 비서</span>
                 </Link>
               </div>
             )}

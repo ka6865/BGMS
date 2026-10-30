@@ -144,14 +144,15 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
   return (
     <div className="max-w-[900px] mx-auto">
       {/* 헤더 */}
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h2 className="text-3xl font-black text-white">카테고리 마스터 관리</h2>
-          <p className="text-gray-500 mt-1 text-sm">아이콘, 색상, 이름을 수정하거나 새 카테고리를 추가하세요.</p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-xl font-black text-white sm:text-2xl">카테고리 마스터 관리</h2>
+          <p className="mt-1 text-xs text-gray-500 sm:text-sm">아이콘, 색상, 이름을 수정하거나 새 카테고리를 추가하세요.</p>
         </div>
         <button
+          type="button"
           onClick={startAdd}
-          className="px-6 py-2.5 bg-[#F2A900] text-black rounded-xl font-black text-sm hover:bg-[#cc8b00] active:scale-95 transition-all"
+          className="min-h-11 w-full rounded-lg bg-[#F2A900] px-5 text-sm font-black text-black transition-colors hover:bg-[#cc8b00] sm:w-auto"
         >
           + 새 카테고리 추가
         </button>
@@ -159,16 +160,17 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
 
       {/* 새 카테고리 추가 / 편집 폼 */}
       {(isAddMode || editingId) && (
-        <div className="mb-8 p-6 rounded-2xl bg-[#1a1a1a] border-2 border-[#F2A900]/50">
+        <div className="mb-6 rounded-xl border-2 border-[#F2A900]/50 bg-[#1a1a1a] p-4 sm:p-6">
           <h3 className="text-lg font-black text-[#F2A900] mb-5">
             {isAddMode ? "새 카테고리 추가" : `'${categories.find(c => c.id === editingId)?.label}' 수정`}
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* 이름 */}
-            <div className="col-span-2 md:col-span-1">
-              <label className="block text-xs font-bold text-gray-500 mb-2">카테고리 이름 *</label>
+            <div className="md:col-span-1">
+              <label htmlFor="category-form-label" className="block text-xs font-bold text-gray-500 mb-2">카테고리 이름 *</label>
               <input
+                id="category-form-label"
                 type="text"
                 value={formLabel}
                 onChange={(e) => setFormLabel(e.target.value)}
@@ -178,9 +180,10 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
             </div>
 
             {/* 정렬 순서 */}
-            <div className="col-span-2 md:col-span-1">
-              <label className="block text-xs font-bold text-gray-500 mb-2">표시 순서 (숫자가 작을수록 앞)</label>
+            <div className="md:col-span-1">
+              <label htmlFor="category-form-sort-order" className="block text-xs font-bold text-gray-500 mb-2">표시 순서 (숫자가 작을수록 앞)</label>
               <input
+                id="category-form-sort-order"
                 type="number"
                 value={formSortOrder}
                 onChange={(e) => setFormSortOrder(Number(e.target.value))}
@@ -189,14 +192,16 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
             </div>
 
             {/* 아이콘 선택 라이브러리 */}
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-500 mb-2">아이콘 선택</label>
-              <div className="flex gap-3 flex-wrap">
+            <div className="md:col-span-2">
+              <p id="category-form-icon-label" className="block text-xs font-bold text-gray-500 mb-2">아이콘 선택</p>
+              <div role="group" aria-labelledby="category-form-icon-label" className="flex gap-2 flex-wrap sm:gap-3">
                 {Object.entries(ICON_LIBRARY).map(([id, icon]) => (
                   <button
                     key={id}
+                    type="button"
                     onClick={() => setFormIconId(id)}
-                    className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all w-[80px] ${
+                    aria-pressed={formIconId === id}
+                    className={`flex w-[76px] flex-col items-center gap-1.5 rounded-xl border-2 p-2.5 transition-colors ${
                       formIconId === id
                         ? "border-[#F2A900] bg-[#F2A900]/10"
                         : "border-[#333] bg-[#111] hover:border-gray-500"
@@ -211,23 +216,26 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
                     >
                       <path d={icon.path} />
                     </svg>
-                    <span className="text-[10px] text-gray-400 font-bold">{icon.label}</span>
+                    <span className="text-xs text-gray-400 font-bold">{icon.label}</span>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* 색상 선택 */}
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-500 mb-2">마커 색상</label>
-              <div className="flex items-center gap-3 flex-wrap">
+            <div className="md:col-span-2">
+              <p id="category-form-color-label" className="block text-xs font-bold text-gray-500 mb-2">마커 색상</p>
+              <div role="group" aria-labelledby="category-form-color-label" className="flex items-center gap-2 flex-wrap sm:gap-3">
                 {/* 프리셋 색상들 */}
                 {COLORS_PRESET.map((c) => (
                   <button
                     key={c}
+                    type="button"
                     onClick={() => setFormColor(c)}
-                    className={`w-8 h-8 rounded-full border-2 transition-all ${
-                      formColor === c ? "border-white scale-110" : "border-transparent hover:border-gray-500"
+                    aria-label={`마커 색상 ${c}`}
+                    aria-pressed={formColor === c}
+                    className={`h-9 w-9 rounded-full border-2 transition-colors ${
+                      formColor === c ? "border-white ring-2 ring-white/40" : "border-transparent hover:border-gray-500"
                     }`}
                     style={{ backgroundColor: c }}
                     title={c}
@@ -241,6 +249,7 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
                     onChange={(e) => setFormColor(e.target.value)}
                     className="w-10 h-10 rounded-lg cursor-pointer border-0 bg-transparent"
                     title="직접 선택"
+                    aria-label="마커 색상 직접 선택"
                   />
                   <span className="text-xs text-gray-500 font-mono">{formColor}</span>
                 </div>
@@ -265,9 +274,10 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
 
           <div className="flex gap-3 mt-6">
             <button
+              type="button"
               onClick={handleSave}
               disabled={isSaving}
-              className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${
+              className={`min-h-11 px-6 rounded-xl font-black text-sm transition-colors ${
                 isSaving
                   ? "bg-gray-700 text-gray-500 cursor-not-allowed"
                   : "bg-[#F2A900] text-black hover:bg-[#cc8b00] active:scale-95"
@@ -276,8 +286,9 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
               {isSaving ? "저장 중..." : "저장하기"}
             </button>
             <button
+              type="button"
               onClick={cancelEdit}
-              className="px-6 py-2.5 rounded-xl font-bold text-sm text-gray-400 hover:text-white bg-[#222] hover:bg-[#333] transition-all"
+              className="min-h-11 px-6 rounded-xl font-bold text-sm text-gray-400 hover:text-white bg-[#222] hover:bg-[#333] transition-all"
             >
               취소
             </button>
@@ -300,30 +311,34 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
                     : "border-[#333] bg-[#141414] hover:border-gray-600"
                 }`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center"
+                    className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center"
                     style={{ backgroundColor: cat.color + '22' }}
                   >
                     <svg viewBox="0 0 24 24" width="20" height="20" fill={cat.color}>
                       <path d={icon?.path || ICON_LIBRARY.car.path} />
                     </svg>
                   </div>
-                  <div>
-                    <div className="font-bold text-white text-sm">{cat.label}</div>
-                    <div className="text-[10px] text-gray-500 font-mono">{cat.id}</div>
+                  <div className="min-w-0">
+                    <div className="break-words font-bold text-white text-sm">{cat.label}</div>
+                    <div className="break-all text-xs text-gray-500 font-mono">{cat.id}</div>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex shrink-0 gap-2">
                   <button
+                    type="button"
                     onClick={() => startEdit(cat)}
-                    className="px-3 py-1.5 text-xs font-bold text-gray-400 hover:text-white bg-[#222] hover:bg-[#333] rounded-lg transition-all"
+                    aria-label={`${cat.label} 수정`}
+                    className="min-h-11 px-3 py-1.5 text-xs font-bold text-gray-400 hover:text-white bg-[#222] hover:bg-[#333] rounded-lg transition-all"
                   >
                     수정
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleDeactivate(cat)}
-                    className="px-3 py-1.5 text-xs font-bold text-red-500/70 hover:text-red-400 bg-red-500/5 hover:bg-red-500/10 rounded-lg transition-all"
+                    aria-label={`${cat.label} 숨김`}
+                    className="min-h-11 px-3 py-1.5 text-xs font-bold text-red-500/70 hover:text-red-400 bg-red-500/5 hover:bg-red-500/10 rounded-lg transition-all"
                   >
                     숨김
                   </button>
@@ -360,8 +375,10 @@ export default function CategoryMasterEditor({ onRefresh }: CategoryMasterEditor
                     </div>
                   </div>
                   <button
+                    type="button"
                     onClick={() => handleActivate(cat)}
-                    className="px-3 py-1.5 text-xs font-bold text-green-500/80 hover:text-green-400 bg-green-500/5 hover:bg-green-500/10 rounded-lg transition-all"
+                    aria-label={`${cat.label} 복구`}
+                    className="min-h-11 shrink-0 px-3 py-1.5 text-xs font-bold text-green-500/80 hover:text-green-400 bg-green-500/5 hover:bg-green-500/10 rounded-lg transition-all"
                   >
                     복구
                   </button>

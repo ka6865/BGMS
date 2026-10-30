@@ -173,7 +173,7 @@ export function buildCommandCenterMarkdown(commandCenter: any) {
     `- Rollout: ${commandCenter.rollout?.status || "unknown"}`,
     ...formatReadinessIssues(commandCenter.readiness, commandCenter.rollout),
     "",
-    "확인 위치: `/admin/bot`"
+    "확인 위치: `/admin/dashboard`"
   ];
 
   return lines.join("\n");
@@ -339,7 +339,7 @@ export function buildDailyDigestMarkdown(commandCenter: any) {
     ...(blockedGateCount > 0 ? ["- Execution Gate block 요청은 승인하지 말고 필수 대상값을 채워 재생성하세요."] : []),
     ...(commandCenter.relatedMemories?.items?.[0] ? [`- Related memory: ${commandCenter.relatedMemories.items[0].title}`] : []),
     ...(commandCenter.memorySuggestions?.[0] ? [`- Memory suggestion: ${commandCenter.memorySuggestions[0].title}`] : []),
-    `- 확인 위치: /admin/bot`
+    `- 확인 위치: /admin/dashboard`
   ].filter(Boolean);
 
   return lines.join("\n");
@@ -385,7 +385,7 @@ export function buildFinalReadinessMarkdown(commandCenter: any) {
       ? commandCenter.finalReadiness.proofPrompts.map((prompt: string) => `- ${prompt}`)
       : ["- No proof prompt."]),
     "",
-    "확인 위치: `/admin/bot`"
+    "확인 위치: `/admin/dashboard`"
   ];
 
   return lines.join("\n");

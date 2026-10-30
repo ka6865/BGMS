@@ -1,27 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
-import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
+import { requireAdmin } from "@/lib/server/adminGuard";
 
-const clean = (val: string | undefined) => (val || '').replace(/['";\s]+/g, '').trim();
 const EDITABLE_SETTINGS = new Set(["notice_display_days", "notice_active_id"]);
-
-// 1. 관리자 권한 검증 및 세션 체크
-async function verifyAdmin() {
-  const supabaseServer = await createSupabaseServerClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabaseServer
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  
-  if (profile?.role === "admin") {
-    return { user };
-  }
-  return null;
-}
 
 // 2. GET: 현재 설정 리스트 조회 (비관리자도 읽기 가능)
 export async function GET() {
@@ -33,7 +14,8 @@ export async function GET() {
       .neq("key", "private_players_list");
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[SETTINGS] list failed:", error.message || error);
+      return NextResponse.json({ error: "설정을 불러오지 못했습니다." }, { status: 500 });
     }
 
     // 배열 형태의 설정을 키-값 맵으로 변환하여 반환
@@ -44,17 +26,16 @@ export async function GET() {
 
     return NextResponse.json({ success: true, settings: settingsMap });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 });
+    console.error("[SETTINGS] GET failed:", error?.message || error);
+    return NextResponse.json({ error: "설정을 불러오지 못했습니다." }, { status: 500 });
   }
 }
 
 // 3. POST: 전역 설정 변경 (관리자 전용)
 export async function POST(request: Request) {
   try {
-    const adminContext = await verifyAdmin();
-    if (!adminContext) {
-      return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
-    }
+    const adminContext = await requireAdmin();
+    if (!adminContext.ok) return adminContext.error;
 
     const body = await request.json().catch(() => null);
     if (!body || typeof body.settings !== "object" || body.settings === null || Array.isArray(body.settings)) {
@@ -86,11 +67,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: errors.join(" ") }, { status: 400 });
     }
 
-    // Service Role 권한의 Admin 클라이언트 생성 (RLS 쓰기 차단 우회)
-    const supabaseAdmin = createSupabaseAdminClient(
-      clean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-      clean(process.env.SUPABASE_SERVICE_ROLE_KEY)
-    );
+    // requireAdmin 이 돌려준 service role 클라이언트로 RLS 쓰기 차단을 우회한다.
+    const { supabaseAdmin } = adminContext;
 
     // 트랜잭션 대신 개별 업데이트 병렬 실행
     const updatePromises = Object.entries(settings).map(([key, value]) => {
@@ -103,11 +81,13 @@ export async function POST(request: Request) {
     const results = await Promise.all(updatePromises);
     const failedUpdate = results.find(r => r.error);
     if (failedUpdate) {
-      return NextResponse.json({ error: "설정 저장 중 오류가 발생했습니다: " + (failedUpdate.error?.message || "알 수 없는 오류") }, { status: 500 });
+      console.error("[SETTINGS] update failed:", failedUpdate.error?.message || failedUpdate.error);
+      return NextResponse.json({ error: "설정 저장 중 오류가 발생했습니다." }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 });
+    console.error("[SETTINGS] POST failed:", error?.message || error);
+    return NextResponse.json({ error: "설정 저장 중 오류가 발생했습니다." }, { status: 500 });
   }
 }

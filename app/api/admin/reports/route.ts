@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { withAuthGuard } from "@/utils/supabase/guard";
+import { requireAdmin } from "@/lib/server/adminGuard";
+import { recordAdminAudit } from "@/lib/server/adminAudit";
 
 /**
  * @fileoverview 신고 관리 API (어드민 전용)
@@ -9,39 +9,30 @@ import { withAuthGuard } from "@/utils/supabase/guard";
  * POST: 신고 판정 실행 (블라인드 / 기각 / IP 차단)
  */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-async function verifyAdmin(userId: string, supabaseAdmin: any): Promise<boolean> {
-  const { data } = await supabaseAdmin
-    .from("profiles")
-    .select("role")
-    .eq("id", userId)
-    .single();
-  return data?.role === "admin";
-}
+// reports.status CHECK 허용값(pending/resolved/dismissed)
+const REPORT_STATUSES = new Set(["pending", "resolved", "dismissed"]);
+// 한 번에 내려주는 신고 수 상한
+const REPORT_LIST_LIMIT = 200;
 
 // 신고 대기 목록 조회
 export async function GET(request: Request) {
   try {
-    const auth = await withAuthGuard();
-    if (auth.error) return auth.error;
-    const { user } = auth;
-
-    const supabaseAdmin = createAdminClient(supabaseUrl, supabaseServiceKey);
-    const isAdmin = await verifyAdmin(user.id, supabaseAdmin);
-    if (!isAdmin) {
-      return NextResponse.json({ error: "관리자 권한이 필요합니다." }, { status: 403 });
-    }
+    const auth = await requireAdmin();
+    if (!auth.ok) return auth.error;
+    const { supabaseAdmin } = auth;
 
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || "pending";
+    if (!REPORT_STATUSES.has(status)) {
+      return NextResponse.json({ error: "유효하지 않은 신고 상태입니다." }, { status: 400 });
+    }
 
     const { data, error } = await supabaseAdmin
       .from("reports")
       .select("*")
       .eq("status", status)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(REPORT_LIST_LIMIT);
 
     if (error) {
       console.error("[Admin Reports GET] DB error:", error);
@@ -92,15 +83,9 @@ export async function GET(request: Request) {
 // 신고 판정 실행
 export async function POST(request: Request) {
   try {
-    const auth = await withAuthGuard();
-    if (auth.error) return auth.error;
-    const { user } = auth;
-
-    const supabaseAdmin = createAdminClient(supabaseUrl, supabaseServiceKey);
-    const isAdmin = await verifyAdmin(user.id, supabaseAdmin);
-    if (!isAdmin) {
-      return NextResponse.json({ error: "관리자 권한이 필요합니다." }, { status: 403 });
-    }
+    const auth = await requireAdmin();
+    if (!auth.ok) return auth.error;
+    const { supabaseAdmin, user } = auth;
 
     const body = await request.json();
     const { reportId, action, adminNote } = body;
@@ -127,32 +112,36 @@ export async function POST(request: Request) {
     if (action === "blind") {
       // 게시글 블라인드: status를 'hidden'으로 변경
       if (report.target_type === "post") {
-        await supabaseAdmin
+        const { error } = await supabaseAdmin
           .from("posts")
           .update({ status: "hidden" })
           .eq("id", report.target_id);
+        if (error) throw error;
       }
       // 댓글 블라인드: content를 마스킹 처리
       if (report.target_type === "comment") {
-        await supabaseAdmin
+        const { error } = await supabaseAdmin
           .from("comments")
           .update({ content: "[관리자에 의해 숨김 처리된 댓글입니다.]" })
           .eq("id", report.target_id);
+        if (error) throw error;
       }
       // 관련 신고 모두 resolved 처리
-      await supabaseAdmin
+      const { error } = await supabaseAdmin
         .from("reports")
         .update({ status: "resolved", admin_note: adminNote || "블라인드 처리" })
         .eq("target_type", report.target_type)
         .eq("target_id", report.target_id);
+      if (error) throw error;
     }
 
     if (action === "dismiss") {
-      await supabaseAdmin
+      const { error } = await supabaseAdmin
         .from("reports")
         .update({ status: "dismissed", admin_note: adminNote || "기각" })
         .eq("target_type", report.target_type)
         .eq("target_id", report.target_id);
+      if (error) throw error;
     }
 
     if (action === "ban_ip") {
@@ -169,17 +158,29 @@ export async function POST(request: Request) {
       }
 
       // IP 차단 목록에 추가 (중복 시 무시)
-      await supabaseAdmin
+      const { error: banError } = await supabaseAdmin
         .from("ip_blacklist")
         .upsert([{ ip_address: target.ip_address, reason: adminNote || "신고 누적으로 인한 차단" }], { onConflict: "ip_address" });
+      if (banError) throw banError;
 
       // 관련 신고 resolved 처리
-      await supabaseAdmin
+      const { error } = await supabaseAdmin
         .from("reports")
         .update({ status: "resolved", admin_note: adminNote || "IP 차단 처리" })
         .eq("target_type", report.target_type)
         .eq("target_id", report.target_id);
+      if (error) throw error;
     }
+
+    // IP 원문은 감사 로그에 남기지 않는다.
+    await recordAdminAudit(supabaseAdmin, {
+      actorId: user.id,
+      action: `reports.${action}`,
+      targetType: "report",
+      targetId: report.id,
+      phase: "succeeded",
+      detail: { reportTargetType: report.target_type, reportTargetId: report.target_id }
+    });
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

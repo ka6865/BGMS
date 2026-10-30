@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/server/adminGuard";
+import { recordAdminAudit } from "@/lib/server/adminAudit";
 
 interface ApplyResultRow {
   change_id: string;
@@ -33,12 +34,29 @@ export async function POST(request: Request) {
   });
 
   if (error) {
-    return NextResponse.json({ error: `적용 실패: ${error.message}` }, { status: 500 });
+    console.error("[WEAPON-PATCH] apply failed:", proposalId, error.message || error);
+    await recordAdminAudit(admin.supabaseAdmin, {
+      actorId: admin.user.id,
+      action: "weapon_patch.apply",
+      targetType: "weapon_patch_proposal",
+      targetId: proposalId,
+      phase: "failed"
+    });
+    return NextResponse.json({ error: "적용 실패: 패치 제안을 반영하지 못했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
   }
 
   const rows = ((data ?? []) as unknown) as ApplyResultRow[];
   const applied = rows.filter((row) => row.result === "applied");
   const skipped = rows.filter((row) => row.result !== "applied");
+
+  await recordAdminAudit(admin.supabaseAdmin, {
+    actorId: admin.user.id,
+    action: "weapon_patch.apply",
+    targetType: "weapon_patch_proposal",
+    targetId: proposalId,
+    phase: "succeeded",
+    detail: { appliedCount: applied.length, skippedCount: skipped.length }
+  });
 
   return NextResponse.json({
     success: true,

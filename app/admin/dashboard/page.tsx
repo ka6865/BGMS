@@ -2,7 +2,8 @@
 
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/immutability */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -54,7 +55,38 @@ interface MascotQuickAction {
   icon: typeof MessageSquare;
 }
 
-const HIGH_RISK_ACTIONS = new Set(["flush_old_cache", "flush_player_cache", "flush_match_cache", "reset_benchmarks"]);
+type ReportStatus = "pending" | "resolved" | "dismissed";
+type ReportAction = "blind" | "ban_ip" | "dismiss";
+type DashboardLoadPart = "commandCenter" | "approvals" | "memories";
+
+const REPORT_STATUS_LABELS: Record<ReportStatus, string> = {
+  pending: "대기",
+  resolved: "처리 완료",
+  dismissed: "기각"
+};
+
+// 신고 처리 버튼 문구와 결과 안내. 실제 동작은 /api/admin/reports POST 기준이다.
+const REPORT_ACTION_COPY: Record<ReportAction, { label: string; success: string; confirmText: string; type: "danger" | "warning" | "info" }> = {
+  blind: { label: "내용 숨김", success: "신고된 내용을 숨겼습니다.", confirmText: "숨김 처리", type: "danger" },
+  ban_ip: { label: "IP 차단", success: "작성자 IP를 차단 목록에 추가했습니다.", confirmText: "IP 차단", type: "danger" },
+  dismiss: { label: "기각", success: "신고를 기각했습니다.", confirmText: "기각", type: "warning" }
+};
+
+function describeReportAction(action: ReportAction, report: any): string {
+  const targetLabel = report?.target_type === "comment" ? "댓글" : "게시글";
+  const sharedNote = `같은 ${targetLabel}에 접수된 신고는 모두 함께 처리됩니다.`;
+  if (action === "blind") {
+    return report?.target_type === "comment"
+      ? `댓글 본문을 "관리자에 의해 숨김 처리된 댓글입니다." 문구로 덮어씁니다. 원래 댓글 내용은 복구할 수 없습니다. ${sharedNote}`
+      : `게시글을 숨김 상태로 바꿔 게시판에서 보이지 않게 합니다. ${sharedNote}`;
+  }
+  if (action === "ban_ip") {
+    return `신고자가 아니라 신고된 ${targetLabel} 작성자의 IP를 차단 목록에 추가합니다. 해당 IP에서는 글과 댓글을 쓸 수 없게 됩니다. 내용은 숨기지 않으며, 작성 IP 기록이 없으면 실패합니다. ${sharedNote}`;
+  }
+  return `신고를 기각하고 내용은 그대로 둡니다. ${sharedNote}`;
+}
+
+const HIGH_RISK_ACTIONS = new Set(["repair_processed_telemetry_identity"]);
 const MEMORY_CATEGORIES = ["all", "incident", "policy", "report", "content", "operations"];
 const MASCOT_MENU_ID = "admin-agent-mascot-menu";
 const MASCOT_QUICK_ACTIONS: MascotQuickAction[] = [
@@ -133,7 +165,6 @@ export default function AdminDashboardPage() {
   // 3단계 알럿 모달화 상태
   const [isHighRiskConfirmOpen, setIsHighRiskConfirmOpen] = useState(false);
   const [highRiskApproval, setHighRiskApproval] = useState<AgentApproval | null>(null);
-  const [highRiskAction, setHighRiskAction] = useState<"approve" | "reject" | null>(null);
 
   const [isHideMemoryConfirmOpen, setIsHideMemoryConfirmOpen] = useState(false);
   const [hideMemoryId, setHideMemoryId] = useState<string | null>(null);
@@ -143,18 +174,75 @@ export default function AdminDashboardPage() {
 
   // 신고 관리 탭 상태
   const [reports, setReports] = useState<any[]>([]);
-  const [reportsStatus, setReportsStatus] = useState<"pending" | "resolved" | "dismissed">("pending");
+  const [reportsStatus, setReportsStatus] = useState<ReportStatus>("pending");
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [reportActionLoading, setReportActionLoading] = useState<number | null>(null);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [reportConfirm, setReportConfirm] = useState<{ report: any; action: ReportAction } | null>(null);
+  const [reportActionPending, setReportActionPending] = useState(false);
+  // 늦게 도착한 이전 상태 탭 응답이 현재 목록을 덮지 않도록 요청 번호를 기록한다.
+  const reportsRequestRef = useRef(0);
+  const memoriesRequestRef = useRef(0);
+
+  // 화면 상단 배너에 표시할 부분 조회 실패 상태. 기존 데이터는 그대로 둔다.
+  const [loadErrors, setLoadErrors] = useState<Partial<Record<DashboardLoadPart, string>>>({});
+
+  const setLoadError = (part: DashboardLoadPart, message: string | null) => {
+    setLoadErrors((current) => {
+      if (!message && !current[part]) return current;
+      const next = { ...current };
+      if (message) next[part] = message;
+      else delete next[part];
+      return next;
+    });
+  };
+
+  const loadReports = async (status: ReportStatus) => {
+    const requestId = ++reportsRequestRef.current;
+    setReportsLoading(true);
+    setReportsError(null);
+    try {
+      const response = await fetch(`/api/admin/reports?status=${status}`);
+      const data = await response.json().catch(() => ({}));
+      if (requestId !== reportsRequestRef.current) return;
+      if (!response.ok) throw new Error(data.error || "신고 목록을 불러오지 못했습니다.");
+      setReports(Array.isArray(data.data) ? data.data : []);
+    } catch (error: any) {
+      if (requestId !== reportsRequestRef.current) return;
+      setReports([]);
+      setReportsError(error?.message || "신고 목록을 불러오지 못했습니다.");
+    } finally {
+      if (requestId === reportsRequestRef.current) setReportsLoading(false);
+    }
+  };
+
+  const executeReportAction = async () => {
+    if (!reportConfirm) return;
+    const { report, action } = reportConfirm;
+    setReportActionPending(true);
+    try {
+      const response = await fetch("/api/admin/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId: report.id, action }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `${REPORT_ACTION_COPY[action].label}에 실패했습니다.`);
+      toast.success(REPORT_ACTION_COPY[action].success);
+      // 서버는 같은 대상의 신고를 함께 처리하므로 목록에서도 같은 대상을 모두 뺀다.
+      setReports((prev) => prev.filter((item) =>
+        !(item.target_type === report.target_type && String(item.target_id) === String(report.target_id))));
+    } catch (error: any) {
+      toast.error(error?.message || `${REPORT_ACTION_COPY[action].label}에 실패했습니다.`);
+    } finally {
+      setReportActionPending(false);
+      setReportConfirm(null);
+    }
+  };
 
   useEffect(() => {
-    if (activeSection !== "reports") return;
-    setReportsLoading(true);
-    fetch(`/api/admin/reports?status=${reportsStatus}`)
-      .then((r) => r.json())
-      .then((data) => setReports(data.data || []))
-      .finally(() => setReportsLoading(false));
-  }, [activeSection]);
+    if (!isAdmin || activeSection !== "reports") return;
+    loadReports(reportsStatus);
+  }, [isAdmin, activeSection]);
 
   useEffect(() => {
     async function checkAdmin() {
@@ -268,23 +356,44 @@ export default function AdminDashboardPage() {
   const refreshDashboard = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadCommandCenter(), loadApprovals(), loadMemories()]);
+      // 한 영역이 실패해도 나머지 영역은 갱신한다. 실패 내용은 상단 배너에 남는다.
+      await Promise.allSettled([loadCommandCenter(), loadApprovals(), loadMemories()]);
     } finally {
       setRefreshing(false);
     }
   };
 
   const loadCommandCenter = async () => {
-    const response = await fetch("/api/admin/agent/command-center");
-    if (!response.ok) return;
+    let response: Response;
+    try {
+      response = await fetch("/api/admin/agent/command-center");
+    } catch (error) {
+      setLoadError("commandCenter", "운영 상태를 불러오지 못했습니다.");
+      throw error;
+    }
+    if (!response.ok) {
+      setLoadError("commandCenter", `운영 상태를 불러오지 못했습니다. (HTTP ${response.status})`);
+      return;
+    }
     const data = await response.json();
+    setLoadError("commandCenter", null);
     setCommandCenter(data);
   };
 
   const loadApprovals = async () => {
-    const response = await fetch("/api/admin/agent/approvals");
-    if (!response.ok) return;
+    let response: Response;
+    try {
+      response = await fetch("/api/admin/agent/approvals");
+    } catch (error) {
+      setLoadError("approvals", "승인 목록을 불러오지 못했습니다.");
+      throw error;
+    }
+    if (!response.ok) {
+      setLoadError("approvals", `승인 목록을 불러오지 못했습니다. (HTTP ${response.status})`);
+      return;
+    }
     const data = await response.json();
+    setLoadError("approvals", null);
     const nextApprovals: AgentApproval[] = data.approvals || [];
     const recovered = nextApprovals.find((approval) =>
       approval.id === selectedApprovalId && unverifiedApprovalIds.includes(approval.id));
@@ -325,9 +434,23 @@ export default function AdminDashboardPage() {
     if (category !== "all") params.set("category", category);
     if (includeInactive) params.set("includeInactive", "true");
 
-    const response = await fetch(`/api/admin/agent/memories${params.toString() ? `?${params.toString()}` : ""}`);
-    if (!response.ok) return;
+    const requestId = ++memoriesRequestRef.current;
+    let response: Response;
+    try {
+      response = await fetch(`/api/admin/agent/memories${params.toString() ? `?${params.toString()}` : ""}`);
+    } catch (error) {
+      if (requestId === memoriesRequestRef.current) setLoadError("memories", "내부 기록을 불러오지 못했습니다.");
+      throw error;
+    }
+    // 검색어·분류를 빠르게 바꿀 때 이전 요청 결과가 최신 목록을 덮지 않게 한다.
+    if (requestId !== memoriesRequestRef.current) return;
+    if (!response.ok) {
+      setLoadError("memories", `내부 기록을 불러오지 못했습니다. (HTTP ${response.status})`);
+      return;
+    }
     const data = await response.json();
+    if (requestId !== memoriesRequestRef.current) return;
+    setLoadError("memories", null);
     setMemories(data.memories || []);
     setMemorySummary(data.summary || null);
   };
@@ -519,7 +642,6 @@ export default function AdminDashboardPage() {
       const highRisk = isHighRiskApproval(approval);
       if (highRisk) {
         setHighRiskApproval(approval);
-        setHighRiskAction("approve");
         setIsHighRiskConfirmOpen(true);
         return;
       }
@@ -638,17 +760,19 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="h-full w-full overflow-x-hidden overflow-y-auto bg-zinc-950 pb-8 text-zinc-50">
+    <div data-testid="admin-dashboard-scroll" className="h-full w-full overflow-x-hidden overflow-y-auto bg-zinc-950 pb-44 text-zinc-50 sm:pb-48">
       <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/95 px-3 py-3 backdrop-blur sm:px-5">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <button
-              onClick={() => router.push("/admin/bot")}
-              className="rounded-full p-2 text-zinc-400 active:bg-zinc-800 active:text-zinc-100"
-              title="AI 비서로 돌아가기"
+            {/* 대시보드가 관리자 입구이므로 뒤로 가기는 사이트 홈으로 나간다. 관리자 화면 이동은 상단 메뉴를 쓴다. */}
+            <Link
+              href="/"
+              aria-label="사이트 홈으로 나가기"
+              title="사이트 홈으로 나가기"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-zinc-400 active:bg-zinc-800 active:text-zinc-100"
             >
               <ArrowLeft className="h-5 w-5" />
-            </button>
+            </Link>
             <div className="min-w-0">
               <h1 className="truncate text-base font-bold text-zinc-100">운영 대시보드</h1>
               <p className="truncate text-xs text-zinc-500">승인, 점검, 내부 기록을 여기서 처리합니다.</p>
@@ -656,16 +780,20 @@ export default function AdminDashboardPage() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
+              type="button"
               onClick={() => openAgentSheet()}
-              className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300 active:border-amber-400"
+              aria-label="AI 비서 열기"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300 active:border-amber-400"
             >
               <MessageSquare className="h-4 w-4" />
               <span className="hidden sm:inline">AI 비서</span>
             </button>
             <button
+              type="button"
               onClick={refreshDashboard}
               disabled={refreshing}
-              className="inline-flex items-center gap-1.5 rounded-full border border-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-300 active:border-zinc-600 disabled:opacity-50"
+              aria-label="새로고침"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-300 active:border-zinc-600 disabled:opacity-50"
             >
               {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               <span className="hidden sm:inline">새로고침</span>
@@ -675,6 +803,35 @@ export default function AdminDashboardPage() {
       </header>
 
       <div className="mx-auto max-w-7xl space-y-4 px-3 py-4 sm:px-5">
+        {Object.keys(loadErrors).length > 0 && (
+          <div role="alert" className="flex flex-col gap-2 rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-xs text-rose-100 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-1">
+              {(["commandCenter", "approvals", "memories"] as DashboardLoadPart[]).map((part) => loadErrors[part] ? (
+                <p key={part} className="break-words leading-relaxed">{loadErrors[part]}</p>
+              ) : null)}
+              <p className="text-rose-200/70">이미 받은 정보는 그대로 보여줍니다. 다시 시도해도 실패하면 서버 상태를 확인하세요.</p>
+            </div>
+            <button
+              type="button"
+              onClick={refreshDashboard}
+              disabled={refreshing}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-md border border-rose-400/40 px-3 text-xs font-semibold text-rose-100 disabled:opacity-50"
+            >
+              {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              다시 불러오기
+            </button>
+          </div>
+        )}
+
+        {(commandCenter?.degradedSources?.length || 0) > 0 && (
+          <div role="status" data-testid="dashboard-degraded-sources" className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-relaxed text-amber-100">
+            <p className="font-semibold">일부 운영 정보를 불러오지 못했습니다.</p>
+            <p className="mt-1 break-words text-amber-100/80">
+              확인 불가: {formatDegradedSources(commandCenter?.degradedSources || [])}. 이 항목의 0건은 정상이라는 뜻이 아닙니다.
+            </p>
+          </div>
+        )}
+
         <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard
             label="승인 대기"
@@ -706,32 +863,31 @@ export default function AdminDashboardPage() {
           />
         </section>
 
-        <nav className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+        <nav aria-label="대시보드 영역" className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           {([
             ["today", "오늘 할 일", ClipboardCheck],
             ["approvals", "승인 대기", ShieldCheck],
             ["status", "운영 상태", Activity],
-            ["data", "데이터 관리", Database],
+            ["data", "저장 공간", Database],
             ["memories", "내부 기록", FileText],
             ["reports", "신고 관리", AlertCircle],
             ["guide", "사용 가이드", Bot]
           ] as Array<[DashboardSection, string, typeof ClipboardCheck]>).map(([section, label, Icon]) => (
             <button
               key={section}
+              type="button"
               onClick={() => selectSection(section)}
-              className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${
+              aria-pressed={activeSection === section}
+              className={`flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-semibold sm:gap-2 sm:px-3 ${
                 activeSection === section
                   ? "border-amber-500/50 bg-amber-500/10 text-amber-200"
                   : "border-zinc-800 bg-zinc-900 text-zinc-400 active:border-zinc-600"
               }`}
             >
-              <Icon className="h-4 w-4" />
-              {label}
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="truncate">{label}</span>
             </button>
           ))}
-          <button onClick={() => router.push('/admin/ai-coaching')} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs font-semibold text-zinc-400 hover:border-amber-600">
-            <ClipboardCheck className="h-4 w-4" />AI 코칭 품질
-          </button>
         </nav>
 
         {activeSection === "today" && (
@@ -798,8 +954,14 @@ export default function AdminDashboardPage() {
                 <div className="mt-3 space-y-2 text-xs leading-relaxed text-zinc-300">
                   <ChecklistLine ok={pendingApprovals.length === 0} text={pendingApprovals.length === 0 ? "승인 대기 작업 없음" : `승인 대기 ${pendingApprovals.length}건 확인 필요`} />
                   <ChecklistLine ok={commandCenter?.severity === "ok"} text={`운영 상태 ${commandCenter ? severityLabel(commandCenter.severity) : "확인 전"}`} />
-                  <ChecklistLine ok={(commandCenter?.failedRuns.count || 0) === 0} text={`실패한 Agent 실행 ${commandCenter?.failedRuns.count || 0}건`} />
-                  <ChecklistLine ok={(commandCenter?.apiErrors.total || 0) === 0} text={`PUBG API 에러 ${commandCenter?.apiErrors.total || 0}건`} />
+                  <ChecklistLine
+                    ok={!isDegraded(commandCenter, "failedRuns") && (commandCenter?.failedRuns?.count || 0) === 0}
+                    text={isDegraded(commandCenter, "failedRuns") ? "실패한 Agent 실행 확인 불가" : `실패한 Agent 실행 ${commandCenter?.failedRuns?.count || 0}건`}
+                  />
+                  <ChecklistLine
+                    ok={!isDegraded(commandCenter, "apiErrors") && (commandCenter?.apiErrors?.total || 0) === 0}
+                    text={isDegraded(commandCenter, "apiErrors") ? "PUBG API 에러 확인 불가" : `PUBG API 에러 ${commandCenter?.apiErrors?.total || 0}건`}
+                  />
                 </div>
               </section>
             </div>
@@ -817,8 +979,10 @@ export default function AdminDashboardPage() {
                   </p>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setShowProcessedApprovals((value) => !value)}
-                  className={`rounded-md border px-3 py-2 text-xs font-semibold ${
+                  aria-pressed={showProcessedApprovals}
+                  className={`min-h-11 rounded-md border px-3 py-2 text-xs font-semibold sm:min-h-9 ${
                     showProcessedApprovals
                       ? "border-zinc-600 bg-zinc-800 text-zinc-100"
                       : "border-zinc-800 text-zinc-400"
@@ -832,7 +996,7 @@ export default function AdminDashboardPage() {
             {approvalNotice && (
               <div className="flex items-start justify-between gap-3 rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3 text-xs text-emerald-100">
                 <p className="whitespace-pre-wrap leading-relaxed">{approvalNotice}</p>
-                <button onClick={() => setApprovalNotice(null)} className="shrink-0 text-emerald-300">닫기</button>
+                <button type="button" onClick={() => setApprovalNotice(null)} aria-label="알림 닫기" className="min-h-11 shrink-0 px-2 text-emerald-300 sm:min-h-0">닫기</button>
               </div>
             )}
 
@@ -866,7 +1030,7 @@ export default function AdminDashboardPage() {
                 )}
               </div>
 
-              <div className="min-w-0 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+              <div className="min-w-0 border-t border-zinc-800 pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
                 {selectedApproval ? (
                   <ApprovalDetail
                     approval={selectedApproval}
@@ -890,9 +1054,13 @@ export default function AdminDashboardPage() {
         {activeSection === "status" && (
           <section className="space-y-3">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <MetricCard label="실패한 실행" value={commandCenter?.failedRuns.count ?? "-"} detail="최근 Agent 실행 기준" />
-              <MetricCard label="PUBG API 에러" value={commandCenter?.apiErrors.total ?? "-"} detail="최근 운영 창 기준" />
-              <MetricCard label="AI 비용" value={commandCenter ? `$${commandCenter.aiUsage.totalCostUsd.toFixed(4)}` : "-"} detail={`${commandCenter?.aiUsage.totalRequests || 0} requests`} />
+              <MetricCard label="실패한 실행" value={isDegraded(commandCenter, "failedRuns") ? "확인 불가" : commandCenter?.failedRuns?.count ?? "-"} detail="최근 Agent 실행 기준" />
+              <MetricCard label="PUBG API 에러" value={isDegraded(commandCenter, "apiErrors") ? "확인 불가" : commandCenter?.apiErrors?.total ?? "-"} detail="최근 운영 창 기준" />
+              <MetricCard
+                label="AI 비용"
+                value={isDegraded(commandCenter, "aiUsage") ? "확인 불가" : typeof commandCenter?.aiUsage?.totalCostUsd === "number" ? `$${commandCenter.aiUsage.totalCostUsd.toFixed(4)}` : "-"}
+                detail={`${commandCenter?.aiUsage?.totalRequests || 0} requests`}
+              />
               <MetricCard label="배포 상태" value={translateStatus(commandCenter?.deploymentHealth?.severity || commandCenter?.rollout?.status || "-")} detail="배포/준비 점검" />
             </div>
 
@@ -960,21 +1128,24 @@ export default function AdminDashboardPage() {
             <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3">
               <div className="flex gap-2">
                 <div className="relative min-w-0 flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-600" />
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-600" />
+                  <label htmlFor="admin-memory-search" className="sr-only">내부 기록 검색</label>
                   <input
+                    id="admin-memory-search"
                     type="search"
                     value={memoryQuery}
                     onChange={(event) => setMemoryQuery(event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter") loadMemories();
+                      if (event.key === "Enter") loadMemories().catch(() => undefined);
                     }}
                     placeholder="장애, 정책, 태그 검색"
-                    className="w-full rounded-md border border-zinc-800 bg-zinc-950 py-2 pl-9 pr-3 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-sky-500 focus:outline-none"
+                    className="min-h-11 w-full rounded-md border border-zinc-800 bg-zinc-950 py-2 pl-9 pr-3 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-sky-500 focus:outline-none sm:min-h-9"
                   />
                 </div>
                 <button
-                  onClick={() => loadMemories()}
-                  className="shrink-0 rounded-md bg-sky-500 px-3 py-2 text-xs font-bold text-zinc-950"
+                  type="button"
+                  onClick={() => loadMemories().catch(() => undefined)}
+                  className="min-h-11 shrink-0 rounded-md bg-sky-500 px-3 py-2 text-xs font-bold text-zinc-950 sm:min-h-9"
                 >
                   검색
                 </button>
@@ -985,9 +1156,11 @@ export default function AdminDashboardPage() {
                     key={category}
                     onClick={() => {
                       setMemoryCategory(category);
-                      loadMemories({ category });
+                      loadMemories({ category }).catch(() => undefined);
                     }}
-                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                    type="button"
+                    aria-pressed={memoryCategory === category}
+                    className={`min-h-11 rounded-full border px-3 py-1 text-xs font-medium sm:min-h-8 ${
                       memoryCategory === category
                         ? "border-sky-500/50 bg-sky-500/10 text-sky-300"
                         : "border-zinc-800 bg-zinc-950 text-zinc-500"
@@ -996,15 +1169,15 @@ export default function AdminDashboardPage() {
                     {getMemoryCategoryLabel(category)}
                   </button>
                 ))}
-                <label className="flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-950 px-2.5 py-1 text-[11px] text-zinc-500">
+                <label className="flex min-h-11 items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs text-zinc-500 sm:min-h-8">
                   <input
                     type="checkbox"
                     checked={memoryIncludeInactive}
                     onChange={(event) => {
                       setMemoryIncludeInactive(event.target.checked);
-                      loadMemories({ includeInactive: event.target.checked });
+                      loadMemories({ includeInactive: event.target.checked }).catch(() => undefined);
                     }}
-                    className="h-3 w-3 accent-sky-500"
+                    className="h-4 w-4 accent-sky-500"
                   />
                   숨긴 기록 포함
                 </label>
@@ -1042,7 +1215,7 @@ export default function AdminDashboardPage() {
                       <button
                         onClick={() => handleDeactivateMemory(memory.id)}
                         disabled={memoryLoadingId === memory.id}
-                        className="rounded-md border border-zinc-800 px-2 py-1 text-xs text-zinc-500 active:border-rose-500 active:text-rose-400 disabled:opacity-50"
+                        className="min-h-11 rounded-md border border-zinc-800 px-3 py-1 text-xs text-zinc-500 active:border-rose-500 active:text-rose-400 disabled:opacity-50 sm:min-h-8"
                       >
                         기록 숨기기
                       </button>
@@ -1094,68 +1267,74 @@ export default function AdminDashboardPage() {
         )}
 
         {activeSection === "reports" && (
-          <section className="space-y-4">
+          <section className="space-y-4" data-testid="admin-reports">
             <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-base font-bold text-zinc-100">신고 관리</h2>
-                  <p className="mt-1 text-xs text-zinc-500">누적 3회 이상 신고된 게시글/댓글을 처리합니다.</p>
+                  <p className="mt-1 text-xs text-zinc-500">누적 3회 이상 신고된 게시글과 댓글을 처리합니다. 처리 전에 결과를 한 번 더 확인합니다.</p>
                 </div>
-                <div className="flex gap-2">
-                  {(["pending", "resolved", "dismissed"] as const).map((s) => (
+                <div className="flex flex-wrap gap-2">
+                  {(["pending", "resolved", "dismissed"] as const).map((status) => (
                     <button
-                      key={s}
-                      onClick={async () => {
-                        setReportsStatus(s);
-                        setReportsLoading(true);
-                        const res = await fetch(`/api/admin/reports?status=${s}`);
-                        const data = await res.json();
-                        setReports(data.data || []);
-                        setReportsLoading(false);
+                      key={status}
+                      type="button"
+                      aria-pressed={reportsStatus === status}
+                      onClick={() => {
+                        setReportsStatus(status);
+                        loadReports(status);
                       }}
-                      className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                        reportsStatus === s
+                      className={`min-h-11 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors sm:min-h-9 ${
+                        reportsStatus === status
                           ? "border-amber-500/50 bg-amber-500/10 text-amber-200"
                           : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600"
                       }`}
                     >
-                      {s === "pending" ? "대기" : s === "resolved" ? "처리완료" : "기각"}
+                      {REPORT_STATUS_LABELS[status]}
                     </button>
                   ))}
                   <button
-                    onClick={async () => {
-                      setReportsLoading(true);
-                      const res = await fetch(`/api/admin/reports?status=${reportsStatus}`);
-                      const data = await res.json();
-                      setReports(data.data || []);
-                      setReportsLoading(false);
-                    }}
+                    type="button"
+                    onClick={() => loadReports(reportsStatus)}
                     disabled={reportsLoading}
-                    className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-400 hover:border-zinc-600 disabled:opacity-50"
+                    aria-label="신고 목록 새로고침"
+                    className="inline-flex min-h-11 items-center gap-1 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-400 hover:border-zinc-600 disabled:opacity-50 sm:min-h-9"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${reportsLoading ? "animate-spin" : ""}`} />
-                    새로고침
+                    목록 새로고침
                   </button>
                 </div>
               </div>
             </div>
 
             {reportsLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
+              <div className="flex items-center justify-center gap-2 py-10 text-xs text-zinc-500">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                신고 목록을 불러오는 중입니다.
+              </div>
+            ) : reportsError ? (
+              <div role="alert" className="flex flex-col gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 p-4 text-sm text-rose-100 sm:flex-row sm:items-center sm:justify-between">
+                <p className="break-words">{reportsError}</p>
+                <button
+                  type="button"
+                  onClick={() => loadReports(reportsStatus)}
+                  className="min-h-11 shrink-0 rounded-md border border-rose-400/40 px-3 text-xs font-semibold text-rose-100"
+                >
+                  다시 시도
+                </button>
               </div>
             ) : reports.length === 0 ? (
               <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-8 text-center">
-                <p className="text-sm text-zinc-500">신고 내역이 없습니다.</p>
+                <p className="text-sm text-zinc-500">{REPORT_STATUS_LABELS[reportsStatus]} 상태의 신고가 없습니다.</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {reports.map((report: any) => (
                   <article key={report.id} className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`rounded px-2 py-0.5 text-xs font-bold ${
                             report.target_type === "post"
                               ? "bg-blue-500/20 text-blue-300"
                               : "bg-purple-500/20 text-purple-300"
@@ -1165,85 +1344,41 @@ export default function AdminDashboardPage() {
                           <span className="text-xs text-zinc-500">
                             {new Date(report.created_at).toLocaleDateString("ko-KR")}
                           </span>
-                          <span className="text-[10px] text-zinc-500">
+                          <span className="break-all text-xs text-zinc-500">
                             신고자: {report.reporter_nickname || (report.reporter_id ? "닉네임 없음" : "게스트")}
                           </span>
                           {report.reporter_ip && (
-                            <span className="text-[10px] font-mono text-zinc-600">{report.reporter_ip}</span>
+                            <span className="break-all font-mono text-xs text-zinc-600">{report.reporter_ip}</span>
                           )}
                         </div>
-                        <p className="mt-2 text-sm text-zinc-200">신고 사유: {report.reason}</p>
+                        <p className="mt-2 break-words text-sm text-zinc-200">신고 사유: {report.reason}</p>
                         {report.detail && (
-                          <p className="mt-1 text-xs text-zinc-500">{report.detail}</p>
+                          <p className="mt-1 break-words text-xs text-zinc-500">{report.detail}</p>
                         )}
                         {report.admin_note && (
-                          <p className="mt-1 text-xs text-amber-400/80">어드민 메모: {report.admin_note}</p>
+                          <p className="mt-1 break-words text-xs text-amber-400/80">관리자 메모: {report.admin_note}</p>
                         )}
                       </div>
 
                       {reportsStatus === "pending" && (
-                        <div className="flex flex-wrap gap-2 sm:shrink-0">
-                          <button
-                            disabled={reportActionLoading === report.id}
-                            onClick={async () => {
-                              setReportActionLoading(report.id);
-                              const res = await fetch("/api/admin/reports", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ reportId: report.id, action: "blind" }),
-                              });
-                              if (res.ok) {
-                                toast.success("블라인드 처리되었습니다.");
-                                setReports((prev) => prev.filter((r) => r.id !== report.id));
-                              } else toast.error("블라인드 실패");
-                              setReportActionLoading(null);
-                            }}
-                            className="inline-flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
-                          >
-                            {reportActionLoading === report.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                            내용 숨김
-                          </button>
-                          <button
-                            disabled={reportActionLoading === report.id}
-                            onClick={async () => {
-                              setReportActionLoading(report.id);
-                              const res = await fetch("/api/admin/reports", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ reportId: report.id, action: "ban_ip" }),
-                              });
-                              if (res.ok) {
-                                toast.success("IP 차단이 적용되었습니다.");
-                                setReports((prev) => prev.filter((r) => r.id !== report.id));
-                              } else {
-                                const data = await res.json();
-                                toast.error(data.error || "IP 차단 실패");
-                              }
-                              setReportActionLoading(null);
-                            }}
-                            className="inline-flex items-center gap-1 rounded-md border border-orange-500/40 bg-orange-500/10 px-3 py-1.5 text-xs font-semibold text-orange-300 hover:bg-orange-500/20 disabled:opacity-50 transition-colors"
-                          >
-                            IP 차단
-                          </button>
-                          <button
-                            disabled={reportActionLoading === report.id}
-                            onClick={async () => {
-                              setReportActionLoading(report.id);
-                              const res = await fetch("/api/admin/reports", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ reportId: report.id, action: "dismiss" }),
-                              });
-                              if (res.ok) {
-                                toast.success("신고를 기각했습니다.");
-                                setReports((prev) => prev.filter((r) => r.id !== report.id));
-                              } else toast.error("기각 실패");
-                              setReportActionLoading(null);
-                            }}
-                            className="inline-flex items-center gap-1 rounded-md border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-400 hover:border-zinc-500 disabled:opacity-50 transition-colors"
-                          >
-                            기각
-                          </button>
+                        <div className="grid grid-cols-3 gap-2 sm:flex sm:shrink-0">
+                          {(["blind", "ban_ip", "dismiss"] as const).map((action) => (
+                            <button
+                              key={action}
+                              type="button"
+                              disabled={reportActionPending}
+                              onClick={() => setReportConfirm({ report, action })}
+                              className={`inline-flex min-h-11 items-center justify-center rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 sm:min-h-9 ${
+                                action === "blind"
+                                  ? "border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                                  : action === "ban_ip"
+                                    ? "border-orange-500/40 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20"
+                                    : "border-zinc-600 bg-zinc-800 text-zinc-400 hover:border-zinc-500"
+                              }`}
+                            >
+                              {REPORT_ACTION_COPY[action].label}
+                            </button>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -1265,7 +1400,7 @@ export default function AdminDashboardPage() {
               onClick={() => setMascotMenuOpen(false)}
             />
           )}
-          <div className="fixed bottom-4 right-3 z-[6500] sm:bottom-6 sm:right-6">
+          <div data-testid="admin-mascot-dock" className="fixed bottom-4 right-3 z-[6500] sm:bottom-6 sm:right-6">
             {mascotMenuOpen && (
               <div
                 id={MASCOT_MENU_ID}
@@ -1277,7 +1412,7 @@ export default function AdminDashboardPage() {
                     <p className="text-sm font-bold text-zinc-100">병아리 빠른 실행</p>
                     <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">{mascotMenuSummary}</p>
                   </div>
-                  <span className="shrink-0 rounded-full border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] font-semibold text-zinc-500">
+                  <span className="shrink-0 rounded-full border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs font-semibold text-zinc-500">
                     입력만
                   </span>
                 </div>
@@ -1307,7 +1442,7 @@ export default function AdminDashboardPage() {
                           <span className="flex min-w-0 items-center gap-2">
                             <span className="truncate text-xs font-bold">{action.label}</span>
                             {recommended && (
-                              <span className="shrink-0 rounded-full bg-amber-400 px-1.5 py-0.5 text-[9px] font-black text-zinc-950">
+                              <span className="shrink-0 rounded-full bg-amber-400 px-1.5 py-0.5 text-xs font-black text-zinc-950">
                                 추천
                               </span>
                             )}
@@ -1320,7 +1455,7 @@ export default function AdminDashboardPage() {
                   })}
                 </div>
 
-                <p className="mt-2 text-[10px] leading-relaxed text-zinc-600">
+                <p className="mt-2 text-xs leading-relaxed text-zinc-600">
                   선택해도 바로 전송하지 않습니다. 문구를 확인한 뒤 직접 보내면 됩니다.
                 </p>
               </div>
@@ -1378,6 +1513,21 @@ export default function AdminDashboardPage() {
         onCancel={() => {
           setIsHighRiskConfirmOpen(false);
           setHighRiskApproval(null);
+        }}
+      />
+
+      {/* 신고 처리 확인 모달 */}
+      <ConfirmModal
+        isOpen={reportConfirm !== null}
+        title={reportConfirm ? `${REPORT_ACTION_COPY[reportConfirm.action].label} 확인` : ""}
+        description={reportConfirm ? describeReportAction(reportConfirm.action, reportConfirm.report) : ""}
+        confirmText={reportConfirm ? REPORT_ACTION_COPY[reportConfirm.action].confirmText : "확인"}
+        cancelText="취소"
+        type={reportConfirm ? REPORT_ACTION_COPY[reportConfirm.action].type : "warning"}
+        isPending={reportActionPending}
+        onConfirm={executeReportAction}
+        onCancel={() => {
+          if (!reportActionPending) setReportConfirm(null);
         }}
       />
 
@@ -1604,30 +1754,38 @@ function ApprovalDetail({
       )}
 
       <div className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
-        <button onClick={onToggleDeveloperInfo} className="flex w-full items-center justify-between gap-2 text-left text-xs font-semibold text-zinc-300">
+        <button
+          type="button"
+          onClick={onToggleDeveloperInfo}
+          aria-expanded={showDeveloperInfo}
+          className="flex min-h-11 w-full items-center justify-between gap-2 text-left text-xs font-semibold text-zinc-300 sm:min-h-0"
+        >
           <span>개발자 정보 보기</span>
-          <span className="text-[10px] text-zinc-500">{showDeveloperInfo ? "접기" : "펼치기"}</span>
+          <span className="text-xs text-zinc-500">{showDeveloperInfo ? "접기" : "펼치기"}</span>
         </button>
         {showDeveloperInfo && (
-          <pre className="mt-3 max-h-56 overflow-y-auto whitespace-pre-wrap break-words rounded border border-zinc-800 bg-zinc-900 p-2 text-[11px] leading-relaxed text-zinc-400">
+          <pre className="mt-3 max-h-56 overflow-y-auto whitespace-pre-wrap break-words border-t border-zinc-800 pt-2 text-[11px] leading-relaxed text-zinc-400">
             {JSON.stringify({ payload: approval.payload, impact: approval.impact, result: safeJsonParseText(approval.result), error: approval.error }, null, 2)}
           </pre>
         )}
       </div>
 
+      {/* Chrome은 sticky 기준선에서 스크롤 컨테이너의 하단 padding(pb-44)을 빼므로, 작은 offset만으로 병아리 위에 머문다. */}
       {pending && (
-        <div className="sticky bottom-3 grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950/95 p-2 shadow-lg shadow-black/30 backdrop-blur sm:grid-cols-2">
+        <div data-testid="approval-action-bar" className="sticky bottom-3 grid grid-cols-2 gap-2 rounded-lg border border-zinc-800 bg-zinc-950/95 p-2 shadow-lg shadow-black/30 backdrop-blur">
           <button
+            type="button"
             onClick={onReject}
             disabled={loading || statusUnverified}
-            className="rounded-md bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-300 disabled:opacity-50"
+            className="min-h-11 rounded-md bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-300 disabled:opacity-50"
           >
             거절
           </button>
           <button
+            type="button"
             onClick={onApprove}
             disabled={loading || gateBlocked || statusUnverified}
-            className={`rounded-md px-3 py-2 text-xs font-bold disabled:opacity-50 ${
+            className={`min-h-11 rounded-md px-3 py-2 text-xs font-bold disabled:opacity-50 ${
               isHighRiskApproval(approval) ? "bg-rose-500 text-white" : "bg-emerald-500 text-zinc-950"
             }`}
           >
@@ -1657,7 +1815,36 @@ function ApprovalDecisionBadge({ approval }: { approval: AgentApproval }) {
       : isHighRiskApproval(approval) || approval.impact?.executionGate?.status === "review"
         ? "bg-amber-500/10 text-amber-300"
         : "bg-emerald-500/10 text-emerald-300";
-  return <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${className}`}>{label}</span>;
+  return <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-bold ${className}`}>{label}</span>;
+}
+
+const DEGRADED_SOURCE_LABELS: Record<string, string> = {
+  latestRun: "최근 실행",
+  latestMonitorSnapshot: "최근 운영 점검",
+  monitorTrend: "점검 추세",
+  pendingApprovals: "승인 대기",
+  approvalGateSummary: "승인 실행 조건",
+  failedRuns: "실패한 실행",
+  apiErrors: "PUBG API 에러",
+  aiUsage: "AI 사용량",
+  memories: "내부 기록",
+  latestReport: "최근 운영 일지",
+  readiness: "준비 점검",
+  deploymentHealth: "배포 상태",
+  contentPerformance: "콘텐츠 성과",
+  rollout: "배포 준비",
+  recentAgentActivity: "AI 비서 활동",
+  approvalOutcomes: "승인 처리 결과",
+  trafficSummary: "유저 활동(24시간)",
+  trafficSummary7d: "유저 활동(7일)"
+};
+
+function isDegraded(commandCenter: AgentCommandCenter | null, source: string) {
+  return Boolean(commandCenter?.degradedSources?.some((item) => item.source === source));
+}
+
+function formatDegradedSources(sources: Array<{ source: string }>) {
+  return Array.from(new Set(sources.map((item) => DEGRADED_SOURCE_LABELS[item.source] || item.source))).join(", ");
 }
 
 function ChecklistLine({ ok, text }: { ok: boolean; text: string }) {
@@ -1808,10 +1995,12 @@ function getApprovalActionLabel(approval: AgentApproval) {
     save_agent_report: "운영 일지 저장",
     create_board_post: "게시글 초안 작성",
     update_board_post: "게시글 수정 초안",
-    flush_old_cache: "오래된 캐시 정리",
-    flush_player_cache: "플레이어 캐시 정리",
-    flush_match_cache: "매치 캐시 정리",
-    reset_benchmarks: "벤치마크 초기화"
+    repair_processed_telemetry_identity: "전적 분석 identity 정리",
+    // 제거된 캐시 삭제 기능의 과거 기록을 읽을 수 있게 이름만 남긴다.
+    flush_old_cache: "오래된 캐시 정리(제거된 기능)",
+    flush_player_cache: "플레이어 캐시 정리(제거된 기능)",
+    flush_match_cache: "매치 캐시 정리(제거된 기능)",
+    reset_benchmarks: "벤치마크 초기화(제거된 기능)"
   };
   return map[approval.action_type] || translateSignal(approval.action_type);
 }
@@ -1825,10 +2014,6 @@ function getApprovalOutcomeText(approval: AgentApproval) {
   if (approval.action_type === "update_board_post") return "수락하면 비공개 수정 초안이 저장됩니다. 원본에 반영하려면 초안을 확인한 뒤 별도로 발행해야 합니다.";
   if (approval.action_type === "save_agent_memory") return "수락하면 AI 비서가 참고하는 비공개 운영 기준이 저장됩니다.";
   if (approval.action_type === "save_agent_report") return "수락하면 오늘 운영 상태가 비공개 운영 일지로 저장됩니다.";
-  if (approval.action_type === "flush_old_cache") return "수락하면 오래된 분석 캐시가 삭제됩니다.";
-  if (approval.action_type === "flush_player_cache") return "수락하면 특정 플레이어의 분석 캐시가 삭제됩니다.";
-  if (approval.action_type === "flush_match_cache") return "수락하면 특정 매치 분석 캐시와 저장 파일이 정리됩니다.";
-  if (approval.action_type === "reset_benchmarks") return "수락하면 벤치마크 데이터가 초기화됩니다.";
   return approval.impact?.summary || "수락하면 요청된 관리자 작업이 실행됩니다.";
 }
 

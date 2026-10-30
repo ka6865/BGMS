@@ -327,7 +327,7 @@ describe("관리자 게임 데이터 편집 경로", () => {
     const editorSource = readFileSync(resolve("components/admin/GameDataEditor.tsx"), "utf8");
     // 카테고리 내비게이션 배열만 잘라낸다. (은신처 상자 편집기 탭과 구분)
     const navStart = editorSource.indexOf('{ id: "weapons", label: "무기" }');
-    const navEnd = editorSource.indexOf('{ id: "system", label: "시스템/캐시" }');
+    const navEnd = editorSource.indexOf('{ id: "system", label: "시스템 설정" }');
     expect(navStart).toBeGreaterThan(-1);
     expect(navEnd).toBeGreaterThan(navStart);
 

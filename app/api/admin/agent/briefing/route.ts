@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildAgentBriefing, renderBriefingText } from "@/lib/admin-agent/briefing";
-import { createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
+import { approvalCreationFailedResponse, createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
 import { withAuthGuard } from "@/utils/supabase/guard";
 
 export async function GET(request: Request) {
@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   if (adminError) return adminError;
 
   const { searchParams } = new URL(request.url);
-  const hours = Number(searchParams.get("hours") || 24);
+  const hours = clampBriefingHours(searchParams.get("hours"));
   const briefing = await buildAgentBriefing(supabase, hours);
 
   return NextResponse.json({
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   if (adminError) return adminError;
 
   const body = await request.json().catch(() => ({}));
-  const hours = Number(body.hours || 24);
+  const hours = clampBriefingHours(body.hours ?? 24);
   const briefing = body.snapshot ? null : await buildAgentBriefing(supabase, hours);
   const text = body.snapshot ? renderMonitorSnapshotReport(body.snapshot) : renderBriefingText(briefing!);
   const title = body.title || `BGMS 운영 브리핑 ${new Date().toLocaleDateString("ko-KR")}`;
@@ -52,7 +52,16 @@ export async function POST(request: Request) {
     }
   });
 
+  if (!approvalId) return approvalCreationFailedResponse("운영 브리핑 리포트 저장", { briefing, text });
+
   return NextResponse.json({ success: true, approvalId, briefing, text });
+}
+
+// 브리핑 조회 범위는 1시간~7일(168시간)로 제한한다. 숫자가 아니면 기본 24시간을 쓴다.
+function clampBriefingHours(value: unknown) {
+  const parsed = Number(value ?? 24);
+  if (!Number.isFinite(parsed)) return 24;
+  return Math.min(Math.max(Math.floor(parsed), 1), 168);
 }
 
 function renderMonitorSnapshotReport(snapshot: any) {

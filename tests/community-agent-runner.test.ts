@@ -222,8 +222,13 @@ describe("community agent scheduled workflow", () => {
     expect(workflow).toContain("vars.COMMUNITY_AGENT_SCHEDULE_ENABLED != 'true'");
     expect(workflow).toContain("COMMUNITY_AGENT_APP_URL: ${{ vars.APP_URL }}");
     expect(workflow).toContain("COMMUNITY_AGENT_WORKER_SECRET: ${{ secrets.COMMUNITY_AGENT_WORKER_SECRET }}");
+    // worker 잡에는 앱 주소와 worker secret 외의 비밀값을 넘기지 않는다.
+    // 실패 알림 웹훅은 failure-notify 잡에만 둔다.
+    const [workerJob, notifyJob = ""] = workflow.split(/\n  failure-notify:\n/);
     for (const forbidden of ["SUPABASE_SERVICE_ROLE_KEY", "GOOGLE_GEMINI_API_KEY", "NAVER_SEARCH_CLIENT", "YOUTUBE_DATA_API_KEY", "DISCORD_WEBHOOK_URL"]) {
-      expect(workflow).not.toContain(forbidden);
+      expect(workerJob).not.toContain(forbidden);
     }
+    expect(notifyJob).toContain("DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}");
+    expect(notifyJob).not.toContain("COMMUNITY_AGENT_WORKER_SECRET: ${{ secrets");
   });
 });

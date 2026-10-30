@@ -2135,6 +2135,71 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     }));
   });
 
+  it("POST /memories는 승인 요청 행을 만들지 못하면 대기열 등록 성공으로 보고하지 않는다", async () => {
+    tables.agent_approvals = chain({ insertSingle: { data: null, error: { message: "insert denied" } } });
+    mockAdminAuth();
+
+    const response = await memoriesPOST(new Request("http://localhost/api/admin/agent/memories", {
+      method: "POST",
+      body: JSON.stringify({ category: "policy", title: "정책", body: "본문" })
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.success).toBe(false);
+    expect(body.approvalId).toBeNull();
+    expect(body.error).toContain("등록하지 못했습니다");
+    expect(JSON.stringify(body)).not.toContain("insert denied");
+  });
+
+  it("GET /command-center는 소스 하나가 예외를 던져도 나머지로 응답하고 실패 소스를 표시한다", async () => {
+    tables.ai_usage_logs = chain({});
+    tables.ai_usage_logs.select.mockImplementation(() => {
+      throw new Error("ai usage network down");
+    });
+    mockAdminAuth();
+
+    const response = await commandCenterGET(new Request("http://localhost/api/admin/agent/command-center"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.aiUsage).toEqual(expect.objectContaining({ totalRequests: 0, totalCostUsd: 0 }));
+    expect(body.degradedSources).toEqual(expect.arrayContaining([expect.objectContaining({ source: "aiUsage" })]));
+    // 읽지 못한 집계가 있으면 정상으로 표시하지 않는다.
+    expect(body.severity).not.toBe("ok");
+    expect(JSON.stringify(body)).not.toContain("ai usage network down");
+  });
+
+  it.each(["flush_old_cache", "flush_player_cache", "flush_match_cache", "reset_benchmarks"])(
+    "제거된 %s 과거 승인 요청은 승인해도 실행하지 않는다",
+    async (actionType) => {
+      tables.agent_approvals = chain({
+        count: 1,
+        singleResult: {
+          data: { id: "legacy-approval", status: "pending", action_type: actionType, payload: { matchId: "match-1", nickname: "player-a" } },
+          error: null
+        },
+        updateResult: { data: null, error: null }
+      });
+      mockAdminAuth();
+
+      const response = await approvalApprovePOST(
+        new Request("http://localhost/api/admin/agent/approvals/legacy-approval/approve", {
+          method: "POST",
+          body: JSON.stringify({ confirmedImpact: true, approvalNote: "과거 요청 확인" })
+        }),
+        { params: Promise.resolve({ id: "legacy-approval" }) }
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.executionGate).toEqual(expect.objectContaining({ status: "block" }));
+      expect(body.executionGate.reasons.join(" ")).toContain("지원하지 않는 승인 작업");
+      // 승인 claim 전에 차단되므로 실행 경로에 도달하지 않는다.
+      expect(tables.agent_approvals.update).not.toHaveBeenCalled();
+    }
+  );
+
   it("POST /memories는 직접 저장하지 않고 승인 요청을 생성한다", async () => {
     mockAdminAuth();
 
@@ -2180,10 +2245,10 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-cache",
-        tool_name: "request_cache_cleanup",
-        action_type: "flush_old_cache",
+        tool_name: "request_data_quality_repair",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
-        payload: { olderThanDays: 14 },
+        payload: { targets: [] },
         created_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
       }],
       error: null
@@ -2203,10 +2268,10 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     expect(body.approvals[0].queue.isStale).toBe(true);
     expect(body.approvals[0].impact.risk).toBe("high");
     expect(body.approvals[0].impact.preview).toEqual(expect.objectContaining({
-      headline: "오래된 분석 캐시 삭제 미리보기",
+      headline: "전적 분석 identity mismatch 정리 미리보기",
       items: expect.arrayContaining([
         expect.objectContaining({ label: "대상", value: "processed_match_telemetry" }),
-        expect.objectContaining({ label: "예상 row", value: "0개" })
+        expect.objectContaining({ label: "현재 삭제 가능", value: "0개" })
       ])
     }));
     expect(body.approvals[0].impact.checklist).toEqual(expect.arrayContaining([
@@ -2220,10 +2285,10 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-cache",
-        tool_name: "request_cache_cleanup",
-        action_type: "flush_old_cache",
+        tool_name: "request_data_quality_repair",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
-        payload: { olderThanDays: 14 },
+        payload: { targets: [] },
         created_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
       }],
       error: null
@@ -2277,8 +2342,8 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-missing-match",
-        tool_name: "request_cache_cleanup",
-        action_type: "flush_match_cache",
+        tool_name: "request_data_quality_repair",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
         payload: {},
         created_at: new Date().toISOString()
@@ -2295,7 +2360,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
       status: "block",
       label: "승인 차단",
       reasons: expect.arrayContaining([
-        expect.stringContaining("matchId")
+        expect.stringContaining("targets")
       ])
     }));
   });
@@ -2578,16 +2643,14 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-cache",
-        tool_name: "request_cache_cleanup",
-        action_type: "flush_old_cache",
+        tool_name: "request_data_quality_repair",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
-        payload: { olderThanDays: 14 },
+        payload: { targets: [] },
         created_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
       }],
       error: null
     });
-    tables.processed_match_telemetry = chain({ count: 12 });
-
     const result = await adminAgentTools.inspect_approval_queue.run(
       { status: "pending", limit: 5 },
       { supabase: mockSupabaseAdmin, userId: "admin-id" }
@@ -2602,17 +2665,17 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     }));
     expect(parsed.approvals[0]).toEqual(expect.objectContaining({
       id: "approval-cache",
-      actionType: "flush_old_cache",
+      actionType: "repair_processed_telemetry_identity",
       impact: expect.objectContaining({
         risk: "high",
-        estimatedRows: 12,
+        estimatedRows: 0,
         preview: expect.objectContaining({
-          headline: "오래된 분석 캐시 삭제 미리보기",
+          headline: "전적 분석 identity mismatch 정리 미리보기",
           items: expect.arrayContaining([
-            expect.objectContaining({ label: "예상 row", value: "12개" })
+            expect.objectContaining({ label: "현재 삭제 가능", value: "0개" })
           ])
         }),
-        executionGate: expect.objectContaining({ status: "review" })
+        executionGate: expect.objectContaining({ status: "block" })
       })
     }));
     expect(parsed.recommendations.join(" ")).toContain("고위험");
@@ -2663,7 +2726,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-cache",
-        action_type: "flush_match_cache",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
         payload: {},
         created_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
@@ -2754,7 +2817,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
       blockCount: 1,
       reviewCount: 0
     }));
-    expect(body.approvalGateSummary.items[0].gate.reasons.join(" ")).toContain("matchId");
+    expect(body.approvalGateSummary.items[0].gate.reasons.join(" ")).toContain("targets");
     expect(body.toolCatalog.counts.dangerous).toBeGreaterThan(0);
     expect(body.contentPerformance.totalPosts).toBe(1);
     expect(body.contentPerformance.topPost.title).toBe("맵 트렌드");
@@ -2849,7 +2912,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         expect.objectContaining({
           id: "monitor-snapshot",
           risk: "safe",
-          whereToCheck: expect.stringContaining("/admin/bot")
+          whereToCheck: expect.stringContaining("/admin/dashboard?section=status")
         }),
         expect.objectContaining({
           id: "approval-impact",
@@ -3634,7 +3697,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     expect(payload.content).toContain("지금 할 일:");
     expect(payload.content).toContain("**승인 차단**: 1건");
     expect(payload.content).toContain("다음 조치");
-    expect(payload.content).toContain("확인 위치: `/admin/bot`");
+    expect(payload.content).toContain("확인 위치: `/admin/dashboard?section=status`");
   });
 
   it("Discord monitor 전송이 HTTP 오류이면 sent=false로 기록하고 응답 본문은 저장하지 않는다", async () => {
@@ -3824,12 +3887,24 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         data: {
           id: "approval-danger",
           status: "pending",
-          action_type: "flush_old_cache",
-          payload: { olderThanDays: 14 }
+          action_type: "repair_processed_telemetry_identity",
+          payload: { targets: [{ match_id: "match-1", platform: "steam", player_id: "player-a" }] }
         },
         error: null
       },
       updateResult: { data: null, error: null }
+    });
+    // 재검증 시 현재도 identity mismatch 인 row 가 있어야 impact warning 없이 confirmedImpact 단계까지 간다.
+    tables.processed_match_telemetry = chain({
+      maybeSingle: {
+        data: {
+          match_id: "match-1",
+          platform: "steam",
+          player_id: "player-a",
+          data: { fullResult: { stats: { name: "player-b" }, player_id: "player-b", platform: "steam" } }
+        },
+        error: null
+      }
     });
     mockAdminAuth();
 
@@ -3845,6 +3920,39 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     expect(tables.agent_approvals.update).not.toHaveBeenCalled();
   });
 
+  it("POST /approvals/:id/approve는 고위험 작업의 impact warning(유효 대상 0건)을 review가 아닌 block으로 막는다", async () => {
+    tables.agent_approvals = chain({
+      count: 1,
+      singleResult: {
+        data: {
+          id: "approval-zero-valid",
+          status: "pending",
+          action_type: "repair_processed_telemetry_identity",
+          payload: { targets: [{ match_id: "match-1", platform: "steam", player_id: "player-a" }] }
+        },
+        error: null
+      },
+      updateResult: { data: null, error: null }
+    });
+    // 재검증 결과 대상 row 가 이미 없다(유효 대상 0건 warning)
+    tables.processed_match_telemetry = chain({ maybeSingle: { data: null, error: null } });
+    mockAdminAuth();
+
+    const response = await approvalApprovePOST(
+      new Request("http://localhost/api/admin/agent/approvals/approval-zero-valid/approve", {
+        method: "POST",
+        body: JSON.stringify({ confirmedImpact: true })
+      }),
+      { params: Promise.resolve({ id: "approval-zero-valid" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.executionGate.status).toBe("block");
+    expect(body.executionGate.requiredBeforeApproval.join(" ")).toContain("warning");
+    expect(tables.agent_approvals.update).not.toHaveBeenCalled();
+  });
+
   it("POST /approvals/:id/approve는 execution gate block이면 승인 상태로 바꾸지 않는다", async () => {
     tables.agent_approvals = chain({
       count: 1,
@@ -3852,7 +3960,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         data: {
           id: "approval-blocked",
           status: "pending",
-          action_type: "flush_match_cache",
+          action_type: "repair_processed_telemetry_identity",
           payload: {}
         },
         error: null
@@ -3872,7 +3980,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
 
     expect(response.status).toBe(400);
     expect(body.executionGate).toEqual(expect.objectContaining({ status: "block" }));
-    expect(body.executionGate.reasons.join(" ")).toContain("matchId");
+    expect(body.executionGate.reasons.join(" ")).toContain("targets");
     expect(tables.agent_approvals.update).not.toHaveBeenCalled();
   });
 
@@ -3948,7 +4056,8 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
 
   it("승인 전 impact 조회 실패는 다른 요청의 상태를 덮어쓰지 않는다", async () => {
     const state = mockApprovalState();
-    state.row.action_type = "flush_old_cache";
+    state.row.action_type = "repair_processed_telemetry_identity";
+    state.row.payload = { targets: [{ match_id: "match-1", platform: "steam", player_id: "player-a" }] };
     tables.processed_match_telemetry = chain({});
     tables.processed_match_telemetry.select.mockImplementationOnce(() => {
       throw new Error("impact 조회 실패");

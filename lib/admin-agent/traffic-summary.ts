@@ -40,6 +40,10 @@ export type TrafficSummary = {
   previous: TrafficSummaryWindow;
   changes: Record<keyof Pick<TrafficSummaryWindow, "uniqueSessions" | "pageViews" | "totalEvents" | "statsSearches" | "aiFeatureUses" | "boardActions" | "crateOpens" | "replayOpens">, number | null>;
   highlights: string[];
+  /** 조회 상한(TRAFFIC_EVENT_ROW_LIMIT)에 걸려 일부 이벤트가 빠졌을 수 있으면 true */
+  truncated: boolean;
+  /** 운영 지표에서 제외한 내부(is_internal=true) 이벤트 수. 현재 기간 기준이다. */
+  internalEventsExcluded: number;
   error?: string;
 };
 
@@ -77,32 +81,69 @@ const EMPTY_WINDOW: TrafficSummaryWindow = {
   replayOpens: 0
 };
 
+// 현재+이전 기간을 한 번에 읽는 최대 행 수
+export const TRAFFIC_EVENT_ROW_LIMIT = 10000;
+
+/**
+ * 조회 자체가 불가능할 때의 결과입니다. command center 처럼 여러 소스를 병렬로 읽는 곳에서
+ * 예외가 나도 같은 모양의 값을 쓰도록 공개한다.
+ */
+export function buildUnavailableTrafficSummary(windowHours: number, error: string): TrafficSummary {
+  return {
+    generatedAt: new Date().toISOString(),
+    status: "unavailable",
+    windowHours,
+    current: { ...EMPTY_WINDOW },
+    previous: { ...EMPTY_WINDOW },
+    changes: buildChanges(EMPTY_WINDOW, EMPTY_WINDOW),
+    highlights: ["유저 활동 테이블을 아직 조회할 수 없습니다."],
+    truncated: false,
+    internalEventsExcluded: 0,
+    error
+  };
+}
+
+/**
+ * is_internal 은 NOT NULL DEFAULT false 컬럼이고 (is_internal, created_at desc) 인덱스가 있다(20260611133705).
+ * 내부 이벤트가 조회 상한을 차지하지 않도록 쿼리 단계에서 운영 이벤트만 읽는다.
+ */
+async function countInternalEvents(supabase: any, since: string): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from("analytics_events")
+      .select("id", { count: "exact", head: true })
+      .eq("is_internal", true)
+      .gte("created_at", since);
+    if (error) return 0;
+    return count || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function buildTrafficSummary(supabase: any, windowHours = 24): Promise<TrafficSummary> {
   const now = Date.now();
   const currentSince = new Date(now - windowHours * 60 * 60 * 1000).toISOString();
   const previousSince = new Date(now - windowHours * 2 * 60 * 60 * 1000).toISOString();
 
-  const { data, error } = await supabase
-    .from("analytics_events")
-    .select("event_name, session_id, user_id, page_path, params, created_at")
-    .gte("created_at", previousSince)
-    .order("created_at", { ascending: false })
-    .limit(10000);
+  const [{ data, error }, internalEventsExcluded] = await Promise.all([
+    supabase
+      .from("analytics_events")
+      .select("event_name, session_id, user_id, page_path, params, created_at")
+      .eq("is_internal", false)
+      .gte("created_at", previousSince)
+      .order("created_at", { ascending: false })
+      .limit(TRAFFIC_EVENT_ROW_LIMIT),
+    // 로컬/개발 등 내부 이벤트는 운영 지표에 섞지 않고 현재 기간 건수만 따로 보고한다.
+    countInternalEvents(supabase, currentSince)
+  ]);
 
   if (error) {
-    return {
-      generatedAt: new Date().toISOString(),
-      status: "unavailable",
-      windowHours,
-      current: { ...EMPTY_WINDOW },
-      previous: { ...EMPTY_WINDOW },
-      changes: buildChanges(EMPTY_WINDOW, EMPTY_WINDOW),
-      highlights: ["유저 활동 테이블을 아직 조회할 수 없습니다."],
-      error: error.message
-    };
+    return buildUnavailableTrafficSummary(windowHours, error.message);
   }
 
   const rows = (data || []) as AnalyticsEventRow[];
+  const truncated = rows.length >= TRAFFIC_EVENT_ROW_LIMIT;
   const profilesById = await fetchProfilesByUserId(supabase, rows);
   const nonAdminRows = rows.filter((row) => !row.user_id || profilesById.get(row.user_id)?.role !== "admin");
   const currentRows = nonAdminRows.filter((row) => row.created_at >= currentSince);
@@ -118,7 +159,9 @@ export async function buildTrafficSummary(supabase: any, windowHours = 24): Prom
     current,
     previous,
     changes: buildChanges(current, previous),
-    highlights: buildHighlights(current, previous, status)
+    highlights: buildHighlights(current, previous, status, { truncated, internalEventsExcluded }),
+    truncated,
+    internalEventsExcluded
   };
 }
 
@@ -127,7 +170,7 @@ export function renderTrafficSummaryText(summary: TrafficSummary) {
     return `유저 활동 집계를 조회할 수 없습니다. 원인: ${summary.error || "알 수 없는 오류"}`;
   }
   if (summary.status === "empty") {
-    return "최근 유저 활동 수집 데이터가 아직 없습니다. 배포 후 페이지뷰와 주요 기능 이벤트가 쌓이면 이곳에서 요약됩니다.";
+    return ["최근 유저 활동 수집 데이터가 아직 없습니다. 배포 후 페이지뷰와 주요 기능 이벤트가 쌓이면 이곳에서 요약됩니다.", ...buildDataQualityNotes(summary)].join("\n");
   }
 
   const topPages = summary.current.topPages.slice(0, 3).map((item) => `${item.label} ${item.count}회`).join(", ") || "없음";
@@ -140,7 +183,8 @@ export function renderTrafficSummaryText(summary: TrafficSummary) {
     `인기 페이지: ${topPages}`,
     `인기 기능: ${topFeatures}`,
     `활동 많은 회원: ${topUsers}`,
-    `변화: 세션 ${formatChange(summary.changes.uniqueSessions)}, 페이지뷰 ${formatChange(summary.changes.pageViews)}, 전적 검색 ${formatChange(summary.changes.statsSearches)}`
+    `변화: 세션 ${formatChange(summary.changes.uniqueSessions)}, 페이지뷰 ${formatChange(summary.changes.pageViews)}, 전적 검색 ${formatChange(summary.changes.statsSearches)}`,
+    ...buildDataQualityNotes(summary)
   ].join("\n");
 }
 
@@ -251,8 +295,24 @@ function buildChanges(current: TrafficSummaryWindow, previous: TrafficSummaryWin
   };
 }
 
-function buildHighlights(current: TrafficSummaryWindow, previous: TrafficSummaryWindow, status: TrafficSummary["status"]) {
-  if (status === "empty") return ["아직 최근 24시간 유저 활동 수집 데이터가 없습니다."];
+function buildDataQualityNotes(summary: Pick<TrafficSummary, "truncated" | "internalEventsExcluded">) {
+  const notes: string[] = [];
+  if (summary.internalEventsExcluded > 0) {
+    notes.push(`내부(로컬/개발) 이벤트 ${summary.internalEventsExcluded}건은 운영 지표에서 제외했습니다.`);
+  }
+  if (summary.truncated) {
+    notes.push(`조회 상한 ${TRAFFIC_EVENT_ROW_LIMIT}건에 도달해 일부 이벤트가 빠졌을 수 있습니다. 수치는 최소값으로 해석하세요.`);
+  }
+  return notes;
+}
+
+function buildHighlights(
+  current: TrafficSummaryWindow,
+  previous: TrafficSummaryWindow,
+  status: TrafficSummary["status"],
+  quality: Pick<TrafficSummary, "truncated" | "internalEventsExcluded">
+) {
+  if (status === "empty") return ["아직 최근 24시간 유저 활동 수집 데이터가 없습니다.", ...buildDataQualityNotes(quality)];
   const highlights = [
     `가장 많이 본 페이지: ${current.topPages[0]?.label || "아직 없음"}`,
     `가장 많이 쓴 기능: ${current.topFeatures[0]?.label || "아직 없음"}`,
@@ -260,6 +320,7 @@ function buildHighlights(current: TrafficSummaryWindow, previous: TrafficSummary
   ];
   const sessionChange = percentChange(current.uniqueSessions, previous.uniqueSessions);
   if (sessionChange !== null) highlights.push(`방문 세션은 이전 기간 대비 ${formatChange(sessionChange)}입니다.`);
+  highlights.push(...buildDataQualityNotes(quality));
   return highlights;
 }
 

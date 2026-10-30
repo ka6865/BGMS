@@ -190,7 +190,6 @@ function checkTools() {
     "analyze_content_performance",
     "request_content_post",
     "request_agent_memory",
-    "request_cache_cleanup",
     "create_board_post"
   ];
   const missing = requiredTools.filter((toolName) => !adminAgentTools[toolName]);
@@ -240,7 +239,6 @@ function checkToolSafetyClassification() {
     generate_content_draft: "read",
     analyze_content_performance: "read",
     take_map_screenshot: "write",
-    request_cache_cleanup: "dangerous",
     request_agent_memory: "dangerous",
     request_operations_report: "dangerous",
     request_content_post: "dangerous",
@@ -266,7 +264,6 @@ function checkToolSafetyClassification() {
 function checkApprovalLoop() {
   const catalog = buildAgentToolCatalog();
   const approvalTools = [
-    "request_cache_cleanup",
     "request_agent_memory",
     "request_operations_report",
     "request_content_post",
@@ -433,9 +430,9 @@ function checkMemoryLearningWorkflow() {
     approvalGateSummary: {
       blockCount: 1,
       items: [{
-        title: "매치 캐시 삭제",
-        actionType: "flush_match_cache",
-        gate: { reasons: ["matchId가 필요합니다."] }
+        title: "identity mismatch 정리",
+        actionType: "repair_processed_telemetry_identity",
+        gate: { reasons: ["identity mismatch 삭제 대상 targets가 없습니다."] }
       }]
     },
     failedRuns: { count: 1 },

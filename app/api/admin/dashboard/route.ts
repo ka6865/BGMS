@@ -1,35 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
-import { createClient } from "@/utils/supabase/server";
+import { requireAdmin } from "@/lib/server/adminGuard";
 import { buildStorageHealth } from "@/lib/admin-agent/storage-health";
 
-// 관리자 권한 검증 및 Supabase Admin 클라이언트 반환
-async function verifyAdmin() {
-  const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabaseServer
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  
-  if (profile?.role === "admin") {
-    const supabaseAdmin = createSupabaseAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-    return { user, supabaseAdmin };
-  }
-  return null;
-}
-
 export async function GET() {
-  const adminContext = await verifyAdmin();
-  if (!adminContext) {
-    return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
-  }
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.error;
 
   try {
     // 0. 📊 스쿼드 및 API 절약 지표 연산 (안전장치 추가)
@@ -168,6 +143,6 @@ export async function GET() {
     });
   } catch (error: any) {
     console.error("Dashboard API error:", error);
-    return NextResponse.json({ error: error.message || "대시보드 데이터를 불러올 수 없습니다." }, { status: 500 });
+    return NextResponse.json({ error: "대시보드 데이터를 불러올 수 없습니다." }, { status: 500 });
   }
 }

@@ -1,32 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
-import { createClient } from "@/utils/supabase/server";
+import { requireAdmin } from "@/lib/server/adminGuard";
+import { recordAdminAudit } from "@/lib/server/adminAudit";
 import { buildAiObservability, getAiErrorLabel, hasAiUsageIssue, isAiUsageFailed, isAiUsageSuccessful, normalizeAiUsageRows, type AiUsageObservationRow, type PubgErrorObservationRow } from "@/lib/admin-agent/ai-observability";
 import { buildMembershipTimeline, normalizeMembershipWindowDays, type MembershipDailyRow } from "@/lib/admin-agent/membership-timeline";
 
 const USERS_PAGE_SIZE = 1000;
 const PROFILES_PAGE_SIZE = 1000;
-
-async function verifyAdmin() {
-  const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabaseServer
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  
-  if (profile?.role === "admin") {
-    const supabaseAdmin = createSupabaseAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-    return { user, supabaseAdmin };
-  }
-  return null;
-}
 
 async function listAllAuthUsers(supabaseAdmin: any) {
   const users: any[] = [];
@@ -162,10 +141,8 @@ function getPageName(path: string): string {
 }
 
 export async function GET(request: Request) {
-  const adminContext = await verifyAdmin();
-  if (!adminContext) {
-    return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
-  }
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.error;
 
   try {
     const url = new URL(request.url);
@@ -543,15 +520,13 @@ export async function GET(request: Request) {
     });
   } catch (error: any) {
     console.error("Fetch admin users error:", error);
-    return NextResponse.json({ error: error.message || "유저 정보를 불러올 수 없습니다." }, { status: 500 });
+    return NextResponse.json({ error: "유저 정보를 불러올 수 없습니다." }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
-  const adminContext = await verifyAdmin();
-  if (!adminContext) {
-    return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
-  }
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.error;
 
   try {
     const body = await request.json();
@@ -600,6 +575,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "role 은 user 또는 admin 만 허용됩니다." }, { status: 400 });
     }
 
+    let previousRole: string | null = null;
+    if (role !== undefined) {
+      const { data: targetProfile, error: targetError } = await adminContext.supabaseAdmin
+        .from("profiles")
+        .select("id, role")
+        .eq("id", id)
+        .maybeSingle();
+      if (targetError) throw targetError;
+      previousRole = (targetProfile?.role as string | null | undefined) ?? null;
+
+      if (previousRole === "admin" && role !== "admin") {
+        // 자기 자신의 관리자 권한은 여기서 내릴 수 없다(다른 관리자가 처리).
+        if (id === adminContext.user.id) {
+          return NextResponse.json({ error: "현재 로그인한 관리자 계정의 권한은 직접 낮출 수 없습니다." }, { status: 400 });
+        }
+        // 마지막 관리자를 강등하면 관리자 화면에 들어올 수 있는 계정이 사라진다.
+        const { count: adminCount, error: countError } = await adminContext.supabaseAdmin
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("role", "admin");
+        if (countError) throw countError;
+        if (typeof adminCount !== "number" || adminCount <= 1) {
+          return NextResponse.json({ error: "마지막 관리자 계정은 강등할 수 없습니다. 다른 관리자를 먼저 지정해 주세요." }, { status: 400 });
+        }
+      }
+    }
+
     const profile: Record<string, unknown> = {};
     if (role !== undefined) profile.role = role;
     if (Object.hasOwn(body, "pubg_nickname")) profile.pubg_nickname = pubg_nickname || null;
@@ -611,18 +613,27 @@ export async function POST(request: Request) {
     });
     if (saveError) throw saveError;
 
+    if (role !== undefined && role !== previousRole) {
+      await recordAdminAudit(adminContext.supabaseAdmin, {
+        actorId: adminContext.user.id,
+        action: "users.role_change",
+        targetType: "user",
+        targetId: id,
+        phase: "succeeded",
+        detail: { from: previousRole, to: role }
+      });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Save admin user error:", error);
-    return NextResponse.json({ error: error.message || "유저 정보 저장 실패" }, { status: 500 });
+    return NextResponse.json({ error: "유저 정보 저장에 실패했습니다." }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request) {
-  const adminContext = await verifyAdmin();
-  if (!adminContext) {
-    return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
-  }
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.error;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
@@ -636,25 +647,61 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "현재 로그인한 관리자 계정은 여기서 삭제할 수 없습니다." }, { status: 400 });
     }
 
-    const { data: profileBeforeDelete } = await adminContext.supabaseAdmin
+    const { data: profileBeforeDelete, error: profileLookupError } = await adminContext.supabaseAdmin
       .from("profiles")
-      .select("id")
+      .select("id, role")
       .eq("id", id)
       .maybeSingle();
+    if (profileLookupError) throw profileLookupError;
+
+    // 관리자 계정은 바로 삭제하지 않는다. 먼저 일반 회원으로 강등해야 한다.
+    if (profileBeforeDelete?.role === "admin") {
+      return NextResponse.json({ error: "관리자 계정은 삭제할 수 없습니다. 먼저 일반 회원으로 권한을 낮춘 뒤 삭제해 주세요." }, { status: 400 });
+    }
 
     const users = await listAllAuthUsers(adminContext.supabaseAdmin);
     const authUserExists = users.some(user => user.id === id);
 
-    if (authUserExists) {
-      const { error: deleteErr } = await adminContext.supabaseAdmin.auth.admin.deleteUser(id);
-      if (deleteErr) throw deleteErr;
+    // 되돌릴 수 없는 삭제이므로 실행 전에 시도 기록을 먼저 남긴다.
+    await recordAdminAudit(adminContext.supabaseAdmin, {
+      actorId: adminContext.user.id,
+      action: "users.delete",
+      targetType: "user",
+      targetId: id,
+      phase: "requested",
+      detail: { authUserExists, profileExists: Boolean(profileBeforeDelete) }
+    });
+
+    try {
+      if (authUserExists) {
+        const { error: deleteErr } = await adminContext.supabaseAdmin.auth.admin.deleteUser(id);
+        if (deleteErr) throw deleteErr;
+      }
+
+      const { error: profileDeleteErr } = await adminContext.supabaseAdmin
+        .from("profiles")
+        .delete()
+        .eq("id", id);
+      if (profileDeleteErr) throw profileDeleteErr;
+    } catch (deleteError) {
+      await recordAdminAudit(adminContext.supabaseAdmin, {
+        actorId: adminContext.user.id,
+        action: "users.delete",
+        targetType: "user",
+        targetId: id,
+        phase: "failed"
+      });
+      throw deleteError;
     }
 
-    const { error: profileDeleteErr } = await adminContext.supabaseAdmin
-      .from("profiles")
-      .delete()
-      .eq("id", id);
-    if (profileDeleteErr) throw profileDeleteErr;
+    await recordAdminAudit(adminContext.supabaseAdmin, {
+      actorId: adminContext.user.id,
+      action: "users.delete",
+      targetType: "user",
+      targetId: id,
+      phase: "succeeded",
+      detail: { deletedAuthUser: authUserExists, deletedProfile: Boolean(profileBeforeDelete) }
+    });
 
     return NextResponse.json({
       success: true,
@@ -663,6 +710,6 @@ export async function DELETE(request: Request) {
     });
   } catch (error: any) {
     console.error("Delete admin user error:", error);
-    return NextResponse.json({ error: error.message || "유저 삭제 실패" }, { status: 500 });
+    return NextResponse.json({ error: "유저 삭제에 실패했습니다." }, { status: 500 });
   }
 }

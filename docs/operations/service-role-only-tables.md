@@ -1,6 +1,6 @@
 # service role 전용 테이블
 
-RLS를 켜고 정책을 두지 않은 `public` 테이블은 anon·authenticated 요청에서 행을 읽거나 쓸 수 없다. 아래 54개 테이블은 이 상태가 의도된 설계이며, 서버(API route, `lib/` 서버 모듈, 운영 스크립트·워크플로)가 service role로만 접근한다. Supabase security advisor의 `rls_enabled_no_policy` 경고는 이 목록에 있는 테이블이면 조치 대상이 아니다.
+RLS를 켜고 정책을 두지 않은 `public` 테이블은 anon·authenticated 요청에서 행을 읽거나 쓸 수 없다. 아래 55개 테이블은 이 상태가 의도된 설계이며, 서버(API route, `lib/` 서버 모듈, 운영 스크립트·워크플로)가 service role로만 접근한다. Supabase security advisor의 `rls_enabled_no_policy` 경고는 이 목록에 있는 테이블이면 조치 대상이 아니다.
 
 확인 기준: 2026-10-15 운영 DB 읽기 전용 조회(`pg_class.relrowsecurity`가 켜져 있고 `pg_policies`에 정책이 없는 `public` 테이블). advisor는 같은 날 55개로 집계했으며, 아래 조회 결과와 차이가 생기면 조회 결과를 기준으로 이 문서를 갱신한다.
 
@@ -9,6 +9,7 @@ RLS를 켜고 정책을 두지 않은 `public` 테이블은 anon·authenticated 
 | 영역 | 테이블 |
 | --- | --- |
 | 관리자 에이전트 | `agent_approvals`, `agent_memories`, `agent_runs`, `agent_steps` |
+| 관리자 감사 | `admin_audit_events` |
 | AI 사용량·캐시·검수 | `ai_usage_logs`, `ai_coaching_review_cases`, `match_ai_coaching_cache`, `player_ai_summary_cache`, `squad_ai_coaching_cache` |
 | 이용 지표 | `analytics_events`, `analytics_event_rate_limits`, `user_lifecycle_events`, `user_lifecycle_capture_meta` |
 | 게시판 보조 | `board_comment_delete_credentials`, `board_post_delete_credentials`, `board_image_objects`, `board_image_reservation_rate_limits`, `board_post_image_refs`, `board_post_view_tracking`, `board_write_rate_limits` |
@@ -27,6 +28,15 @@ RLS를 켜고 정책을 두지 않은 `public` 테이블은 anon·authenticated 
 같은 migration이 다음 플레이어 단위 데이터 표도 서버 전용으로 바꿨다. 이 표들은 예전 `SELECT ... using (true)` 정책이 남아 있지만 클라이언트 권한이 없어 공개되지 않는다. 앱은 service role로만 읽는다(`lib/server/serviceRoleSupabase.server.ts`).
 
 `pubg_player_matches`, `pubg_player_cache`, `processed_match_telemetry`, `match_stats_raw`, `global_benchmarks`, `match_master_telemetry`, 뷰 `benchmark_stats_by_tier`, `benchmark_stats_by_tier_v2`
+
+## 관리자 감사 로그 (`admin_audit_events`)
+
+`20261031010000_admin_audit_events`가 추가한다. 운영 DB에는 아직 적용되지 않았을 수 있으며, 적용 전에는 기록이 실패해도 관리자 조작은 그대로 진행된다(서버 로그에 `[ADMIN-AUDIT]`로 남는다). 위 확인 기준(2026-10-15 조회)에는 포함되지 않은 표이므로 적용 후 재확인 쿼리로 목록을 다시 맞춘다.
+
+- 쓰는 곳: `lib/server/adminAudit.ts`의 `recordAdminAudit`. insert 실패는 예외를 던지지 않는다(best-effort).
+- 기록 시점: 되돌릴 수 없는 삭제(`users.delete`, `posts.force_delete`)는 실행 전 `detail.phase = "requested"`, 실행 뒤 `succeeded`/`failed`를 남긴다. 나머지(`users.role_change`, `reports.blind|dismiss|ban_ip`, `markers.approve|reject`, `weapon_patch.apply|revert`, `private_players.add|remove`, `support.privacy_action`)는 실행 후 결과를 한 번 남긴다.
+- `actor_id`는 외래 키가 아니다. 관리자 계정을 삭제해도 기록이 남는다. `detail`에는 비밀값, 토큰, 이메일, IP 원문을 넣지 않는다.
+- 보존 기간과 정리 작업은 아직 정하지 않았다.
 
 ## 변경 규칙
 
