@@ -6,7 +6,7 @@
 
 ## 1. 결론
 
-1. **랭킹을 먼저 만든다.** Riot이 프로덕션 키 승인 사용 사례로 "Official Ladder Leaderboards."를 적고 있어, 공식 명단 순서를 그대로 보여 주는 화면은 허용 범주다.
+1. **랭킹을 먼저 만든다.** Riot 승인 사용 사례에 "Official Ladder Leaderboards."가 있어, 공식 명단 순서를 그대로 보여 주는 화면은 허용 범주로 판단한다(2절 주의 참고).
 2. **장인은 2단계다.** 숙련도 순위를 다루는 공식 문구가 없고, "실력 순위"로 읽히면 금지 조항과 부딪힐 수 있다.
 3. **게시본에 PUUID를 저장하지 않는다.** 키 교체 영향과 개인정보 범위를 함께 줄인다.
 4. **메뉴를 늘리지 않고 합친다.** "랭크 컷"을 "랭킹"으로 바꿔 순위표와 컷을 한 화면에 둔다. 장인만 메뉴를 하나 더한다.
@@ -16,11 +16,13 @@
 
 | 항목 | 판정 | 근거 |
 | --- | --- | --- |
-| 공식 순위표 표시 | 허용 범주(확정) | [LoL 문서](https://developer.riotgames.com/docs/lol) 승인 사용 사례: "Official Ladder Leaderboards." |
+| 공식 순위표 표시 | 허용 범주(추정, 강함) | [LoL 문서](https://developer.riotgames.com/docs/lol) 승인 사용 사례: "Official Ladder Leaderboards." |
 | 자체 실력 순위 | 금지(확정) | [일반 정책](https://developer.riotgames.com/policies/general): "Products cannot create alternatives for official skill ranking systems such as the ranked ladder.", "Prohibited alternatives include MMR or ELO calculators." |
 | 숨겨진 플레이어 | 금지(확정) | "Products cannot identify or analyze players who are deliberately hidden by the game.", "Products cannot de-anonymize players who cannot reasonably be identified from visible information." |
 | 숙련도 순위 | 미확인 | LoL 문서에 언급 없음. 금지도 허용도 확인되지 않았다 |
 | 순위 데이터 보관·캐시 기간 | 미확인 | 위 두 문서에서 찾지 못했다 |
+
+주의: 문서 HTML은 "Examples of Approved Use Cases for Personal Keys" 제목 아래 한 목록이고, 중간에 "Examples of Approved Use Cases for Production Keys."가 목록 항목처럼 들어 있다. 순위표 항목은 그 줄 뒤에 있어 프로덕션 사례로 읽었지만, 표기 오류로 보이는 구조라 단정하지 않는다. 신청서에는 이 문구를 그대로 쓰고 Riot이 프로덕션 범위로 확인했다고 적지 않는다.
 
 금지 기준에 맞춰 다음을 만들지 않는다: 자체 점수로 매긴 순위, 공식 순서를 바꾸는 보정, 순위 시점별 추적, Riot ID 변경 이력.
 
@@ -44,7 +46,14 @@
 - 표본이 적은 챔피언은 "표본 부족"으로 둔다.
 - 정책 문제가 생기면 숙련도 대신 현재 시즌 판수 기준으로 바꾸거나 탭을 내린다.
 
-기각한 대안: 최근 경기 집중도. 인당 21회 호출이고, 경기 원문에 다른 참가자 정보가 남는다.
+- 챔피언마다 최대 10명을 보여 주고 KR만 다룬다.
+- 보드 이름은 "챔피언 숙련도 상위"로 쓴다. 정의 문구, 표본 범위, 갱신 시각, 제외·삭제 안내를 같은 화면에 고정한다.
+
+기각한 대안:
+- 최근 경기 집중도: 인당 21회 호출이고, 경기 원문에 다른 참가자 정보가 남는다.
+- 판수 기준: 큐 전체 판수는 챔피언별이 아니고, 챔피언별 판수는 위와 같은 경기 상세 수집이 필요하다.
+
+공개 사이트 조사(2026-10-30, 3곳 시도): 두 곳은 자동 접근이 차단되어 확인하지 못했다. 나머지 한 곳은 숙련도 포인트 누적 기준의 챔피언별 상위 3명 보드였고, 지역이 섞여 있었으며 정의와 갱신 주기 문구가 없었다. 근거가 한 곳뿐이라 일반적인 관행으로 보지 않는다. 그 사이트가 Riot의 정책 판단을 받았다는 근거도 없다. 상세는 Git 제외 자료에 있다.
 
 ## 4. 데이터와 호출량
 
