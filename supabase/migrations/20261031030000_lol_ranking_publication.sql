@@ -124,11 +124,12 @@ $$;
 
 create function public.get_lol_mastery_publication()
 returns jsonb language sql stable security invoker set search_path = '' as $$
-  select jsonb_build_object(
+  -- 게시본이 없으면 null을 돌려 화면이 오류가 아니라 미집계 상태로 안내하게 한다.
+  select case when count(*) = 0 then null else jsonb_build_object(
     'observedAt', max(observed_at),
     'playerCount', max(player_count),
-    'champions', coalesce(jsonb_agg(jsonb_build_object('championId', champion_id, 'status', status, 'sampleSize', sample_size,
-      'entries', entries) order by champion_id), '[]'::jsonb))
+    'champions', jsonb_agg(jsonb_build_object('championId', champion_id, 'status', status, 'sampleSize', sample_size,
+      'entries', entries) order by champion_id)) end
   from public.lol_mastery_publication;
 $$;
 

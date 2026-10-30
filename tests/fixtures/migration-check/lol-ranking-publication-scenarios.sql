@@ -46,6 +46,7 @@ begin
       jsonb_build_object('rank', 3, 'riot_id', 'Gamma#KR3', 'champion_points', 100000, 'champion_level', 6, 'riot_id_hmac', h3))),
     jsonb_build_object('champion_id', 1, 'status', 'insufficient', 'sample_size', 1, 'entries', '[]'::jsonb));
 
+  if public.get_lol_mastery_publication() is not null then raise exception 'empty mastery board must be null'; end if;
   perform public.save_lol_ranking_publication(rows, 3, masters, now() - interval '1 minute');
   board := public.get_lol_ranking_publication();
   if jsonb_array_length(board->'payload') <> 3 or (board->>'playerCount')::integer <> 3 then raise exception 'save happy path failed'; end if;
