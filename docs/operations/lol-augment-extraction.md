@@ -414,11 +414,18 @@ DB 게시 gate는 패치 행 잠금 안에서 실행 ID 일치·마지막 실행
 
 아이콘은 `/api/lol/augment-icons/{patch}/assets/ux/kiwi/augments/icons/{name}.png`로만 요청한다.
 허용 목록은 `assets/ux/kiwi/augments/icons/*.png`와 `assets/ux/cherry/augments/icons/*.png` 두 디렉터리다.
-실제 16.21 원본 중 kiwi 140개·cherry 108개 아이콘을 사용하므로 메인 승인에 따라 두 경로만 허용한다.
-마법 미사일(id 1133)은 `assets/maps/particles/kiwi/`를 사용해 허용 목록 밖이며 미리보기 이미지를 생략한다.
-패치·경로 허용 목록, PNG MIME·시그니처, 2 MiB 상한을 검사한다.
-`LOL_PUBLIC_ENABLED=true`일 때 공개 1년 immutable 캐시, 그 외 관리자만 접근하며 private 1년 immutable 캐시를 사용한다.
-HTML에 CommunityDragon 직접 아이콘 주소를 넣지 않는다.
+마법 미사일(id 1133)은 `assets/maps/particles/kiwi/`를 사용해 허용 목록 밖이며 이미지를 생략한다.
+
+원본은 비공개 버킷 `lol-augment-icons`의 `{client_patch}/{icon}`에 있다(PNG, 2 MiB 상한). 브라우저는 Storage에 직접 접근하지 않는다.
+수집기는 스냅샷 저장 전에 게시 대상 아이콘을 모두 올린다. 하나라도 실패하면 실행이 `failed`로 끝나 다음 일일 수집에서 다시 시도하며, 아이콘이 빠진 패치는 게시할 수 없다.
+게시 완료 패치는 수집기가 건너뛰므로 `--icons-only --patch 16.21`(워크플로 입력 `icons_only`)로 채운다. `--dry-run`을 함께 주면 개수만 출력한다.
+
+`LOL_PUBLIC_ENABLED=true`이고 게시본에 있는 아이콘은 로그인 없이 내보내며 `s-maxage`·`CDN-Cache-Control`·`Vercel-CDN-Cache-Control`까지 1년 immutable로 둔다(게시판 이미지 프록시와 같다). 경로에 패치 버전이 있어 내용이 바뀌지 않는다.
+게시본에 없는 파일은 Storage를 호출하지 않는다. 공개 상태에서 비관리자는 404이고, 관리자는 게시 전 패치를 private 캐시로 미리 본다. 공개 플래그가 꺼져 있으면 관리자만 접근한다. 2026-10-24 관리자 전용 결정은 2026-10-30 사용자 결정으로 바꿨다.
+
+공개 페이지 `/lol/kr/aram-mayhem`과 아이콘 허용 목록은 `getCachedLolAugmentCatalog`를 함께 쓴다. 토큰을 뺀 화면용 값만 1시간 캐시하고 조회 실패는 캐시하지 않으며, 관리자 게시 시 `lol-augment-catalog` 태그로 비운다.
+
+운영 적용 순서: `20261031020000_lol_augment_icons_bucket` 적용 → 버킷 설정 확인 → `icons_only` dry-run과 실제 실행(`lol-augment-icons` 객체 수가 개수와 같은지 확인) → 코드 배포 → 아이콘을 두 번 요청해 `x-vercel-cache: HIT` 확인.
 
 `.github/workflows/lol-augments-sync.yml`의 수동 실행은 dry_run 기본 true다.
 일일 schedule은 main에서 저장소 변수 `LOL_AUGMENT_SYNC_ENABLED=true`일 때만 실행한다.

@@ -125,7 +125,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 챔피언 공�
   }, 90_000);
   afterAll(async () => { await browser?.close(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); });
 
-  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 헤더 메뉴 4개·그리드·오류 상태가 넘치지 않는다", async (width, height) => {
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 헤더 메뉴 5개·그리드·오류 상태가 넘치지 않는다", async (width, height) => {
     const page = await browser.newPage(); await page.setViewport({ width, height });
     const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
     await page.setRequestInterception(true);
@@ -135,14 +135,16 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 챔피언 공�
       expect(await page.$eval("main h1", element => element.textContent)).toBe("챔피언");
       expect(await page.$eval('[data-testid="lol-header"] [aria-current="page"]', element => element.textContent)).toBe("챔피언");
       expect(await page.$$eval('[data-testid="lol-header"] nav a', links => links.map(link => link.getAttribute("href"))))
-        .toEqual(["/lol/kr", "/lol/kr/champions", "/lol/kr/ladder", "/lol/kr/status"]);
+        .toEqual(["/lol/kr", "/lol/kr/champions", "/lol/kr/aram-mayhem", "/lol/kr/ladder", "/lol/kr/status"]);
       // 좁은 화면에서도 헤더 메뉴가 줄바꿈되거나 잘리지 않는다.
       expect(await page.$$eval('[data-testid="lol-header"] nav a', links => links.every(link => {
         const rect = link.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth && rect.height <= 48;
       }))).toBe(true);
-      // 로고와 첫 메뉴가 붙어 보이지 않도록 간격을 둔다.
-      expect(await page.$eval('[data-testid="lol-header"]', header => header.querySelector("nav a")!.getBoundingClientRect().left
-        - header.querySelector("a")!.getBoundingClientRect().right)).toBeGreaterThanOrEqual(8);
+      // 모바일은 메뉴가 로고 아래 줄로 내려가고, 넓은 화면은 같은 줄에서 로고와 붙어 보이지 않도록 간격을 둔다.
+      expect(await page.$eval('[data-testid="lol-header"]', header => {
+        const logo = header.querySelector("a")!.getBoundingClientRect(); const menu = header.querySelector("nav a")!.getBoundingClientRect();
+        return menu.top >= logo.bottom || menu.left - logo.right >= 8;
+      })).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(await page.$$eval("main, li", elements => elements.every(element => {
         const rect = element.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth + 1;

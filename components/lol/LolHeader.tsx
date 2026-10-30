@@ -9,8 +9,9 @@ import { usePathname } from "next/navigation";
 const under = (path: string, base: string) => path === base || path.startsWith(`${base}/`);
 const NAV = [
   { href: "/lol/kr", label: "전적 검색", match: (path: string) => path === "/lol" || path === "/lol/kr"
-    || (path.startsWith("/lol/kr/") && !["/lol/kr/champions", "/lol/kr/ladder", "/lol/kr/status"].some(base => under(path, base))) },
+    || (path.startsWith("/lol/kr/") && !["/lol/kr/champions", "/lol/kr/aram-mayhem", "/lol/kr/ladder", "/lol/kr/status"].some(base => under(path, base))) },
   { href: "/lol/kr/champions", label: "챔피언", match: (path: string) => under(path, "/lol/kr/champions") },
+  { href: "/lol/kr/aram-mayhem", label: "증바람", match: (path: string) => under(path, "/lol/kr/aram-mayhem") },
   { href: "/lol/kr/ladder", label: "랭크 컷", match: (path: string) => under(path, "/lol/kr/ladder") },
   { href: "/lol/kr/status", label: "서버 상태", match: (path: string) => under(path, "/lol/kr/status") },
 ] as const;
@@ -20,7 +21,7 @@ export default function LolHeader() {
   return (
     <header
       data-testid="lol-header"
-      className="safe-top flex min-h-14 w-full shrink-0 items-center gap-3 border-b border-amber-500/30 bg-zinc-950 px-4 text-zinc-100 sm:gap-6 sm:px-6"
+      className="safe-top flex min-h-14 w-full shrink-0 flex-wrap items-center gap-x-3 border-b border-amber-500/30 bg-zinc-950 px-4 pt-2 text-zinc-100 sm:flex-nowrap sm:gap-x-6 sm:px-6 sm:pt-0"
     >
       <Link href="/lol/kr" aria-label="BGMS LoL 전적 검색" className="flex shrink-0 items-center gap-1.5">
         <span className="text-[20px] font-black italic uppercase tracking-tighter text-amber-400">
@@ -28,7 +29,7 @@ export default function LolHeader() {
         </span>
         <span className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[11px] font-bold text-amber-300 ring-1 ring-amber-400/30">LoL</span>
       </Link>
-      <nav aria-label="LoL 메뉴" className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:justify-start sm:gap-1">
+      <nav aria-label="LoL 메뉴" className="flex w-full min-w-0 items-center gap-0.5 overflow-x-auto sm:w-auto sm:flex-1 sm:gap-1">
         {NAV.map((item) => {
           const active = item.match(pathname);
           return (

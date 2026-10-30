@@ -142,9 +142,9 @@ export function buildIngestion(patch: string, sources: Record<SourceKind, unknow
   return { augments, rows, changes, validation, distribution, descriptions, baseline: previous ? "published" : "none" };
 }
 
-export function createSourceDownloader(fetcher: typeof fetch = fetch, wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))) {
+export function createSourceBytesDownloader(fetcher: typeof fetch = fetch, wait: (ms: number) => Promise<unknown> = ms => new Promise(resolve => setTimeout(resolve, ms))) {
   let lastRequest = 0;
-  return async (url: string, json = true, maxBytes = MAX_SOURCE_BYTES): Promise<string> => {
+  return async (url: string, maxBytes = MAX_SOURCE_BYTES, check: (body: Buffer) => void = () => {}): Promise<Buffer> => {
     for (let attempt = 0; attempt < 3; attempt++) {
       await wait(Math.max(0, 1000 - (Date.now() - lastRequest)));
       lastRequest = Date.now();
@@ -167,9 +167,9 @@ export function createSourceDownloader(fetcher: typeof fetch = fetch, wait = (ms
             chunks.push(value);
           }
         } finally { await reader.cancel(); }
-        const text = Buffer.concat(chunks).toString("utf8");
-        if (json) JSON.parse(text);
-        return text;
+        const body = Buffer.concat(chunks);
+        check(body);
+        return body;
       } catch (error) {
         if (error instanceof Error && ["source_too_large", "source_forbidden"].includes(error.message)) throw error;
         if (attempt === 2) throw new Error("source_download_failed");
@@ -177,5 +177,13 @@ export function createSourceDownloader(fetcher: typeof fetch = fetch, wait = (ms
       }
     }
     throw new Error("source_download_failed");
+  };
+}
+
+export function createSourceDownloader(fetcher: typeof fetch = fetch, wait?: (ms: number) => Promise<unknown>) {
+  const download = createSourceBytesDownloader(fetcher, wait);
+  return async (url: string, json = true, maxBytes = MAX_SOURCE_BYTES): Promise<string> => {
+    const body = await download(url, maxBytes, bytes => { if (json) JSON.parse(bytes.toString("utf8")); });
+    return body.toString("utf8");
   };
 }

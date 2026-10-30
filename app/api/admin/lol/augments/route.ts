@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireLolDevAdmin } from "@/lib/lol/access.server";
 import { isSameOriginLolRequest } from "@/lib/lol/http.server";
+import { revalidateTag } from "next/cache";
 import { getAugmentAdminData } from "@/lib/lol/augments/admin.server";
+import { LOL_AUGMENT_CATALOG_TAG } from "@/lib/lol/augments/catalog.server";
 import { publishLolAugmentPatch } from "@/lib/lol/augments/persistence.server";
 import { validClientPatch } from "@/lib/lol/augments/ingest";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
@@ -38,6 +40,7 @@ export async function POST(request: Request) {
         return response({ error: "검토한 수집 실행을 확인해 주세요." }, 400);
       }
       await publishLolAugmentPatch(body.patch, body.runId);
+      revalidateTag(LOL_AUGMENT_CATALOG_TAG, "max");
       return response({ ok: true });
     }
     if (body.action !== "review" || typeof body.id !== "string" || !/^[0-9a-f-]{36}$/.test(body.id)

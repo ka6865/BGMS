@@ -136,6 +136,7 @@ MIGRATIONS=(
   "20261030010000_lol_summary_match_index"
   "20261030020000_pubg_benchmark_cohort"
   "20261031010000_admin_audit_events"
+  "20261031020000_lol_augment_icons_bucket"
 )
 
 cleanup() {
@@ -450,6 +451,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/first-reply-evidence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/benchmark-cohort-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/admin-audit-events-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-augment-icons-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/public-column-privacy-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/client-grant-hardening-checks.sql

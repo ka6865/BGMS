@@ -2,12 +2,7 @@ import "server-only";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import { recordLolOpsMetric } from "@/lib/lol/ops.server";
 import type { AugmentAdminData } from "./admin";
-
-const ICON_PATH = /^assets\/ux\/(kiwi|cherry)\/augments\/icons\/[a-z0-9_-]+\.png$/;
-// 작은 아이콘은 회색 실루엣이라 색이 있는 큰 아이콘을 우선하고, 큰 아이콘 경로가 해시뿐인 증강만 작은 아이콘을 쓴다.
-function preferredIcon(large: string | null, small: string | null): string | null {
-  return large && ICON_PATH.test(large) ? large : small;
-}
+import { preferredAugmentIcon } from "./catalog";
 
 export async function getAugmentAdminData(patch?: string): Promise<AugmentAdminData> {
   const db = createServiceRoleSupabase();
@@ -53,7 +48,7 @@ export async function getAugmentAdminData(patch?: string): Promise<AugmentAdminD
     data.detail = { patch: selected, published: !!patches.data.find(p => p.client_patch === selected)?.published_at,
       runId: selectedRun?.id ?? null, changes: changes.data, notes: notes.data, warnings,
       augments: states.data.map(state => ({ platformId: state.platform_id, name: names.get(state.platform_id)?.name ?? null,
-        rarity: state.rarity, icon: preferredIcon(state.icon_large_path, state.icon_small_path), text: names.get(state.platform_id)?.display_text ?? "",
+        rarity: state.rarity, icon: preferredAugmentIcon(state.icon_large_path, state.icon_small_path), text: names.get(state.platform_id)?.display_text ?? "",
         tokens: names.get(state.platform_id)?.tooltip_rendered,
         displaySource: names.get(state.platform_id)?.display_source ?? "desc_partial" })) };
     return data;

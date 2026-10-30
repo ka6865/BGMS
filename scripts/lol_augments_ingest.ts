@@ -3,8 +3,10 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { createServiceRoleSupabase } from "../lib/server/serviceRoleSupabase.server";
-import { buildIngestion, createSourceDownloader, MAX_SOURCE_BYTES, notesUrl, parsePatchNotes,
+import { buildIngestion, createSourceBytesDownloader, createSourceDownloader, MAX_SOURCE_BYTES, notesUrl, parsePatchNotes,
   sha256, SOURCE_FILES, validClientPatch, type PatchNotes, type SourceKind } from "../lib/lol/augments/ingest";
+import { lolAugmentIcons } from "../lib/lol/augments/catalog";
+import { LOL_AUGMENT_ICON_BUCKET, syncLolAugmentIcons } from "../lib/lol/augments/icons";
 import { toDisplayPatch } from "../lib/lol/augments/patchMap";
 import { extractAugmentPool, type Augment } from "../lib/lol/augments/extract";
 import { diffAugments } from "../lib/lol/augments/diff";
@@ -15,6 +17,29 @@ type Manifest = { augments: Augment[]; validation: ReturnType<typeof buildIngest
 
 function isDuplicateObject(error: { message?: string; statusCode?: string | number; status?: number }): boolean {
   return String(error.statusCode ?? error.status ?? "") === "409" || /already exists|duplicate/i.test(error.message ?? "");
+}
+
+function iconSync(db: ReturnType<typeof createServiceRoleSupabase>) {
+  const download = createSourceBytesDownloader();
+  return {
+    download,
+    upload: async (path: string, body: Buffer) => {
+      const upload = await db.storage.from(LOL_AUGMENT_ICON_BUCKET).upload(path, body, { contentType: "image/png", upsert: false });
+      if (upload.error && !isDuplicateObject(upload.error)) throw new Error("storage_error");
+    },
+  };
+}
+
+// 수집기가 다시 받지 않는 게시 완료 패치의 아이콘만 채운다.
+export async function backfillIcons(patch: string, dryRun: boolean) {
+  if (!validClientPatch(patch)) throw new Error("invalid_patch");
+  if (process.env.LOL_AUGMENT_INGEST_ENABLED !== "true") throw new Error("ingest_disabled");
+  const db = createServiceRoleSupabase();
+  const states = await db.from("lol_augment_patch_states").select("icon_large_path,icon_small_path").eq("client_patch", patch).limit(1000);
+  if (states.error) throw new Error("database_error");
+  if (!states.data.length) throw new Error("patch_not_collected");
+  const icons = lolAugmentIcons(states.data.map(row => ({ large: row.icon_large_path, small: row.icon_small_path })));
+  return { patch, dryRun, icons: dryRun ? icons.length : await syncLolAugmentIcons(patch, icons, iconSync(db)) };
 }
 
 export async function runIngestion(options: Options) {
@@ -122,6 +147,7 @@ export async function runIngestion(options: Options) {
         await rpc("finish_lol_augment_ingestion_run", { p_run_id: runId, p_status: "blocked", p_error_code: "validation_blocked" });
         return summary;
       }
+      await syncLolAugmentIcons(patch, lolAugmentIcons(result.rows.map(row => ({ large: row.icon_large_path, small: row.icon_small_path }))), iconSync(db));
       const storage = db.storage.from("lol-augment-snapshots");
       for (const [path, body] of [...Object.keys(SOURCE_FILES).map(kind => [paths[kind as SourceKind], raw[kind as SourceKind]]), [snapshotPath, manifest]]) {
         // 경로에 내용 해시가 들어가므로 이미 있는 객체는 같은 내용이다. exists()는 없는 객체에 400을 돌려 오류와 구분되지 않아 쓰지 않는다.
@@ -148,10 +174,14 @@ export async function runIngestion(options: Options) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    const { values } = parseArgs({ options: { patch: { type: "string" }, "dry-run": { type: "boolean", default: false }, "source-dir": { type: "string" }, force: { type: "boolean", default: false } } });
-    const summary = await runIngestion({ patch: values.patch, dryRun: values["dry-run"], sourceDir: values["source-dir"], force: values.force });
-    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-    if ("validation" in summary && !summary.validation.ok) process.exitCode = 2;
+    const { values } = parseArgs({ options: { patch: { type: "string" }, "dry-run": { type: "boolean", default: false }, "source-dir": { type: "string" }, force: { type: "boolean", default: false }, "icons-only": { type: "boolean", default: false } } });
+    if (values["icons-only"]) {
+      process.stdout.write(`${JSON.stringify(await backfillIcons(values.patch ?? "", values["dry-run"]), null, 2)}\n`);
+    } else {
+      const summary = await runIngestion({ patch: values.patch, dryRun: values["dry-run"], sourceDir: values["source-dir"], force: values.force });
+      process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+      if ("validation" in summary && !summary.validation.ok) process.exitCode = 2;
+    }
   } catch (error) {
     process.stderr.write(`${error instanceof Error && /^[a-z_]{1,128}$/.test(error.message) ? error.message : "ingest_failed"}\n`);
     process.exitCode = 1;
