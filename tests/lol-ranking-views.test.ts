@@ -21,11 +21,11 @@ describe("장인 화면", () => {
   it("고정 문구와 표본 범위, 표본 부족 표시를 담고 금지 표현을 쓰지 않는다", () => {
     const html = renderToStaticMarkup(LolMastersView({ champions, championsError: false, board: mastery, boardError: false, selectedId: 266 }));
     expect(html).toContain("챌린저·그랜드마스터 120명 중, 숙련도 상위 10개 챔피언 기준이며 서버 전체 순위가 아닙니다.");
-    expect(html).toContain("챔피언 숙련도 상위 10명");
-    expect(html).toContain("Alpha#KR1");
+    expect(html).toContain("챔피언 숙련도 상위");
+    expect(html).toContain("Alpha");
     expect(html).toContain("개인정보처리방침");
     expect(html).not.toMatch(/점수|실력|1등/);
-    expect(html).toContain("<select name=\"champion\"");
+    expect(html).toContain("aria-label=\"챔피언 선택\"");
   });
 
   it("표본이 적은 챔피언은 표본 부족으로 표시한다", () => {
@@ -43,11 +43,11 @@ describe("장인 화면", () => {
 });
 
 describe("랭킹 화면", () => {
-  it("표와 375px용 카드 목록을 함께 두고 PUUID나 해시를 보여 주지 않는다", () => {
+  it("상위 3명과 순위 목록을 보여 주고 PUUID나 해시를 드러내지 않는다", () => {
     const html = renderToStaticMarkup(LolLadderView({ rows: [], today: "2026-10-30", ranking }));
     expect(html).toContain("솔로 랭크 순위");
-    expect(html).toContain("Bravo#KR2");
-    expect(html).toContain("sm:hidden");
+    expect(html).toContain("Bravo");
+    expect(html).toContain("aria-label=\"상위 3명\"");
     expect(html).not.toMatch(/riot_id_hmac|puuid/);
     expect(html).toContain("자체 계산 값이 아닙니다");
   });

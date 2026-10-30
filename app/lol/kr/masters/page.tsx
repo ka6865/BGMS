@@ -19,6 +19,7 @@ export default async function LolMastersPage({ searchParams }: Props) {
   ]);
   return <LolMastersView
     champions={data?.champions ?? []}
+    version={data?.version ?? null}
     championsError={data === null}
     board={board.board}
     boardError={board.error}

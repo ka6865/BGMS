@@ -1,7 +1,10 @@
+import { Fragment } from "react";
 import Link from "next/link";
+import { Trophy } from "lucide-react";
 import { LOL_LADDER_QUEUES, LOL_LADDER_TIERS, type LolLadderDaily, type LolLadderTier } from "@/lib/lol/ladder";
-import type { LolRankingBoard } from "@/lib/lol/ranking";
+import type { LolRankingBoard, LolRankingBoardRow } from "@/lib/lol/ranking";
 import { lolRiotIdPath } from "@/lib/lol/riotId";
+import LolWinBar from "./LolWinBar";
 
 const tierNames: Record<LolLadderTier, string> = { CHALLENGER: "챌린저", GRANDMASTER: "그랜드마스터", MASTER: "마스터" };
 const colors = { CHALLENGER: "#fbbf24", GRANDMASTER: "#f87171", MASTER: "#c084fc" };
@@ -69,38 +72,62 @@ function CutGraph({ rows, today }: { rows: LolLadderDaily[]; today: string }) {
 
 const tierLabel: Record<string, string> = { CHALLENGER: "챌린저", GRANDMASTER: "그랜드마스터" };
 
+const rankingAccent: Record<LolRankingBoardRow["tier"], string> = { CHALLENGER: "#fbbf24", GRANDMASTER: "#f87171" };
+const emblem = (tier: LolRankingBoardRow["tier"]) => `/lol/ranked-emblems/${tier.toLowerCase()}.webp`;
+
+function PlayerName({ riotId, className }: { riotId: string; className: string }) {
+  const path = lolRiotIdPath(riotId, "/lol/kr");
+  const [name, tag] = riotId.split("#");
+  const label = <><span className="truncate">{name}</span><span className="shrink-0 text-xs font-normal text-zinc-500">#{tag}</span></>;
+  return path ? <Link href={path} className={`${className} hover:text-amber-200`}>{label}</Link> : <span className={className}>{label}</span>;
+}
+
+// 상위 3명은 공식 명단 순서 그대로 엠블럼과 함께 크게 보여 준다.
+function RankingPodium({ rows }: { rows: LolRankingBoardRow[] }) {
+  return <ol aria-label="상위 3명" className="grid grid-cols-2 gap-2 sm:grid-cols-[1.25fr_1fr_1fr]">{rows.map(row => {
+    const lead = row.rank === 1;
+    return <li key={row.rank} className={`relative min-w-0 overflow-hidden rounded-lg border bg-zinc-900 p-3 ${lead ? "col-span-2 sm:col-span-1" : ""}`}
+      style={{ borderColor: `${rankingAccent[row.tier]}66` }}>
+      <div aria-hidden="true" className="absolute inset-x-0 top-0 h-20" style={{ background: `radial-gradient(circle at 50% 0%, ${rankingAccent[row.tier]}40, transparent 72%)` }} />
+      <div className={`relative flex min-w-0 ${lead ? "items-center gap-3 sm:flex-col sm:items-start" : "flex-col gap-1"}`}>
+        <img src={emblem(row.tier)} alt="" width={96} height={96} className={`${lead ? "size-20" : "size-14"} shrink-0 object-contain`} />
+        <div className="min-w-0 max-w-full">
+          <p className="text-sm font-bold tabular-nums" style={{ color: rankingAccent[row.tier] }}>{row.rank}위</p>
+          <PlayerName riotId={row.riotId} className={`flex min-h-11 min-w-0 items-center gap-1 font-bold ${lead ? "text-lg" : "text-sm"}`} />
+          <p className="text-lg font-black tabular-nums">{row.leaguePoints.toLocaleString()} <span className="text-xs font-semibold text-zinc-400">LP</span></p>
+          <div className="mt-1"><LolWinBar wins={row.wins} losses={row.losses} /></div>
+        </div>
+      </div>
+    </li>;
+  })}</ol>;
+}
+
 // 공식 명단 순서(티어, LP, 같은 LP는 Riot ID)를 그대로 보여 준다. 자체 점수나 보정은 없다.
 function RankingBoard({ board, error }: { board: LolRankingBoard | null; error: boolean }) {
-  if (error) return <p role="status" className="text-sm text-amber-300">순위를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>;
-  if (!board) return <p role="status" className="text-sm text-zinc-400">아직 집계되지 않았습니다. 수집이 끝나면 여기에 표시됩니다.</p>;
+  if (error) return <section aria-label="랭킹"><p role="status" className="text-sm text-amber-300">랭킹을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p></section>;
+  if (!board) return <section aria-label="랭킹"><p role="status" className="flex items-center gap-2 text-sm text-zinc-400"><Trophy aria-hidden="true" className="size-4" />아직 집계되지 않았습니다. 수집이 끝나면 여기에 표시됩니다.</p></section>;
   const observed = new Date(board.observedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
-  return <section aria-label="솔로 랭크 순위" className="min-w-0 space-y-3">
-    <h2 className="font-semibold">솔로 랭크 순위 · 챌린저·그랜드마스터</h2>
-    <p className="text-xs text-zinc-400">기준 {observed} KST · 대상 {board.playerCount.toLocaleString()}명 · 공식 명단 순서이며 자체 계산 값이 아닙니다.</p>
-    <table className="hidden w-full text-left text-sm sm:table">
-      <thead className="text-zinc-400"><tr><th scope="col" className="py-2">순위</th><th scope="col">Riot ID</th><th scope="col">티어</th><th scope="col" className="text-right">LP</th><th scope="col" className="text-right">승패</th></tr></thead>
-      <tbody>{board.rows.map(row => {
-        const path = lolRiotIdPath(row.riotId, "/lol/kr");
-        return <tr key={row.rank} className="border-t border-zinc-800">
-          <td className="py-2 tabular-nums">{row.rank}</td>
-          <td>{path ? <Link href={path} className="inline-flex min-h-11 items-center underline-offset-2 hover:underline">{row.riotId}</Link> : row.riotId}</td>
-          <td>{tierLabel[row.tier]}</td>
-          <td className="text-right tabular-nums">{row.leaguePoints.toLocaleString()}</td>
-          <td className="text-right tabular-nums">{row.wins}승 {row.losses}패</td>
-        </tr>;
-      })}</tbody>
-    </table>
-    <ol className="space-y-2 sm:hidden">{board.rows.map(row => {
-      const path = lolRiotIdPath(row.riotId, "/lol/kr");
-      return <li key={row.rank} className="flex min-w-0 items-center gap-3 rounded-lg border border-zinc-800 px-3 py-2">
-        <span className="w-8 shrink-0 tabular-nums text-zinc-400">{row.rank}</span>
-        <span className="min-w-0 flex-1">
-          {path ? <Link href={path} className="block min-h-11 truncate py-2 font-medium underline-offset-2 hover:underline">{row.riotId}</Link>
-            : <span className="block truncate py-2 font-medium">{row.riotId}</span>}
-          <span className="block text-xs text-zinc-400">{tierLabel[row.tier]} · {row.leaguePoints.toLocaleString()} LP · {row.wins}승 {row.losses}패</span>
+  const rest = board.rows.slice(3);
+  return <section aria-label="랭킹" className="min-w-0 space-y-3">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+      <h2 className="flex items-center gap-2 font-semibold"><Trophy aria-hidden="true" className="size-4 text-amber-300" />솔로 랭크 순위</h2>
+      <p className="text-xs text-zinc-400">{board.playerCount.toLocaleString()}명, {observed} KST 기준. Riot 공식 명단 순서이며 자체 계산 값이 아닙니다.</p>
+    </div>
+    <RankingPodium rows={board.rows.slice(0, 3)} />
+    <ol aria-label="4위 이하" className="divide-y divide-zinc-800/80">{rest.map((row, index) => <Fragment key={row.rank}>
+      {index > 0 && rest[index - 1].tier !== row.tier && <li aria-hidden="true" className="flex items-center gap-2 py-2 text-xs font-semibold" style={{ color: rankingAccent[row.tier] }}>
+        <img src={emblem(row.tier)} alt="" width={20} height={20} className="size-5 object-contain" />{tierLabel[row.tier]}
+      </li>}
+      <li className="relative grid min-h-13 grid-cols-[2rem_2rem_minmax(0,1fr)_auto] items-center gap-2 py-1">
+        <span className="text-right text-sm font-semibold tabular-nums text-zinc-400">{row.rank}</span>
+        <img src={emblem(row.tier)} alt={tierLabel[row.tier]} width={32} height={32} loading="lazy" decoding="async" className="size-8 object-contain" />
+        <span className="min-w-0">
+          <PlayerName riotId={row.riotId} className="flex min-h-7 min-w-0 items-center gap-1 text-sm font-semibold after:absolute after:inset-0" />
+          <LolWinBar wins={row.wins} losses={row.losses} />
         </span>
-      </li>;
-    })}</ol>
+        <span className="text-right text-sm font-bold tabular-nums">{row.leaguePoints.toLocaleString()}<span className="ml-0.5 text-[11px] font-medium text-zinc-500">LP</span></span>
+      </li>
+    </Fragment>)}</ol>
   </section>;
 }
 

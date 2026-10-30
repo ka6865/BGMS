@@ -30,7 +30,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 랭킹·장인 
       "/ranking": () => createElement(Ladder, { ...empty, ranking }),
       "/ranking-empty": () => createElement(Ladder, { ...empty, ranking: null }),
       "/ranking-error": () => createElement(Ladder, { ...empty, ranking: null, rankingError: true }),
-      "/masters": () => createElement(Masters, { champions: champions as never, championsError: false, boardError: false, selectedId: 266,
+      "/masters": () => createElement(Masters, { champions: champions as never, version: "16.21.1", championsError: false, boardError: false, selectedId: 266,
         board: { observedAt, playerCount: 1000, champions: [{ championId: 266, status: "ok", sampleSize: 10, entries }, { championId: 103, status: "insufficient", sampleSize: 2, entries: [] }] } satisfies LolMasteryBoardView }),
       "/masters-sparse": () => createElement(Masters, { champions: champions as never, championsError: false, boardError: false, selectedId: 103,
         board: { observedAt, playerCount: 1000, champions: [{ championId: 103, status: "insufficient", sampleSize: 2, entries: [] }] } satisfies LolMasteryBoardView }),
@@ -64,13 +64,16 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 랭킹·장인 
     }
     await page.goto(`${base}/ranking`, { waitUntil: "networkidle0" });
     expect(await text()).toContain("소환사2#KR1");
-    expect(await page.$$eval("a", links => links.filter(link => (link.getAttribute("href") ?? "").startsWith("/lol/kr/"))
-      .every(link => link.getBoundingClientRect().height >= 44 || link.getBoundingClientRect().height === 0))).toBe(true);
+    // 행 전체가 링크 영역이므로 행 높이로 터치 영역을 확인한다.
+    expect(await page.$$eval('ol[aria-label="4위 이하"] > li:has(a)', rows => rows.every(row => row.getBoundingClientRect().height >= 44))).toBe(true);
+    expect(await page.$$eval('ol[aria-label="상위 3명"] a', links => links.every(link => link.getBoundingClientRect().height >= 44))).toBe(true);
     await page.screenshot({ path: `tmp/lol-ranking-review/ranking-${width}x${height}.png` });
     await page.goto(`${base}/masters`, { waitUntil: "networkidle0" });
     const masters = await text();
     expect(masters).toContain("장인1#KR1"); expect(masters).toContain("서버 전체 순위가 아닙니다");
     expect(masters).not.toMatch(/점수|실력|1등/);
+    expect(await page.$$eval('main ol > li:has(a)', rows => rows.every(row => row.getBoundingClientRect().height >= 44))).toBe(true);
+    expect(await page.$$eval('section[aria-label="챔피언 선택"] a', links => links.every(link => link.getBoundingClientRect().height >= 44))).toBe(true);
     await page.screenshot({ path: `tmp/lol-ranking-review/masters-${width}x${height}.png` });
     await page.close();
   });
