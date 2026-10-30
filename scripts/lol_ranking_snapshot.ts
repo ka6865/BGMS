@@ -12,6 +12,9 @@ import {
 // 한 실행은 호출 상한(LOL_RANKING_MAX_CALLS)까지만 하고 커서를 저장한 뒤 끝난다. 다음 실행이 커서부터 이어받는다.
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
+// 공유 호출 제한이 알려 준 대기 시간을 따르되, 개발 키의 2분 창을 넘겨 기다리지는 않는다.
+const MAX_LIMITER_WAIT_MS = 130_000;
+const MAX_CONGESTED_RETRIES = 8;
 const RIOT_ID_TTL_MS = 7 * 24 * 3600_000;
 const IDS_PAGE_SIZE = 100;
 const MAX_IDS_PER_ACCOUNT = 500;
@@ -82,15 +85,25 @@ function parseMatchIds(raw: unknown): string[] {
   return raw as string[];
 }
 
-// 혼잡과 한도 초과만 짧게 기다렸다가 다시 보낸다. 그 밖의 오류는 바로 호출자에게 돌려준다.
+// 혼잡은 공유 제한기가 보내기 전에 거절한 것이라 알려 준 시간만큼 기다린 뒤 다시 보낸다. 한도 초과는 짧게 재시도한다.
 async function withRetry<T>(task: () => Promise<T>, sleep: (ms: number) => Promise<void>): Promise<T> {
-  for (let attempt = 0; ; attempt += 1) {
+  let limited = 0;
+  let congested = 0;
+  for (;;) {
     try {
       return await task();
     } catch (error) {
       const kind = errorKind(error);
-      if ((kind === "congested" || kind === "rate_limited") && attempt < RETRY_DELAYS_MS.length) {
-        await sleep(RETRY_DELAYS_MS[attempt]);
+      if (kind === "congested" && congested < MAX_CONGESTED_RETRIES) {
+        congested += 1;
+        // 제한기가 짧은 대기를 알려 줘도 창이 찰 때까지 다시 거절되므로 대기를 늘려 간다.
+        const seconds = (error as { retryAfterSeconds?: number }).retryAfterSeconds ?? 0;
+        await sleep(Math.min(MAX_LIMITER_WAIT_MS, Math.max((seconds + 1) * 1000, 5000 * 2 ** (congested - 1))));
+        continue;
+      }
+      if (kind === "rate_limited" && limited < RETRY_DELAYS_MS.length) {
+        await sleep(RETRY_DELAYS_MS[limited]);
+        limited += 1;
         continue;
       }
       throw error;
@@ -131,7 +144,13 @@ export async function runLolRankingSnapshot(
       throw new BudgetExhaustedError();
     }
     calls += 1;
-    return deps.request(host, path);
+    try {
+      return await deps.request(host, path);
+    } catch (error) {
+      // 혼잡 거절은 Riot에 나가지 않았으므로 실행 호출 상한에서 빼 준다.
+      if (errorKind(error) === "congested") calls -= 1;
+      throw error;
+    }
   };
   const attempt = (host: "kr" | "asia", path: string) => withRetry(() => once(host, path), sleep);
 

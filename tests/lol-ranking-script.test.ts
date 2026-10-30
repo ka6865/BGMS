@@ -303,4 +303,22 @@ describe("삭제 요청 제외 CLI 경로", () => {
     await expect(runLolRankingExclude({ add, secret }, ["no-tag", "--dry-run"])).rejects.toThrow("게임이름#태그");
     await expect(runLolRankingExclude({ add, secret: undefined }, ["A#B", "--dry-run"])).rejects.toThrow("LOL_RANKING_HMAC_KEY");
   });
+  it("공유 제한기 혼잡은 늘려 가며 기다려 이어 가고 호출 상한에서 빼 준다", async () => {
+    const m = memoryStore();
+    const riot = fakeRiot();
+    const sleeps: number[] = [];
+    let rejected = 0;
+    const request: RankingDependencies["request"] = async (host, path) => {
+      if (path.includes("/accounts/by-puuid/") && rejected < 3) {
+        rejected += 1;
+        throw Object.assign(new Error("congested"), { kind: "congested", retryAfterSeconds: 1 });
+      }
+      return riot.request(host, path);
+    };
+    const free = await runLolRankingSnapshot(deps({ riot: fakeRiot(), store: memoryStore().store }), ["--dry-run"], true);
+    const result = await runLolRankingSnapshot({ ...deps({ store: m.store }), request, sleep: async ms => { sleeps.push(ms); } }, ["--dry-run"], true);
+    expect(sleeps).toEqual([5000, 10_000, 20_000]);
+    expect(result.counts.unresolvedRiotId).toBe(0);
+    expect(result.budget.calls).toBe(free.budget.calls);
+  });
 });
