@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { extractClientIp } from "@/lib/board/ipUtils";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import { isSameOriginLolRequest } from "./http.server";
+import { isLolLiveEnabled } from "./liveGame";
 
 const buckets = new Map<string, { count: number; expiresAt: number }>();
 const salt = randomBytes(32);
@@ -12,6 +13,11 @@ const limits = { search: 10, read: 30 };
 
 export function requireLolPublicPage(): void {
   if (process.env.LOL_PUBLIC_ENABLED !== "true") notFound();
+}
+
+export function requireLolLivePage(): void {
+  requireLolPublicPage();
+  if (!isLolLiveEnabled()) notFound();
 }
 
 export async function guardLolPublicRequest(request: Request, kind: keyof typeof limits, sameOrigin = true): Promise<NextResponse | null> {

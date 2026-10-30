@@ -39,6 +39,15 @@ export async function runLolCleanup(rpc: Rpc, args = process.argv.slice(2), enab
   return { dryRun: !apply, preview, deleted, remaining, deletedCount: total(deleted), remainingCount: total(remaining), batches, durationMs: Date.now() - startedAt };
 }
 
+// 장인 시즌 작업 데이터는 시즌 종료 후 30일에 지운다. 쓰기는 같은 쓰기 플래그를 따르고, dry-run은 아무것도 지우지 않는다.
+export async function runLolRankingSeasonPurge(rpc: Rpc, args = process.argv.slice(2), enabled = process.env.LOL_CLEANUP_ENABLED === "true", now = new Date()) {
+  const apply = args.includes("--apply");
+  if (apply && !enabled) throw new Error("쓰기에는 LOL_CLEANUP_ENABLED=true가 필요합니다.");
+  if (!apply) return { dryRun: true, deleted: null as number | null };
+  const deleted = await rpc<number>("purge_lol_expired_season_accounts", { p_now: now.toISOString() });
+  return { dryRun: false, deleted };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const db = createServiceRoleSupabase();
@@ -48,7 +57,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       return data as T;
     };
     const result = await runLolCleanup(rpc);
-    console.log(JSON.stringify(result, null, 2));
+    const seasonPurge = await runLolRankingSeasonPurge(rpc);
+    console.log(JSON.stringify({ ...result, seasonPurge }, null, 2));
     if (result.dryRun) console.error("::warning::LoL 정리가 dry-run이므로 만료 데이터가 삭제되지 않았습니다.");
     if (result.remainingCount > 0) console.error(`::warning::LoL 만료 데이터 ${result.remainingCount}개가 남아 있습니다.`);
     if (!result.dryRun && result.remaining.match_rows > 0) process.exitCode = 1;
