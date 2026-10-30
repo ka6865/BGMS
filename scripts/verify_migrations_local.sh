@@ -138,6 +138,7 @@ MIGRATIONS=(
   "20261031010000_admin_audit_events"
   "20261031020000_lol_augment_icons_bucket"
   "20261031030000_lol_ranking_publication"
+  "20261031040000_lol_master_publication_delete_where"
 )
 
 cleanup() {

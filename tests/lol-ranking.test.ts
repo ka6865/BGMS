@@ -205,3 +205,12 @@ describe("게시 조건과 공개 DTO", () => {
     expect(lolMastersPublic({ LOL_MASTERS_PUBLIC: "1" })).toBe(false);
   });
 });
+
+describe("장인 게시본 변환", () => {
+  it("게시본이 없을 때 RPC가 돌려주는 빈 값은 오류가 아니라 미집계다", () => {
+    expect(toPublicMasterBoard({ observedAt: null, season: null, coverage: null, playerCount: null, champions: [] })).toBeNull();
+  });
+  it("값이 일부만 빠진 게시본은 오류로 처리한다", () => {
+    expect(() => toPublicMasterBoard({ observedAt: "2026-10-30T00:00:00Z", season: null, coverage: 1, playerCount: 1, champions: [] })).toThrow();
+  });
+});

@@ -308,6 +308,8 @@ export function toPublicRankingBoard(raw: unknown): LolRankingBoard | null {
 export function toPublicMasterBoard(raw: unknown): LolMasterBoardView | null {
   if (raw === null || raw === undefined) return null;
   const board = raw as { observedAt?: unknown; season?: unknown; coverage?: unknown; playerCount?: unknown; champions?: unknown };
+  // 게시본이 없으면 조회 RPC가 값이 모두 빈 객체를 돌려준다. 오류가 아니라 미집계 상태로 안내한다.
+  if (board.observedAt === null) return null;
   if (!isText(board.observedAt, 10, 40) || !isText(board.season, 10, 10) || !isCount(board.coverage, 100)
     || !isCount(board.playerCount, 100_000) || !Array.isArray(board.champions)) {
     throw new RankingValidationError("장인 게시본 형식을 확인할 수 없습니다.");
