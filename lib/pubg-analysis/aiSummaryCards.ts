@@ -1181,7 +1181,19 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   // 보완점도 남은 모델 제안도 없으면 가장 앞선 강점 지표의 유지 확인을 하나 둔다.
   const strongest = serverActionItems.length === 0 ? strongestMetric(readyCards) : null;
   if (strongest) serverActionItems.push({ icon: "target", title: `${strongest.label} 유지 확인`, desc: MAINTENANCE_CHECK });
-  const normalizedActionItems = (providerActionItems.length ? providerActionItems : serverActionItems).slice(0, 3);
+  // 모델 제안이 보완점 카드를 다루지 않으면 그 카드의 서버 점검을 함께 둔다.
+  // 순서: 보완점 카드를 다루는 모델 제안 → 다루지 않은 보완점의 서버 점검 → 나머지 모델 제안.
+  const weakCards = readyCards.filter(card => weakestMetric(card) !== null);
+  const coversWeakCard = (item: { title: string; desc: string }) => actionItemTopics(`${item.title} ${item.desc}`)
+    .some(topicId => weakCards.some(card => card.topicId === topicId));
+  const coveredTopics = new Set(providerActionItems.flatMap(item => actionItemTopics(`${item.title} ${item.desc}`)));
+  const uncoveredWeakItems = weakCards
+    .filter(card => !coveredTopics.has(card.topicId))
+    .map(card => weakestMetric(card) as SummaryEvidence)
+    .map(row => ({ icon: "target", title: `${row.label} 점검`, desc: METRIC_CHECKS[row.metricId] }));
+  const normalizedActionItems = (providerActionItems.length
+    ? [...providerActionItems.filter(coversWeakCard), ...uncoveredWeakItems, ...providerActionItems.filter(item => !coversWeakCard(item))]
+    : serverActionItems).slice(0, 3);
   const finalCards = normalizedCards.map(cloneCard);
   // 칭호는 숫자·인성·측정하지 않은 능력 없이 짧을 때만 모델 표현을 쓴다.
   const providerSignature = normalizedSignature.value.trim();

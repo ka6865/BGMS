@@ -1117,3 +1117,46 @@ describe("summary prose grounded in card evidence", () => {
     expect(((result?.final.actionItems ?? []) as unknown[]).length).toBe(1);
   });
 });
+
+describe("action items cover cards with a weakness", () => {
+  // 2026-10-30 00:38 KangHeeSung_ 요약: 화력·생존 운영이 평균보다 불리하고 고립 지수는 방향 없는 비교.
+  const khsCards = () => buildSummaryCards({
+    topics: ["화력", "포지셔닝", "생존 운영"],
+    context,
+    evidence: [
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "435.67", benchmarkValue: "599.39", sampleCount: 94 }),
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "0.28", benchmarkValue: "1.10", sampleCount: 93 }),
+      evidence({ metricId: "death_phase", label: "평균 사망 페이즈", unit: "", userValue: "6.00", benchmarkValue: "6.35", sampleCount: 94 }),
+    ],
+  });
+  const run = (actionItems: unknown[]) => {
+    const cards = khsCards();
+    return normalizeSummaryCardFinal(providerFinal(cards, {
+      debateIssues: cards.map((card) => providerIssue(card, { winner: null })),
+      actionItems,
+    }), cards, { sanitizeText: (value) => value, hasUnsupportedMode: () => false });
+  };
+  const titles = (result: ReturnType<typeof run>) => ((result?.final.actionItems ?? []) as Array<{ title: string }>).map((item) => item.title);
+
+  it("adds server checks for weak cards the provider actions did not cover", () => {
+    const result = run([{ icon: "target", title: "교전 거리 점검", desc: "다음 교전에서 아군과의 위치와 지원 가능 거리를 확인해 보세요." }]);
+    expect(titles(result)).toEqual(["평균 화력 점검", "평균 사망 페이즈 점검", "교전 거리 점검"]);
+    expect(result?.final.finalVerdict).toContain("아래 행동 제안은 다음 경기의 점검 과제입니다.");
+  });
+
+  it("does not duplicate a weak card the provider already covers and keeps that action first", () => {
+    const result = run([
+      { icon: "target", title: "교전 거리 점검", desc: "다음 교전에서 아군과의 위치와 지원 가능 거리를 확인해 보세요." },
+      { icon: "target", title: "화력 보완", desc: "다음 교전 전에 아군과 교전각을 맞추는 방식을 점검해 보세요." },
+    ]);
+    expect(titles(result)).toEqual(["화력 보완", "평균 사망 페이즈 점검", "교전 거리 점검"]);
+  });
+
+  it("keeps at most three actions", () => {
+    const result = run([
+      { icon: "target", title: "교전 거리 점검", desc: "다음 교전에서 아군과의 위치와 지원 가능 거리를 확인해 보세요." },
+      { icon: "target", title: "대열 점검", desc: "다음 이동 경로에서 대열이 유지되는지 확인해 보세요." },
+    ]);
+    expect(titles(result)).toEqual(["평균 화력 점검", "평균 사망 페이즈 점검", "교전 거리 점검"]);
+  });
+});
