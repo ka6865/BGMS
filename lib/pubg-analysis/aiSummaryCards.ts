@@ -1040,22 +1040,14 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   // final, whereas bad members inside an array are handled per card below.
   if (Array.from(providerByTopic.values()).some((issue) => !Array.isArray(issue.evidenceIds))) return malformed("evidence_ids");
 
-  let globalModeRejected = false;
+  // 다른 모드 이름 검사는 최종 결과에 남는 모델 문장만 본다. 칭호 설명과 종합 평가는 서버 문장으로
+  // 바꾸므로 검사하지 않는다(버릴 문장 때문에 결과 전체를 부분 완료로 만들지 않는다). 행동 제안은
+  // safeActionItems가 항목 단위로 빼고, 칭호에 다른 모드가 있으면 기본 칭호만 쓴다.
+  let signatureModeRejected = false;
   try {
-    // A foreign-mode sentence in one card invalidates that card's
-    // interpretation.  Keep unrelated cards usable; top-level prose has no
-    // card owner, so it only makes the final non-cacheable.
-    const topLevelProse = [signature, signatureSub, finalVerdict, safeSignature, safeSignatureSub, safeVerdict,
-      ...(input.actionItems as unknown[]).flatMap((item) => isRecord(item) ? [item.title, item.desc] : [])];
-    globalModeRejected = topLevelProse.some((text) => options.hasUnsupportedMode(text));
+    signatureModeRejected = [signature, safeSignature].some((text) => options.hasUnsupportedMode(text));
   } catch {
-    globalModeRejected = true;
-  }
-  if (globalModeRejected) {
-    reject("top_level_mode");
-    safeSignature = SAFE_SIGNATURE;
-    safeSignatureSub = SAFE_SIGNATURE_SUB;
-    safeVerdict = SAFE_VERDICT;
+    signatureModeRejected = true;
   }
 
   let neutralCards = 0;
@@ -1193,7 +1185,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   const finalCards = normalizedCards.map(cloneCard);
   // 칭호는 숫자·인성·측정하지 않은 능력 없이 짧을 때만 모델 표현을 쓴다.
   const providerSignature = normalizedSignature.value.trim();
-  safeSignature = !globalModeRejected && !normalizedSignature.changed && providerSignature.length > 0 && providerSignature.length <= 16
+  safeSignature = !signatureModeRejected && !normalizedSignature.changed && providerSignature.length > 0 && providerSignature.length <= 16
     && !UNSUPPORTED_SIGNATURE.test(providerSignature) && !hasUnsupportedSummaryInference(providerSignature) ? providerSignature : SAFE_SIGNATURE;
   safeSignatureSub = "관측된 경기 지표와 다음 경기의 점검 과제입니다.";
   // Include every card, independent of provider winners and card-local praise.

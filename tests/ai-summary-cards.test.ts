@@ -242,14 +242,21 @@ describe("ai summary v2 card catalog", () => {
     expect(parseSummaryCards(result?.final)).not.toBeNull();
   });
 
-  it.each(["signature", "signatureSub", "finalVerdict"])("removes top-level foreign-mode prose from a usable partial %s", field => {
+  // 칭호 설명과 종합 평가는 서버 문장으로 바뀌므로, 모델 원문의 다른 모드 이름은 결과를 막지 않는다.
+  // 칭호에만 다른 모드가 있으면 기본 칭호로 바꾸고 결과는 완료로 둔다(2026-10-30 top_level_mode 부분 완료 2건).
+  it.each([
+    ["signature", "AI 전술 분석"],
+    ["signatureSub", "전술가"],
+    ["finalVerdict", "전술가"],
+  ])("keeps a complete result when only discarded or replaced top-level prose names a foreign mode: %s", (field, expectedSignature) => {
     const cards = buildFixture();
     const result = normalizeSummaryCardFinal(providerFinal(cards, { [field]: "foreign-mode 설명" }), cards, {
       sanitizeText: text => text, hasUnsupportedMode: text => typeof text === "string" && text.includes("foreign-mode"),
     });
-    expect(result).toMatchObject({ cacheable: false, usable: true, final: { analysisStatus: "partial", signature: "AI 전술 분석", signatureSub: "검증된 경기 지표를 바탕으로 분석합니다." } });
-    expect(result?.rejectReasons).toContain("top_level_mode");
+    expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete", signature: expectedSignature, signatureSub: "관측된 경기 지표와 다음 경기의 점검 과제입니다." } });
+    expect(result?.rejectReasons).not.toContain("top_level_mode");
     expect(JSON.stringify(result?.final)).not.toContain("foreign-mode");
+    expect(parseSummaryCards(result?.final)).not.toBeNull();
   });
 
   it.each([
@@ -340,7 +347,8 @@ describe("ai summary v2 card catalog", () => {
     expect(fields?.rejectReasons).toEqual([`${cards[0].topicId}:fields`]);
 
     const mode = normalizeSummaryCardFinal(providerFinal(cards), cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => true });
-    expect(mode?.rejectReasons).toEqual(expect.arrayContaining(["top_level_mode", `${cards[0].topicId}:mode`]));
+    expect(mode?.rejectReasons).toEqual(expect.arrayContaining([`${cards[0].topicId}:mode`]));
+    expect(mode?.rejectReasons).not.toContain("top_level_mode");
   });
 
   it.each([undefined, "balanced", 0, false])("rejects an invalid conclusion %s without hiding server evidence", (winner) => {
@@ -844,12 +852,13 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: (value) => value.includes("foreign-mode") ? "안전한 목표" : value,
       hasUnsupportedMode: (value) => typeof value === "string" && value.includes("foreign-mode"),
     });
-    expect(rawForeignResult?.cacheable).toBe(false);
+    // 원문에 다른 모드가 있는 행동 제안은 그 항목만 빠지고 결과는 완료로 캐시한다.
+    expect(rawForeignResult?.cacheable).toBe(true);
     expect(rawForeignResult?.final.actionItems).toEqual([]);
     expect(rawForeignResult?.usable).toBe(true);
-    expect(rawForeignResult?.rejectReasons).toContain("top_level_mode");
-    expect(rawForeignResult?.final.signature).toBe("AI 전술 분석");
-    expect(rawForeignResult?.final.signatureSub).toBe("검증된 경기 지표를 바탕으로 분석합니다.");
+    expect(rawForeignResult?.rejectReasons).not.toContain("top_level_mode");
+    expect(rawForeignResult?.final.signature).toBe("전술가");
+    expect(JSON.stringify(rawForeignResult?.final)).not.toContain("foreign-mode");
   });
 
   it("omits sanitized foreign-mode or empty actions while keeping valid cards", () => {
