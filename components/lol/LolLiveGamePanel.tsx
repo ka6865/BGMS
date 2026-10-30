@@ -102,7 +102,7 @@ function ParticipantRow({ item, teamId }: { item: LolLiveParticipantView; teamId
         </p>
         <div className="mt-1 space-y-0.5">
           <RankLine rank={item.rank} />
-          <p className="text-xs text-zinc-500">{championText(item.champion)}</p>
+          {item.champion.status !== "not_applicable" && <p className="text-xs text-zinc-500">{championText(item.champion)}</p>}
         </div>
       </div>
       <div className="grid shrink-0 grid-cols-2 gap-1">
