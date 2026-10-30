@@ -3,7 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import sample from "./fixtures/lol-augments/sample-16.21";
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), upload: vi.fn(), from: vi.fn() }));
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), upload: vi.fn(), from: vi.fn(), icons: vi.fn() }));
+vi.mock("../lib/lol/augments/icons", async importOriginal => ({ ...await importOriginal<object>(), syncLolAugmentIcons: mocks.icons }));
 vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({ createServiceRoleSupabase: () => ({
   rpc: (name: string, args: unknown) => ({ abortSignal: () => mocks.rpc(name, args) }), from: mocks.from,
   storage: { from: () => ({ upload: mocks.upload }) },
@@ -19,6 +20,7 @@ beforeEach(async () => {
   mocks.from.mockImplementation((table: string) => query(table));
   mocks.rpc.mockImplementation(async name => ({ data: name === "acquire_lol_augment_ingestion_lease" ? "run-id" : null, error: null }));
   mocks.upload.mockResolvedValue({ error: null });
+  mocks.icons.mockResolvedValue(0);
 });
 // 테이블별 조회 결과를 바꿀 수 있는 체인형 쿼리 mock
 const tableRows: Record<string, unknown> = {};
@@ -76,5 +78,12 @@ describe("수집 저장 안전장치", () => {
     expect(result).toMatchObject({ validation: { ok: false } });
     expect(mocks.upload).not.toHaveBeenCalled();
     expect(mocks.rpc).toHaveBeenLastCalledWith("finish_lol_augment_ingestion_run", { p_run_id: "run-id", p_status: "blocked", p_error_code: "validation_blocked" });
+  });
+  it("아이콘 수집이 실패하면 스냅샷을 저장하지 않고 실패로 끝내 게시를 막는다", async () => {
+    mocks.icons.mockRejectedValue(new Error("source_download_failed"));
+    await expect(runIngestion({ patch: "16.21", sourceDir: folder, dryRun: false })).rejects.toThrow("source_download_failed");
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalledWith("upsert_lol_augment_snapshot", expect.anything());
+    expect(mocks.rpc).toHaveBeenLastCalledWith("finish_lol_augment_ingestion_run", { p_run_id: "run-id", p_status: "failed", p_error_code: "source_download_failed" });
   });
 });
