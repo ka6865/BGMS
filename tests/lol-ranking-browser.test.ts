@@ -4,7 +4,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import postcss from "postcss";
 import tailwind from "@tailwindcss/postcss";
 import puppeteer, { type Browser } from "puppeteer";
-import type { LolMasteryBoardView, LolRankingBoard } from "../lib/lol/ranking";
+import type { LolMasterBoardView, LolRankingBoard } from "../lib/lol/ranking";
 
 const observedAt = "2026-10-30T20:41:00.000Z";
 const ranking: LolRankingBoard = {
@@ -14,7 +14,8 @@ const ranking: LolRankingBoard = {
     tier: index < 20 ? "CHALLENGER" as const : "GRANDMASTER" as const, leaguePoints: 2000 - index * 10, wins: 300 + index, losses: 250 + index,
   })),
 };
-const entries = Array.from({ length: 10 }, (_, index) => ({ rank: index + 1, riotId: `장인${index + 1}#KR1`, points: 3_000_000 - index * 1000, level: 80 - index }));
+const masterRows = Array.from({ length: 10 }, (_, index) => ({ rank: index + 1, riotId: `장인${index + 1}#KR1`, tier: index < 5 ? "CHALLENGER" as const : "GRANDMASTER" as const,
+  leaguePoints: 900 - index * 10, games: 40 - index, wins: 25 }));
 
 describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 랭킹·장인 브라우저 fixture", { timeout: 30_000 }, () => {
   let server: Server; let browser: Browser; let base: string;
@@ -31,9 +32,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 랭킹·장인 
       "/ranking-empty": () => createElement(Ladder, { ...empty, ranking: null }),
       "/ranking-error": () => createElement(Ladder, { ...empty, ranking: null, rankingError: true }),
       "/masters": () => createElement(Masters, { champions: champions as never, version: "16.21.1", championsError: false, boardError: false, selectedId: 266,
-        board: { observedAt, playerCount: 1000, champions: [{ championId: 266, status: "ok", sampleSize: 10, entries }, { championId: 103, status: "insufficient", sampleSize: 2, entries: [] }] } satisfies LolMasteryBoardView }),
+        board: { observedAt, season: "2026-01-08", coverage: 60, playerCount: 1000, champions: [{ championId: 266, eligibleCount: 10, rows: masterRows }, { championId: 103, eligibleCount: 0, rows: [] }] } satisfies LolMasterBoardView }),
       "/masters-sparse": () => createElement(Masters, { champions: champions as never, championsError: false, boardError: false, selectedId: 103,
-        board: { observedAt, playerCount: 1000, champions: [{ championId: 103, status: "insufficient", sampleSize: 2, entries: [] }] } satisfies LolMasteryBoardView }),
+        board: { observedAt, season: "2026-01-08", coverage: 100, playerCount: 1000, champions: [{ championId: 266, eligibleCount: 10, rows: masterRows }] } satisfies LolMasterBoardView }),
       "/masters-empty": () => createElement(Masters, { champions: champions as never, championsError: false, boardError: false, board: null }),
       "/masters-error": () => createElement(Masters, { champions: [], championsError: true, boardError: true, board: null }),
     };
@@ -70,8 +71,10 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 랭킹·장인 
     await page.screenshot({ path: `tmp/lol-ranking-review/ranking-${width}x${height}.png` });
     await page.goto(`${base}/masters`, { waitUntil: "networkidle0" });
     const masters = await text();
-    expect(masters).toContain("장인1#KR1"); expect(masters).toContain("서버 전체 순위가 아닙니다");
-    expect(masters).not.toMatch(/점수|실력|1등/);
+    expect(masters).toContain("장인1#KR1"); expect(masters).toContain("수집 범위");
+    expect(masters).toContain("수집 중, 판수가 실제보다 적을 수 있습니다");
+    expect(masters).toContain("조건: 이번 시즌 솔로 랭크 15판 이상");
+    expect(masters).not.toMatch(/점수|실력|1등|숙련도/);
     expect(await page.$$eval('main ol > li:has(a)', rows => rows.every(row => row.getBoundingClientRect().height >= 44))).toBe(true);
     expect(await page.$$eval('section[aria-label="챔피언 선택"] a', links => links.every(link => link.getBoundingClientRect().height >= 44))).toBe(true);
     await page.screenshot({ path: `tmp/lol-ranking-review/masters-${width}x${height}.png` });

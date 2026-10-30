@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireLolPublicPage } from "@/lib/lol/publicAccess.server";
 import { getLolChampions } from "@/lib/lol/champions.server";
-import { getCachedLolMasteryBoard } from "@/lib/lol/ranking.server";
+import { getCachedLolMasterBoard } from "@/lib/lol/ranking.server";
 import { lolMastersPublic } from "@/lib/lol/ranking";
 import LolMastersView from "@/components/lol/LolMastersView";
 
@@ -15,7 +15,7 @@ export default async function LolMastersPage({ searchParams }: Props) {
   const selected = typeof params.champion === "string" ? Number(params.champion) : Number.NaN;
   const [data, board] = await Promise.all([
     getLolChampions().catch(() => null),
-    getCachedLolMasteryBoard().then(value => ({ board: value, error: false }), () => ({ board: null, error: true })),
+    getCachedLolMasterBoard().then(value => ({ board: value, error: false }), () => ({ board: null, error: true })),
   ]);
   return <LolMastersView
     champions={data?.champions ?? []}

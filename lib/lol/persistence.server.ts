@@ -1,5 +1,6 @@
 import "server-only";
 import { recordLolOpsMetric } from "./ops.server";
+import type { RankingStore } from "./ranking";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import type { LolRankedPoint, LolRankedHistory, LolPlayerMatchSummary, LolAccountDeletion } from "@/lib/lol/types";
 import type { LolChallengeCatalog } from "./challengeProfile";
@@ -17,6 +18,10 @@ export class LolPersistenceError extends Error {
 
 export class LolLeaseExpiredError extends Error {
   constructor() { super("LoL collection lease expired"); }
+}
+
+export class LolSeasonCursorStaleError extends Error {
+  constructor() { super("LoL season cursor changed"); }
 }
 
 export class LolPermitError extends Error {
@@ -67,6 +72,9 @@ const LOL_DB_TIMEOUT_MS = 10_000;
 function persistenceFailure(operation: string, error: unknown, signal: AbortSignal): never {
   if (["persist_lol_search_snapshot", "persist_lol_match_details"].includes(operation)
     && error && typeof error === "object" && "code" in error && error.code === "40001") throw new LolLeaseExpiredError();
+  if (operation === "commit_lol_season_progress" && error && typeof error === "object" && "code" in error && error.code === "40001") {
+    throw new LolSeasonCursorStaleError();
+  }
   const cause = error && typeof error === "object" ? error as { name?: unknown; message?: unknown } : undefined;
   const timedOut = signal.aborted || cause?.name === "TimeoutError" || cause?.name === "AbortError"
     || (typeof cause?.message === "string" && /AbortError|TimeoutError|timed?\s*out/i.test(cause.message));
@@ -332,27 +340,74 @@ export async function hasLolKnownMatch(matchId: string): Promise<boolean> {
   } catch (error) { return persistenceFailure("has_lol_known_match", error, signal); }
 }
 
-// 랭킹·장인 게시본. 공개 화면은 서버만 읽고, 수집기는 전체 입력이 유효할 때만 저장한다.
+// 랭킹·장인 게시본과 시즌 누적 작업 테이블. 공개 화면은 서버만 읽고, 수집기는 전체 입력이 유효할 때만 저장한다.
 export async function getLolRankingPublication(): Promise<unknown | null> {
   return rpc<unknown | null>("get_lol_ranking_publication", {});
 }
 
-export async function getLolMasteryPublication(): Promise<unknown | null> {
-  return rpc<unknown | null>("get_lol_mastery_publication", {});
+export async function getLolMasterPublication(): Promise<unknown | null> {
+  return rpc<unknown | null>("get_lol_master_publication", {});
 }
 
-export async function saveLolRankingPublication(input: {
-  rows: unknown[]; playerCount: number; masteries: unknown[]; observedAt: string;
-}): Promise<void> {
-  await rpc<void>("save_lol_ranking_publication", {
-    p_rows: input.rows, p_player_count: input.playerCount, p_masteries: input.masteries, p_observed_at: input.observedAt,
-  });
+export function createLolRankingStore(): RankingStore {
+  return {
+    getAccountStates: async (seasonKey, accountHmacs) => {
+      const rows = (await rpc<Array<Record<string, unknown>> | null>("get_lol_season_account_states",
+        { p_season_key: seasonKey, p_account_hmacs: accountHmacs })) ?? [];
+      return rows.map(row => ({
+        accountHmac: String(row.accountHmac),
+        riotId: String(row.riotId),
+        riotIdHmac: String(row.riotIdHmac),
+        resolvedAt: typeof row.resolvedAt === "string" ? row.resolvedAt : null,
+        cursor: row.cursorMs === null || row.cursorMs === undefined ? null : { ms: Number(row.cursorMs), ids: Array.isArray(row.cursorIds) ? row.cursorIds.map(String) : [] },
+        checkedAt: typeof row.checkedAt === "string" ? row.checkedAt : null,
+      }));
+    },
+    upsertAccount: async input => {
+      await rpc("upsert_lol_season_account", {
+        p_season_key: input.seasonKey, p_account_hmac: input.accountHmac, p_riot_id_hmac: input.riotIdHmac, p_riot_id: input.riotId,
+        p_tier: input.tier, p_league_points: input.leaguePoints, p_resolved_at: input.resolvedAt, p_listed_at: input.listedAt,
+        p_season_end: input.seasonEnd,
+      });
+    },
+    commitProgress: async input => {
+      try {
+        await rpc("commit_lol_season_progress", {
+          p_season_key: input.seasonKey, p_account_hmac: input.accountHmac, p_expected_cursor_ms: input.expectedCursorMs,
+          p_cursor_ms: input.cursor ? input.cursor.ms : null, p_cursor_ids: input.cursor ? input.cursor.ids : null,
+          p_champions: input.deltas.map(delta => ({ champion_id: delta.championId, games: delta.games, wins: delta.wins })),
+          p_checked_at: input.checkedAt,
+        });
+        return "ok";
+      } catch (error) {
+        if (error instanceof LolSeasonCursorStaleError) return "stale";
+        throw error;
+      }
+    },
+    listChampionCounts: async (seasonKey, accountHmacs) => {
+      const rows = (await rpc<Array<Record<string, unknown>> | null>("list_lol_season_champion_counts",
+        { p_season_key: seasonKey, p_account_hmacs: accountHmacs })) ?? [];
+      return rows.map(row => ({ accountHmac: String(row.accountHmac), championId: Number(row.championId), games: Number(row.games), wins: Number(row.wins) }));
+    },
+    excludedKeys: () => listLolRankingExclusionKeys(),
+    saveRankingPublication: async input => {
+      await rpc("save_lol_ranking_publication", { p_rows: input.rows, p_player_count: input.playerCount, p_observed_at: input.observedAt });
+    },
+    saveMasterPublication: async input => {
+      await rpc("save_lol_master_publication", {
+        p_season_key: input.seasonKey, p_coverage: input.coverage, p_player_count: input.playerCount,
+        p_champions: input.champions.map(champion => ({ champion_id: champion.champion_id, eligible_count: champion.eligible_count, rows: champion.rows })),
+        p_observed_at: input.observedAt,
+      });
+    },
+    purgeExpiredSeasons: async nowIso => rpc<number>("purge_lol_expired_season_accounts", { p_now: nowIso }),
+  };
 }
 
 export async function listLolRankingExclusionKeys(): Promise<string[]> {
   return (await rpc<string[] | null>("list_lol_ranking_exclusion_keys", {})) ?? [];
 }
 
-export async function addLolRankingExclusion(riotIdHmac: string): Promise<number> {
-  return rpc<number>("add_lol_ranking_exclusion", { p_hmac: riotIdHmac });
+export async function addLolRankingExclusion(riotIdHmac: string, riotId: string): Promise<number> {
+  return rpc<number>("add_lol_ranking_exclusion", { p_hmac: riotIdHmac, p_riot_id: riotId });
 }

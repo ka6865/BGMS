@@ -1,23 +1,34 @@
 import { pathToFileURL } from "node:url";
 import {
-  RANKING_HMAC_MIN_KEY_LENGTH, RANKING_QUEUE, RANKING_TIERS, RankingValidationError,
-  buildMasteryBoard, evaluateRankingPublish, excludeRankingRows, parseMasteryTop, parseRankingLeague,
-  riotIdHmac, selectRankingCandidates, toRankingRows,
-  type MasteryPlayer, type RankingEntry, type RankingRow, type ResolvedRankingEntry, type MasteryBoardChampion,
+  RANKING_HMAC_MIN_KEY_LENGTH, RANKING_QUEUE, RANKING_TIERS, RankingValidationError, type RankingStore,
+  accountHmac, buildMasterBoard, evaluateRankingPublish, excludeResolved, extractMatchForAccount, formatRiotId,
+  parseRankingLeague, parseSeasonEnd, parseSeasonStart, planAccountUpdate, riotIdHmac, selectRankingCandidates, toRankingRows,
+  type MasterEntryInput, type RankingEntry, type ResolvedRankingEntry,
+  type MatchCore, type ChampionCount,
 } from "../lib/lol/ranking";
 
-// 랭킹·장인 게시 수집기. 경기 원문은 받지 않는다. PUUID는 메모리에서만 쓰고 출력과 저장에 넣지 않는다.
-// 기본은 dry-run이며, --apply는 LOL_RANKING_ENABLED=true와 제외 목록 키가 있을 때만 게시한다.
+// 랭킹·장인 수집기(시즌 누적). 경기 원문과 다른 참가자 정보는 저장하지 않는다.
+// PUUID는 메모리에서만 쓰고, 저장과 출력에는 HMAC만 남긴다. 기본은 dry-run이며 --apply는 LOL_RANKING_ENABLED=true일 때만 쓴다.
+// 한 실행은 호출 상한(LOL_RANKING_MAX_CALLS)까지만 하고 커서를 저장한 뒤 끝난다. 다음 실행이 커서부터 이어받는다.
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
+const RIOT_ID_TTL_MS = 7 * 24 * 3600_000;
+const IDS_PAGE_SIZE = 100;
+const MAX_IDS_PER_ACCOUNT = 500;
+const MAX_MATCHES_PER_ACCOUNT = 200;
+export const DEFAULT_MAX_CALLS = 600;
+export const DEFAULT_CHECK_INTERVAL_HOURS = 12;
 // 키가 없는 dry-run에서만 쓰는 자리표시자다. 이 값으로 만든 HMAC은 저장되지 않는다.
 const DRY_RUN_PLACEHOLDER_SECRET = "dry-run-placeholder-secret-not-stored-0000";
 
 export type RankingDependencies = {
   request: (host: "kr" | "asia", path: string) => Promise<unknown>;
-  save: (input: { rows: RankingRow[]; playerCount: number; masteries: MasteryBoardChampion[]; observedAt: string }) => Promise<void>;
-  excludedKeys: () => Promise<string[]>;
-  hmacSecret?: string;
+  store: RankingStore;
+  secret?: string;
+  seasonStart: string | undefined;
+  seasonEnd?: string;
+  maxCalls: number;
+  checkIntervalHours?: number;
   sleep?: (ms: number) => Promise<void>;
   now?: () => Date;
 };
@@ -25,20 +36,53 @@ export type RankingDependencies = {
 export type RankingRunResult = {
   dryRun: boolean;
   observedAt: string;
-  published: boolean;
+  season: string;
+  published: { ranking: boolean; master: boolean };
   reasons: string[];
   exclusionChecked: boolean;
+  budget: { maxCalls: number; calls: number; exhausted: boolean };
   counts: {
-    candidates: number; resolved: number; unresolved: number; masteryCompleted: number;
-    excluded: number; rows: number; champions: number; payloadBytes: number;
+    candidates: number; resolved: number; unresolvedRiotId: number; excluded: number;
+    due: number; processed: number; staleSkipped: number; incomplete: number;
+    countedMatches: number; skippedMatches: number; coverage: number; championsPublished: number;
   };
 };
+
+// 키 오류는 저장된 커서를 건드리지 않고 실행을 멈춘다. 운영자가 키를 바꾼 뒤 다시 실행하면 이어받는다.
+export class LolRankingKeyError extends Error {
+  constructor() { super("Riot 키 오류"); }
+}
+
+class BudgetExhaustedError extends Error {
+  constructor() { super("호출 상한에 도달했습니다."); }
+}
 
 function errorKind(error: unknown): string | undefined {
   return error && typeof error === "object" && "kind" in error ? String((error as { kind: unknown }).kind) : undefined;
 }
 
-// 혼잡과 한도 초과만 짧게 기다렸다가 다시 보낸다. 그 밖의 오류는 바로 실패로 센다.
+function isKeyError(error: unknown): boolean {
+  const kind = errorKind(error);
+  return kind === "key_or_permission" || kind === "unconfigured";
+}
+
+function parseAccount(raw: unknown): { gameName: string; tagLine: string } {
+  const account = raw as { gameName?: unknown; tagLine?: unknown } | null;
+  if (!account || typeof account.gameName !== "string" || typeof account.tagLine !== "string"
+    || !account.gameName.trim() || account.gameName.length > 64 || !/^[^\s#]{1,16}$/.test(account.tagLine.trim())) {
+    throw new RankingValidationError("Riot ID 응답을 확인할 수 없습니다.");
+  }
+  return { gameName: account.gameName.trim(), tagLine: account.tagLine.trim() };
+}
+
+function parseMatchIds(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.some(id => typeof id !== "string" || !/^[A-Z0-9_]{3,40}$/.test(id))) {
+    throw new RankingValidationError("경기 ID 목록 응답을 확인할 수 없습니다.");
+  }
+  return raw as string[];
+}
+
+// 혼잡과 한도 초과만 짧게 기다렸다가 다시 보낸다. 그 밖의 오류는 바로 호출자에게 돌려준다.
 async function withRetry<T>(task: () => Promise<T>, sleep: (ms: number) => Promise<void>): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -54,15 +98,6 @@ async function withRetry<T>(task: () => Promise<T>, sleep: (ms: number) => Promi
   }
 }
 
-function parseAccount(raw: unknown): { gameName: string; tagLine: string } {
-  const account = raw as { gameName?: unknown; tagLine?: unknown } | null;
-  if (!account || typeof account.gameName !== "string" || typeof account.tagLine !== "string"
-    || !account.gameName.trim() || account.gameName.length > 64 || !/^[^\s#]{1,16}$/.test(account.tagLine.trim())) {
-    throw new RankingValidationError("Riot ID 응답을 확인할 수 없습니다.");
-  }
-  return { gameName: account.gameName.trim(), tagLine: account.tagLine.trim() };
-}
-
 export async function runLolRankingSnapshot(
   deps: RankingDependencies,
   args = process.argv.slice(2),
@@ -73,75 +108,254 @@ export async function runLolRankingSnapshot(
   }
   const apply = args.includes("--apply");
   if (apply && !enabled) throw new Error("쓰기에는 LOL_RANKING_ENABLED=true가 필요합니다.");
-  const secret = deps.hmacSecret;
-  if (apply && (!secret || secret.length < RANKING_HMAC_MIN_KEY_LENGTH)) {
-    throw new Error("쓰기에는 제외 목록 키(LOL_RANKING_HMAC_KEY, 32자 이상)가 필요합니다.");
+  const season = parseSeasonStart(deps.seasonStart);
+  // 종료 시각은 쓰기에 필요하다. 없으면 30일 삭제가 동작하지 않으므로 쓰기를 거절한다. 읽기 dry-run은 허용한다.
+  const seasonEnd = apply ? parseSeasonEnd(deps.seasonEnd, season.startMs).iso : (deps.seasonEnd ? parseSeasonEnd(deps.seasonEnd, season.startMs).iso : null);
+  if (!Number.isSafeInteger(deps.maxCalls) || deps.maxCalls < 1 || deps.maxCalls > 100_000) {
+    throw new Error("LOL_RANKING_MAX_CALLS는 1 이상 100000 이하의 정수여야 합니다.");
   }
+  const secret = deps.secret;
+  const secretOk = Boolean(secret && secret.length >= RANKING_HMAC_MIN_KEY_LENGTH);
+  if (apply && !secretOk) throw new Error("쓰기에는 제외 목록 키(LOL_RANKING_HMAC_KEY, 32자 이상)가 필요합니다.");
+  const keySecret = secretOk ? secret as string : DRY_RUN_PLACEHOLDER_SECRET;
   const sleep = deps.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
-  const observedAt = (deps.now?.() ?? new Date()).toISOString();
-  const keySecret = secret && secret.length >= RANKING_HMAC_MIN_KEY_LENGTH ? secret : DRY_RUN_PLACEHOLDER_SECRET;
+  const now = deps.now?.() ?? new Date();
+  const observedAt = now.toISOString();
+  const intervalMs = (deps.checkIntervalHours ?? DEFAULT_CHECK_INTERVAL_HOURS) * 3600_000;
 
-  // 1) 명단 두 개를 받는다. 하나라도 형식이 다르면 여기서 실패해 게시하지 않는다.
-  const leagues: RankingEntry[] = [];
+  let calls = 0;
+  let exhausted = false;
+  const once = async (host: "kr" | "asia", path: string): Promise<unknown> => {
+    if (calls >= deps.maxCalls) {
+      exhausted = true;
+      throw new BudgetExhaustedError();
+    }
+    calls += 1;
+    return deps.request(host, path);
+  };
+  const attempt = (host: "kr" | "asia", path: string) => withRetry(() => once(host, path), sleep);
+
+  // 1) 명단 두 개(챌린저, 그랜드마스터). 형식이 다르면 실패해 아무것도 바꾸지 않는다.
+  const entries: RankingEntry[] = [];
   for (const tier of RANKING_TIERS) {
-    const raw = await deps.request("kr", `/lol/league/v4/${tier.toLowerCase()}leagues/by-queue/${RANKING_QUEUE}`);
-    leagues.push(...parseRankingLeague(raw, tier));
-  }
-  // 2) 게시 대상 상한만 해석한다(호출 수 상한).
-  const candidates = selectRankingCandidates(leagues);
-
-  // 3) Riot ID와 숙련도를 순서대로 받는다. 한 명의 실패가 전체를 멈추지 않고 해석률로 센다.
-  const resolved: ResolvedRankingEntry[] = [];
-  const masteryPlayers: MasteryPlayer[] = [];
-  let unresolved = 0;
-  let masteryCompleted = 0;
-  for (const candidate of candidates) {
+    let raw: unknown;
     try {
-      const account = parseAccount(await withRetry(() => deps.request("asia", `/riot/account/v1/accounts/by-puuid/${encodeURIComponent(candidate.puuid)}`), sleep));
-      resolved.push({ ...candidate, gameName: account.gameName, tagLine: account.tagLine });
-    } catch {
-      unresolved += 1;
+      raw = await attempt("kr", `/lol/league/v4/${tier.toLowerCase()}leagues/by-queue/${RANKING_QUEUE}`);
+    } catch (error) {
+      if (isKeyError(error)) throw new LolRankingKeyError();
+      throw error;
+    }
+    entries.push(...parseRankingLeague(raw, tier));
+  }
+  const candidates = selectRankingCandidates(entries);
+  const keyOf = (puuid: string) => accountHmac(puuid, keySecret);
+  const candidateKeys = candidates.map(entry => keyOf(entry.puuid));
+  const excluded = new Set(secretOk ? await deps.store.excludedKeys() : []);
+  const states = new Map((await deps.store.getAccountStates(season.key, candidateKeys)).map(state => [state.accountHmac, state]));
+
+  // 2) Riot ID 해석. 7일 안에 확인한 값은 다시 부르지 않는다.
+  type Listed = { entry: RankingEntry; key: string; gameName: string; tagLine: string; riotIdHmac: string; resolvedAt: string | null };
+  const listed: Listed[] = [];
+  let unresolvedRiotId = 0;
+  let excludedCount = 0;
+  for (const entry of candidates) {
+    const key = keyOf(entry.puuid);
+    const state = states.get(key);
+    let gameName: string;
+    let tagLine: string;
+    let resolvedAt: string | null = state?.resolvedAt ?? null;
+    if (state && state.resolvedAt && now.getTime() - Date.parse(state.resolvedAt) < RIOT_ID_TTL_MS) {
+      const cut = state.riotId.lastIndexOf("#");
+      gameName = state.riotId.slice(0, cut);
+      tagLine = state.riotId.slice(cut + 1);
+    } else {
+      try {
+        ({ gameName, tagLine } = parseAccount(await attempt("asia", `/riot/account/v1/accounts/by-puuid/${encodeURIComponent(entry.puuid)}`)));
+        resolvedAt = observedAt;
+      } catch (error) {
+        if (error instanceof BudgetExhaustedError) break;
+        if (isKeyError(error)) throw new LolRankingKeyError();
+        unresolvedRiotId += 1;
+        continue;
+      }
+    }
+    const hmac = riotIdHmac(gameName, tagLine, keySecret);
+    if (excluded.has(hmac)) {
+      excludedCount += 1;
       continue;
     }
-    const current = resolved[resolved.length - 1];
-    try {
-      const masteries = parseMasteryTop(await withRetry(() => deps.request("kr",
-        `/lol/champion-mastery/v4/champion-masteries/by-puuid/${encodeURIComponent(candidate.puuid)}/top?count=10`), sleep));
-      masteryCompleted += 1;
-      masteryPlayers.push({ gameName: current.gameName, tagLine: current.tagLine, riotIdHmac: riotIdHmac(current.gameName, current.tagLine, keySecret), masteries });
-    } catch {
-      // 숙련도 실패는 장인 표본에서만 뺀다. 완료율 게이트가 과도한 누락을 막는다.
+    if (apply) {
+      await deps.store.upsertAccount({ seasonKey: season.key, accountHmac: key, riotIdHmac: hmac, riotId: formatRiotId(gameName, tagLine),
+        tier: entry.tier, leaguePoints: entry.leaguePoints, resolvedAt, listedAt: observedAt, seasonEnd: seasonEnd as string });
+    }
+    listed.push({ entry, key, gameName, tagLine, riotIdHmac: hmac, resolvedAt });
+  }
+
+  // 3) 경기 누적. 확인한 지 interval이 지난 계정만 처리하고, 같은 실행에서 경기 상세는 한 번만 받는다.
+  const dueAccounts = listed
+    .filter(item => {
+      const state = states.get(item.key);
+      return !state?.checkedAt || now.getTime() - Date.parse(state.checkedAt) >= intervalMs;
+    })
+    .sort((a, b) => (Date.parse(states.get(a.key)?.checkedAt ?? "1970-01-01T00:00:00Z")) - (Date.parse(states.get(b.key)?.checkedAt ?? "1970-01-01T00:00:00Z")));
+  const detailCache = new Map<string, Map<string, MatchCore | null>>();
+  const checkedNow = new Set<string>();
+  let processed = 0;
+  let staleSkipped = 0;
+  let incomplete = 0;
+  let countedMatches = 0;
+  let skippedMatches = 0;
+  for (const item of listed) {
+    const state = states.get(item.key);
+    if (state?.checkedAt && now.getTime() - Date.parse(state.checkedAt) < intervalMs) checkedNow.add(item.key);
+  }
+
+  for (const account of dueAccounts) {
+    if (calls >= deps.maxCalls) {
+      exhausted = true;
+      break;
+    }
+    const state = states.get(account.key);
+    const cursor = state?.cursor ?? null;
+    // 경기 ID 목록은 커서 이후만 받는다. 목록은 최신순이라 뒤집어 오래된 순서로 처리한다.
+    const startSec = Math.max(Math.floor(season.startMs / 1000), cursor ? Math.floor(cursor.ms / 1000) : 0);
+    const ids: string[] = [];
+    let listComplete = true;
+    for (let start = 0; start < MAX_IDS_PER_ACCOUNT; start += IDS_PAGE_SIZE) {
+      try {
+        const page = parseMatchIds(await attempt("asia", `/lol/match/v5/matches/by-puuid/${encodeURIComponent(account.entry.puuid)}/ids`
+          + `?queue=420&type=ranked&startTime=${startSec}&start=${start}&count=${IDS_PAGE_SIZE}`));
+        ids.push(...page);
+        if (page.length < IDS_PAGE_SIZE) break;
+      } catch (error) {
+        if (error instanceof BudgetExhaustedError) {
+          exhausted = true;
+        } else if (isKeyError(error)) {
+          throw new LolRankingKeyError();
+        }
+        listComplete = false;
+        break;
+      }
+    }
+    if (!listComplete) {
+      incomplete += 1;
+      continue;
+    }
+    const chronological = [...ids].reverse().slice(0, MAX_MATCHES_PER_ACCOUNT);
+    const matches: MatchCore[] = [];
+    let stopped = false;
+    for (const matchId of chronological) {
+      let perAccount = detailCache.get(matchId);
+      if (!perAccount) {
+        if (calls >= deps.maxCalls) {
+          exhausted = true;
+          stopped = true;
+          break;
+        }
+        let detail: unknown;
+        try {
+          detail = await attempt("asia", `/lol/match/v5/matches/${encodeURIComponent(matchId)}`);
+        } catch (error) {
+          if (error instanceof BudgetExhaustedError) {
+            exhausted = true;
+            stopped = true;
+            break;
+          }
+          if (isKeyError(error)) throw new LolRankingKeyError();
+          skippedMatches += 1;
+          continue;
+        }
+        perAccount = new Map();
+        for (const target of dueAccounts) {
+          try {
+            perAccount.set(target.key, extractMatchForAccount(detail, target.entry.puuid, season.startMs));
+          } catch {
+            perAccount.set(target.key, null);
+          }
+        }
+        detailCache.set(matchId, perAccount);
+      }
+      const core = perAccount.get(account.key);
+      if (core) matches.push(core);
+      else skippedMatches += 1;
+    }
+    if (stopped && matches.length === 0 && chronological.length > 0) {
+      incomplete += 1;
+      continue;
+    }
+
+    const plan = planAccountUpdate(cursor, matches, MAX_MATCHES_PER_ACCOUNT);
+    countedMatches += plan.accepted.filter(match => match.counted).length;
+    if (apply) {
+      const outcome = await deps.store.commitProgress({
+        seasonKey: season.key, accountHmac: account.key, expectedCursorMs: cursor?.ms ?? null, cursor: plan.newCursor,
+        deltas: [...plan.deltas].map(([championId, count]) => ({ championId, games: count.games, wins: count.wins })),
+        checkedAt: observedAt,
+      });
+      if (outcome === "stale") {
+        staleSkipped += 1;
+        continue;
+      }
+    }
+    processed += 1;
+    checkedNow.add(account.key);
+    if (stopped) {
+      exhausted = true;
+      break;
     }
   }
 
-  // 4) 게시 직전에 제외 목록을 대조한다(삭제 요청 계정은 다음 게시부터 빠진다).
-  const excludedSet = new Set(secret ? await deps.excludedKeys() : []);
-  const allRows = toRankingRows(resolved, entry => riotIdHmac(entry.gameName, entry.tagLine, keySecret));
-  const ranking = excludeRankingRows(allRows, excludedSet);
-  const masteryKept = masteryPlayers.filter(player => !excludedSet.has(player.riotIdHmac));
-  const masteries = buildMasteryBoard(masteryKept);
-  const payloadBytes = Buffer.byteLength(JSON.stringify({ rows: ranking.rows, masteries }));
+  // 4) 명단 게시. 명단은 해석률 조건을 넘을 때만 바꾸고, 장인은 현재 누적으로 매번 바꾼다.
+  const kept = excludeResolved(listed.map(item => ({ ...item, gameName: item.gameName, tagLine: item.tagLine })), keySecret, excluded);
+  const resolvedEntries: ResolvedRankingEntry[] = kept.kept.map(item => ({ ...item.entry, gameName: item.gameName, tagLine: item.tagLine }));
+  const rows = toRankingRows(resolvedEntries);
+  const payloadBytes = Buffer.byteLength(JSON.stringify(rows));
+  // 제외된 계정은 실패가 아니므로 해석된 것으로 센다.
+  const rankingGate = evaluateRankingPublish({ candidates: candidates.length, resolved: listed.length + excludedCount, payloadBytes });
+  const publishRanking = apply && rankingGate.publish;
+  if (publishRanking) await deps.store.saveRankingPublication({ rows, playerCount: rows.length, observedAt });
 
-  const gate = evaluateRankingPublish({ candidates: candidates.length, resolved: resolved.length, masteryCompleted, payloadBytes });
-  const publish = apply && gate.publish;
-  if (publish) {
-    await deps.save({ rows: ranking.rows, playerCount: ranking.rows.length, masteries, observedAt });
+  const keptKeys = kept.kept.map(item => item.key);
+  const countRows = await deps.store.listChampionCounts(season.key, keptKeys);
+  const countsByAccount = new Map<string, Map<number, ChampionCount>>();
+  for (const row of countRows) {
+    const map = countsByAccount.get(row.accountHmac) ?? new Map<number, ChampionCount>();
+    map.set(row.championId, { games: row.games, wins: row.wins });
+    countsByAccount.set(row.accountHmac, map);
   }
+  const masterInput: MasterEntryInput[] = kept.kept.map(item => ({
+    gameName: item.gameName, tagLine: item.tagLine, tier: item.entry.tier, leaguePoints: item.entry.leaguePoints,
+    champions: countsByAccount.get(item.key) ?? new Map<number, ChampionCount>(),
+  }));
+  const champions = buildMasterBoard(masterInput);
+  const coverage = kept.kept.length ? Math.floor(100 * kept.kept.filter(item => checkedNow.has(item.key)).length / kept.kept.length) : 0;
+  if (apply) {
+    await deps.store.saveMasterPublication({ seasonKey: season.key, coverage, playerCount: kept.kept.length, champions, observedAt });
+    await deps.store.purgeExpiredSeasons(observedAt);
+  }
+
+  const reasons = rankingGate.reasons;
   return {
     dryRun: !apply,
     observedAt,
-    published: publish,
-    reasons: gate.reasons,
-    exclusionChecked: Boolean(secret),
+    season: season.key,
+    published: { ranking: publishRanking, master: apply },
+    reasons,
+    exclusionChecked: secretOk,
+    budget: { maxCalls: deps.maxCalls, calls, exhausted },
     counts: {
       candidates: candidates.length,
-      resolved: resolved.length,
-      unresolved,
-      masteryCompleted,
-      excluded: ranking.removed,
-      rows: ranking.rows.length,
-      champions: masteries.length,
-      payloadBytes,
+      resolved: listed.length,
+      unresolvedRiotId,
+      excluded: excludedCount + kept.removed,
+      due: dueAccounts.length,
+      processed,
+      staleSkipped,
+      incomplete,
+      countedMatches,
+      skippedMatches,
+      coverage,
+      championsPublished: champions.length,
     },
   };
 }
@@ -158,22 +372,29 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (process.env.LOL_PERSISTENCE_ENABLED !== "true") throw new Error("공유 호출 제한이 필요합니다.");
     const { requestJson } = await import("../lib/lol/riotSearch.server");
     const persistence = await import("../lib/lol/persistence.server");
-    const secret = process.env.LOL_RANKING_HMAC_KEY?.trim();
+    const maxCalls = process.env.LOL_RANKING_MAX_CALLS ? Number(process.env.LOL_RANKING_MAX_CALLS) : DEFAULT_MAX_CALLS;
+    const checkHours = process.env.LOL_RANKING_CHECK_HOURS ? Number(process.env.LOL_RANKING_CHECK_HOURS) : DEFAULT_CHECK_INTERVAL_HOURS;
     const result = await runLolRankingSnapshot({
       request: (host, path) => requestJson(host, path, 0, true),
-      save: input => persistence.saveLolRankingPublication(input),
-      excludedKeys: () => persistence.listLolRankingExclusionKeys(),
-      hmacSecret: secret,
+      store: persistence.createLolRankingStore(),
+      secret: process.env.LOL_RANKING_HMAC_KEY?.trim(),
+      seasonStart: process.env.LOL_SEASON_START,
+      seasonEnd: process.env.LOL_SEASON_END,
+      maxCalls,
+      checkIntervalHours: checkHours,
     });
     console.log(JSON.stringify(result, null, 2));
-    if (process.argv.includes("--apply") && !result.published) {
-      console.error("[lol-ranking] 게시 조건을 넘지 못해 이전 게시본을 그대로 둡니다.");
-      process.exitCode = 1;
+    if (!result.published.ranking && process.argv.includes("--apply")) {
+      console.log(`::warning::명단 게시 조건을 넘지 못해 이전 명단 게시본을 유지합니다. ${result.reasons.join(" ")}`);
     }
+    if (result.budget.exhausted) console.log("[lol-ranking] 호출 상한에 도달했습니다. 다음 실행이 저장된 커서부터 이어받습니다.");
   } catch (error) {
-    const message = error instanceof RankingValidationError ? "랭크 명단 응답 형식이 달라 게시하지 않습니다." : "";
-    console.error(`[lol-ranking] 수집 실패: 키·공유 호출 제한·저장 설정을 확인해 주세요.${message ? ` ${message}` : ""}`);
+    if (error instanceof LolRankingKeyError) {
+      console.error("[lol-ranking] Riot 키 오류(401/403)입니다. 키를 갱신한 뒤 워크플로를 다시 실행하면 저장된 커서부터 이어받습니다.");
+    } else {
+      const message = error instanceof RankingValidationError ? " 명단 또는 설정 형식을 확인해 주세요." : "";
+      console.error(`[lol-ranking] 수집 실패: 키·공유 호출 제한·시즌·저장 설정을 확인해 주세요.${message}`);
+    }
     process.exitCode = 1;
   }
 }
-

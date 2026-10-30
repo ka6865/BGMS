@@ -1,8 +1,8 @@
-name: LoL 랭킹·장인 게시
+name: LoL 랭킹·장인 집계
 on:
   schedule:
-    # KST 05:41. 랭크 컷(05:19)과 겹치지 않게 둔다.
-    - cron: '41 20 * * *'
+    # 3시간마다 이어받는다. 한 실행은 LOL_RANKING_MAX_CALLS 상한까지만 호출하고 커서를 저장한 뒤 끝난다.
+    - cron: '17 */3 * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,7 +13,7 @@ jobs:
   publish:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -23,7 +23,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: 랭킹·장인 명단 수집과 조건부 게시
+      - name: 랭킹·장인 수집(이어받기)과 조건부 게시
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -32,10 +32,14 @@ jobs:
           LOL_PERSISTENCE_ENABLED: 'true'
           LOL_RIOT_PRIORITY: background
           LOL_RANKING_ENABLED: ${{ vars.LOL_RANKING_ENABLED }}
+          LOL_SEASON_START: ${{ vars.LOL_SEASON_START }}
+          LOL_SEASON_END: ${{ vars.LOL_SEASON_END }}
+          LOL_RANKING_MAX_CALLS: ${{ vars.LOL_RANKING_MAX_CALLS }}
+          LOL_RANKING_CHECK_HOURS: ${{ vars.LOL_RANKING_CHECK_HOURS }}
         run: |
           if [ "$LOL_RANKING_ENABLED" = 'true' ]; then
             npx tsx scripts/lol_ranking_snapshot.ts --apply
           else
-            echo "::warning::LOL_RANKING_ENABLED가 켜져 있지 않아 dry-run으로만 실행합니다. 게시하지 않습니다."
+            echo "::warning::LOL_RANKING_ENABLED가 켜져 있지 않아 dry-run으로만 실행합니다. 저장하지 않습니다."
             npx tsx scripts/lol_ranking_snapshot.ts --dry-run
           fi

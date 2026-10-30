@@ -7,7 +7,7 @@ vi.mock("next/navigation", () => ({ notFound: notFoundMock, usePathname: () => "
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children?: ReactNode }) => createElement("a", { href, ...rest }, children) }));
 vi.mock("@/lib/lol/publicAccess.server", () => ({ requireLolPublicPage: () => undefined }));
 vi.mock("@/lib/lol/champions.server", () => ({ getLolChampions: async () => ({ version: "1", champions: [] }) }));
-vi.mock("@/lib/lol/ranking.server", () => ({ getCachedLolMasteryBoard: async () => null }));
+vi.mock("@/lib/lol/ranking.server", () => ({ getCachedLolMasterBoard: async () => null }));
 
 const { default: LolMastersPage } = await import("@/app/lol/kr/masters/page");
 const { default: LolHeader } = await import("@/components/lol/LolHeader");
