@@ -26,9 +26,16 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
     const benchmarkObserved = benchmarkKey !== undefined && hasComparableBenchmarkMetric(benchmark, benchmarkKey);
     const smallBenchmark = benchmarkKey !== undefined && !benchmarkObserved && hasObservedBenchmarkMetric(benchmark, benchmarkKey);
     const comparison = benchmarkObserved && benchmark ? numberOrNull(benchmark.rawMetricValues?.[benchmarkKey!] ?? benchmark[benchmarkKey!]) : null;
-    const format = (n: number | null) => n === null ? null : `${Number(n.toFixed(unit === '%' ? 1 : 2))}${unit}`;
+    const maxDecimals = unit === '%' ? 1 : 2;
+    // 표시 정밀도까지만 자르고 끝의 0은 지운다(25 → "25", 1.1 → "1.1").
+    const trimmed = (n: number) => String(Number(n.toFixed(maxDecimals)));
+    const places = (text: string) => (text.split('.')[1] ?? '').length;
     const denominatorValue = numberOrNull(denominator);
-    const userValue = denominator !== undefined && (denominatorValue === null || denominatorValue <= 0) ? null : format(value);
+    const userShown = denominator !== undefined && (denominatorValue === null || denominatorValue <= 0) ? null : value;
+    // 내 값과 비교 평균은 같은 자릿수로 보여 준다(0.28 vs 1.10). 한쪽만 끝의 0이 빠져 정밀도가 달라 보이지 않게 한다.
+    const sharedPlaces = userShown !== null && comparison !== null ? Math.max(places(trimmed(userShown)), places(trimmed(comparison))) : null;
+    const format = (n: number | null) => n === null ? null : `${sharedPlaces === null ? trimmed(n) : n.toFixed(sharedPlaces)}${unit}`;
+    const userValue = format(userShown);
     entries.push({
       metricId, label, userValue,
       userNumericValue: userValue === null ? null : value,
@@ -75,7 +82,9 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
   add('utility_smokes', '연막 사용', stats.totalObservedSmokes, '회');
   add('utility_lethal_throws', '피해형 투척', stats.totalLethalThrows, '회');
   add('smoke_rescue_attempts', '구출 연막 시도', stats.totalObservedRescueSmokes, '회');
-  add('isolation_average', '평균 고립 지수', stats.avgIsolationStr, '');
+  // 비교 수치만 보여 준다. 2.0 미만은 평균보다 높아도 양호한 대열로 해석하므로
+  // AI_SUMMARY_HIGHER_IS_BETTER에 방향을 두지 않아 서버가 유리·불리를 판정하지 않는다.
+  add('isolation_average', '평균 고립 지수', stats.avgIsolationStr, '', 'avgIsolationIndex');
   add('death_phase', '평균 사망 페이즈', stats.avgDeathPhase, '', 'avgDeathPhase');
   return entries;
 }

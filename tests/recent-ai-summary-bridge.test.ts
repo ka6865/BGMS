@@ -224,6 +224,42 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.queryByText("비교 자료 없음")).not.toBeInTheDocument();
   });
 
+  it.each([
+    [[{ icon: "target", title: "거리 유지 점검", desc: "다음 경기에서 아군과의 거리가 적절하게 유지되는지 확인해 보세요." },
+      { icon: "🎯", title: "평균 화력 유지 확인", desc: "다음 경기에서도 같은 기록이 이어지는지 확인해 보세요." }], 2],
+    [[], 0],
+    [undefined, 0],
+    [[{ icon: "target", title: " ", desc: "다음 경기에서 확인해 보세요." }], 0],
+  ])("종합 평가 아래에 다음 경기 점검 과제를 표시한다 (%#)", async (actionItems, expectedCount) => {
+    const cards = buildSummaryCards({
+      topics: ["화력", "유틸리티 활용", "포지셔닝"],
+      context: { ...v2Context, gameMode: "duo", tier: "B", userMatchCount: 3, benchmarkSampleCount: 104 },
+      evidence: buildSummaryCardEvidence({ avgDamage: 231.33, totalUtilityThrows: 20, avgIsolationStr: "0.3", metricMatchCounts: { damage_average: 3, utility_throws: 3 } },
+        { sampleCount: 104, avgDamage: 220.1, metricSampleCounts: { avgDamage: 104 } }),
+    }).map((card): SummaryCard => ({ ...card, analysisStatus: "ready", winner: card.dataStatus === "comparable" ? "kind" : null,
+      kindOpinion: "관측된 기록을 확인했습니다.", spicyOpinion: "다음 경기에서 같은 기록이 이어지는지 확인해 보세요.", reason: "근거를 확인했습니다.", evaluation: "기록을 바탕으로 평가했습니다." }));
+    const onSummaryChange = vi.fn();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "B", latestMatchCount: 10, bestMatchCount: 5 } },
+      { type: "cards", data: cards },
+      { type: "final", data: JSON.stringify({ schemaVersion: 2, cards, finalVerdict: "강점: 평균 화력이 비교 평균보다 높습니다.", actionItems }) },
+      { type: "done", valid: true },
+    ])));
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith(expect.objectContaining({ verdict: "강점: 평균 화력이 비교 평균보다 높습니다." })));
+    expect(screen.queryAllByTestId("summary-action-item")).toHaveLength(expectedCount);
+    if (expectedCount > 0) {
+      // 접힌 상태에서도 종합 평가 바로 아래에 보인다.
+      expect(screen.getByRole("region", { name: "다음 경기 점검 과제" })).toBeVisible();
+      expect(screen.getByText("거리 유지 점검")).toBeInTheDocument();
+      expect(screen.getByText("다음 경기에서도 같은 기록이 이어지는지 확인해 보세요.")).toBeInTheDocument();
+      expect(screen.queryByText("🎯")).not.toBeInTheDocument();
+    } else {
+      expect(screen.queryByTestId("summary-action-items")).not.toBeInTheDocument();
+    }
+  });
+
   beforeEach(() => {
     authState.user = { id: "fixture-user" };
     aiState.active = false;

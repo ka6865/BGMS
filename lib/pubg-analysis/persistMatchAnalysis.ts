@@ -226,6 +226,12 @@ function nullableNonNegativeInteger(value: unknown): number | null {
   return numeric === null ? null : Math.round(numeric);
 }
 
+// 비율형 지수(고립·압박)는 0~5 범위라 정수로 반올림하면 경기 한 건의 값이 크게 달라진다(0.33 → 0).
+function nullableNonNegativeDecimal(value: unknown, digits = 2): number | null {
+  const numeric = nullableNonNegativeNumber(value);
+  return numeric === null ? null : Number(numeric.toFixed(digits));
+}
+
 function nullableNonNegativeFloor(value: unknown): number | null {
   const numeric = nullableNonNegativeNumber(value);
   return numeric === null ? null : Math.floor(numeric);
@@ -567,10 +573,10 @@ export function buildBenchmarkRow(
     utility_count: nullableNonNegativeInteger(finalResult.combatPressure?.utilityStats?.throwCount),
     smoke_count: nullableNonNegativeInteger(finalResult.itemUseSummary?.smokes),
     frag_count: nullableNonNegativeInteger(finalResult.itemUseSummary?.frags),
-    pressure_index: nullableNonNegativeInteger(finalResult.combatPressure?.pressureIndex),
+    pressure_index: nullableNonNegativeDecimal(finalResult.combatPressure?.pressureIndex),
     enemy_death_distance: nullableNonNegativeInteger(finalResult.deathDistance),
     survival_time: nullableNonNegativeInteger(stats.timeSurvived),
-    isolation_index: nullableNonNegativeInteger(finalResult.isolationData?.isolationIndex),
+    isolation_index: nullableNonNegativeDecimal(finalResult.isolationData?.isolationIndex),
     min_dist: nullableNonNegativeInteger(finalResult.isolationData?.minDist),
     height_diff: nullableNonNegativeInteger(finalResult.isolationData?.heightDiff),
     smoke_rate: nullableRatioPercent(finalResult.tradeStats?.smokeRescues, teammateKnocks),

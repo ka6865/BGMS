@@ -79,7 +79,8 @@ describe('summary quality: precision and grounded conclusions', () => {
     raw.actionItems = [action];
     for (const ordered of [cards, [...cards].reverse()]) {
       const result = normalizeSummaryCardFinal(raw, ordered, options)!;
-      expect(result.final.actionItems).toEqual([action]);
+      // 모델 제안은 그대로 앞에 두고, 제안이 다루지 않은 보완점(백업 속도)에는 서버 점검을 덧붙인다.
+      expect(result.final.actionItems).toEqual([action, expect.objectContaining({ title: '백업 속도 점검' })]);
       expect(result.cacheable).toBe(true);
     }
   });
@@ -89,7 +90,9 @@ describe('summary quality: precision and grounded conclusions', () => {
     const valid = { icon: 'target', title: '연막 구출 점검', desc: '아군이 기절하면 연막으로 시야를 가릴 수 있는지 확인해 보십시오.' };
     raw.actionItems = [{ icon: 'target', title: '연막 구출', desc: '아군이 기절하면 무조건 연막을 던지세요.' }, valid];
     const result = normalizeSummaryCardFinal(raw, cards, options)!;
-    expect(result.final.actionItems).toEqual([valid]);
+    // 무조건 지시만 빠지고 유효한 제안은 남는다. 다루지 않은 보완점(백업 속도)에는 서버 점검이 붙는다.
+    expect(result.final.actionItems).toEqual([valid, expect.objectContaining({ title: '백업 속도 점검' })]);
+    expect(JSON.stringify(result.final.actionItems)).not.toContain('무조건');
     expect(result.cacheable).toBe(true);
     expect(result.usable).toBe(true);
     expect(result.rejectReasons).not.toContain('action_items');

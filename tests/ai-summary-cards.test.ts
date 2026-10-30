@@ -242,14 +242,21 @@ describe("ai summary v2 card catalog", () => {
     expect(parseSummaryCards(result?.final)).not.toBeNull();
   });
 
-  it.each(["signature", "signatureSub", "finalVerdict"])("removes top-level foreign-mode prose from a usable partial %s", field => {
+  // 칭호 설명과 종합 평가는 서버 문장으로 바뀌므로, 모델 원문의 다른 모드 이름은 결과를 막지 않는다.
+  // 칭호에만 다른 모드가 있으면 기본 칭호로 바꾸고 결과는 완료로 둔다(2026-10-30 top_level_mode 부분 완료 2건).
+  it.each([
+    ["signature", "AI 전술 분석"],
+    ["signatureSub", "전술가"],
+    ["finalVerdict", "전술가"],
+  ])("keeps a complete result when only discarded or replaced top-level prose names a foreign mode: %s", (field, expectedSignature) => {
     const cards = buildFixture();
     const result = normalizeSummaryCardFinal(providerFinal(cards, { [field]: "foreign-mode 설명" }), cards, {
       sanitizeText: text => text, hasUnsupportedMode: text => typeof text === "string" && text.includes("foreign-mode"),
     });
-    expect(result).toMatchObject({ cacheable: false, usable: true, final: { analysisStatus: "partial", signature: "AI 전술 분석", signatureSub: "검증된 경기 지표를 바탕으로 분석합니다." } });
-    expect(result?.rejectReasons).toContain("top_level_mode");
+    expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete", signature: expectedSignature, signatureSub: "관측된 경기 지표와 다음 경기의 점검 과제입니다." } });
+    expect(result?.rejectReasons).not.toContain("top_level_mode");
     expect(JSON.stringify(result?.final)).not.toContain("foreign-mode");
+    expect(parseSummaryCards(result?.final)).not.toBeNull();
   });
 
   it.each([
@@ -340,7 +347,8 @@ describe("ai summary v2 card catalog", () => {
     expect(fields?.rejectReasons).toEqual([`${cards[0].topicId}:fields`]);
 
     const mode = normalizeSummaryCardFinal(providerFinal(cards), cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => true });
-    expect(mode?.rejectReasons).toEqual(expect.arrayContaining(["top_level_mode", `${cards[0].topicId}:mode`]));
+    expect(mode?.rejectReasons).toEqual(expect.arrayContaining([`${cards[0].topicId}:mode`]));
+    expect(mode?.rejectReasons).not.toContain("top_level_mode");
   });
 
   it.each([undefined, "balanced", 0, false])("rejects an invalid conclusion %s without hiding server evidence", (winner) => {
@@ -844,12 +852,13 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: (value) => value.includes("foreign-mode") ? "안전한 목표" : value,
       hasUnsupportedMode: (value) => typeof value === "string" && value.includes("foreign-mode"),
     });
-    expect(rawForeignResult?.cacheable).toBe(false);
+    // 원문에 다른 모드가 있는 행동 제안은 그 항목만 빠지고 결과는 완료로 캐시한다.
+    expect(rawForeignResult?.cacheable).toBe(true);
     expect(rawForeignResult?.final.actionItems).toEqual([]);
     expect(rawForeignResult?.usable).toBe(true);
-    expect(rawForeignResult?.rejectReasons).toContain("top_level_mode");
-    expect(rawForeignResult?.final.signature).toBe("AI 전술 분석");
-    expect(rawForeignResult?.final.signatureSub).toBe("검증된 경기 지표를 바탕으로 분석합니다.");
+    expect(rawForeignResult?.rejectReasons).not.toContain("top_level_mode");
+    expect(rawForeignResult?.final.signature).toBe("전술가");
+    expect(JSON.stringify(rawForeignResult?.final)).not.toContain("foreign-mode");
   });
 
   it("omits sanitized foreign-mode or empty actions while keeping valid cards", () => {
@@ -861,6 +870,8 @@ describe("ai summary v2 card catalog", () => {
       });
       // 지워지거나 다른 모드가 섞인 행동 제안은 항목만 빼고 결과는 완료로 둔다.
       expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete", actionItems: [] } });
+      // 표시할 행동 제안이 없으면 종합 평가도 "아래 행동 제안"을 가리키지 않는다.
+      expect(result?.final.finalVerdict).not.toContain("아래 행동 제안");
       expect(result?.rejectReasons).not.toContain("action_items");
       expect(JSON.stringify(result?.final)).not.toContain("foreign-mode");
       expect(result?.final.cards.every(card => card.analysisStatus === "ready")).toBe(true);
@@ -954,5 +965,198 @@ describe("summary card presentation guards", () => {
     expect(result.cacheable).toBe(false);
     expect(result.rejectReasons).toContain("all_neutral");
     expect(result.final.signature).toBe("AI 전술 분석");
+  });
+});
+
+describe("isolation benchmark comparison", () => {
+  const isolationCards = (userValue: string, benchmarkValue: string) => buildSummaryCards({
+    topics: ["화력", "유틸리티 활용", "포지셔닝"],
+    context,
+    evidence: [
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "300", benchmarkValue: "300", sampleCount: 93 }),
+      evidence({ metricId: "utility_throws", label: "총 투척 횟수", unit: "회", userValue: "4회" }),
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue, benchmarkValue, sampleCount: 93 }),
+    ],
+  }).filter((card) => card.topicId === "positioning");
+  const allCards = (userValue: string, benchmarkValue: string) => buildSummaryCards({
+    topics: ["화력", "유틸리티 활용", "포지셔닝"],
+    context,
+    evidence: [
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "300", benchmarkValue: "300", sampleCount: 93 }),
+      evidence({ metricId: "utility_throws", label: "총 투척 횟수", unit: "회", userValue: "4회" }),
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue, benchmarkValue, sampleCount: 93 }),
+    ],
+  });
+  const normalize = (userValue: string, benchmarkValue: string, kindOpinion?: string) => {
+    const cards = allCards(userValue, benchmarkValue);
+    const issues = cards.map((card) => providerIssue(card, card.topicId === "positioning"
+      ? { kindOpinion: kindOpinion ?? buildSummaryCardComparisonText(card), winner: null }
+      : {}));
+    const result = normalizeSummaryCardFinal(providerFinal(cards, { debateIssues: issues }), cards,
+      { sanitizeText: (value) => value, hasUnsupportedMode: () => false });
+    return { result, positioning: result?.final.cards.find((card) => card.topicId === "positioning") };
+  };
+
+  it("marks a positioning card comparable and states the server relation", () => {
+    const cards = isolationCards("0.28", "1.09");
+    expect(cards[0]).toMatchObject({ dataStatus: "comparable", evidenceIds: ["ctx-v2:isolation_average"] });
+    expect(buildSummaryCardComparisonText(cards[0])).toBe("평균 고립 지수는 비교 평균보다 낮습니다.");
+    const { positioning } = normalize("0.28", "1.09");
+    expect(positioning?.reason).toContain("평균 고립 지수: 0.28, 비교 평균 1.09보다 약 74% 낮습니다.");
+    expect(positioning?.reason).not.toContain("비교 자료 없음");
+  });
+
+  it("accepts the copied server comparison", () => {
+    const { positioning } = normalize("0.28", "1.09");
+    expect(positioning?.analysisStatus).toBe("ready");
+  });
+
+  it.each([
+    ["0.28", "1.09", "평균 고립 지수는 비교 평균보다 높습니다."],
+    ["1.50", "1.09", "평균 고립 지수가 동일 티어 평균보다 낮아 대열이 안정적입니다."],
+    ["1.09", "1.09", "평균 고립 지수는 비교 평균보다 높습니다."],
+  ])("holds a contradicted isolation claim (user %s vs %s): %s", (userValue, benchmarkValue, text) => {
+    const { result, positioning } = normalize(userValue, benchmarkValue, text);
+    expect(result?.cacheable).toBe(false);
+    expect(positioning).toMatchObject({ analysisStatus: "unavailable", winner: null });
+  });
+
+  it("does not assign a favourable or unfavourable direction to isolation", () => {
+    const { result, positioning } = normalize("1.50", "1.09");
+    expect(positioning?.winner).toBeNull();
+    const actionItems = (result?.final.actionItems ?? []) as Array<{ desc: string }>;
+    expect(actionItems.some((item) => item.desc.includes("팀원과 함께 대응할 수 있는 거리인지"))).toBe(false);
+  });
+});
+
+describe("summary prose grounded in card evidence", () => {
+  // 2026-10-29 MiaeQ_Q 요약: 화력은 평균보다 높고, 고립 지수는 방향 없는 비교, 유틸리티는 사용 기록만 있다.
+  const miaeqCards = () => buildSummaryCards({
+    topics: ["포지셔닝", "화력", "유틸리티 활용"],
+    context,
+    evidence: [
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "0.27", benchmarkValue: "1.02", sampleCount: 101 }),
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "231.33", benchmarkValue: "220.10", sampleCount: 104 }),
+      evidence({ metricId: "utility_throws", label: "총 투척 횟수", unit: "회", userValue: "20회" }),
+    ],
+  });
+  const normalizeWith = (cards: SummaryCard[], overrides: Record<string, unknown> = {}, issueOverrides: Partial<Record<string, Record<string, unknown>>> = {}) =>
+    normalizeSummaryCardFinal(providerFinal(cards, {
+      debateIssues: cards.map((card) => providerIssue(card, { winner: null, ...(issueOverrides[card.topicId] ?? {}) })),
+      ...overrides,
+    }), cards, { sanitizeText: (value) => value, hasUnsupportedMode: () => false });
+
+  it.each([
+    "다음 교전에서는 명중률과 탄약 관리를 철저히 점검해 보세요.",
+    "다음 교전 전에 에임과 반동 제어를 점검해 보세요.",
+    "다음 경기에서 헤드샷 비율을 확인해 보세요.",
+  ])("replaces a spicy check about an unmeasured shooting metric with the server check: %s", (spicyOpinion) => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, {}, { firepower: { spicyOpinion } });
+    const firepower = result?.final.cards.find((card) => card.topicId === "firepower");
+    expect(firepower?.analysisStatus).toBe("ready");
+    expect(firepower?.spicyOpinion).not.toMatch(/명중률|탄약|에임|반동|헤드샷/u);
+    expect(JSON.stringify(result?.final)).not.toMatch(/명중률|탄약|에임|반동|헤드샷/u);
+  });
+
+  it("drops an action item about an unmeasured shooting metric", () => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, { actionItems: [
+      { icon: "target", title: "사격 점검", desc: "다음 교전에서 탄약 관리를 점검해 보세요." },
+      { icon: "target", title: "유틸리티 활용 점검", desc: "다음 교전 상황에서 투척물 사용 타이밍을 점검해 보세요." },
+    ] });
+    const actionItems = (result?.final.actionItems ?? []) as Array<{ title: string; desc: string }>;
+    expect(actionItems.map((item) => item.title)).toEqual(["유틸리티 활용 점검"]);
+  });
+
+  it("keeps neutral checks on a card without a weakness but drops weakness-premised ones", () => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, { actionItems: [
+      // 2026-10-29 23:30 MiaeQ_Q 실제 모델 제안(보완점 없는 카드의 점검)
+      { icon: "target", title: "거리 유지 점검", desc: "다음 경기에서 아군과의 거리가 적절하게 유지되는지 확인해 보세요." },
+      { icon: "target", title: "화력 보완", desc: "다음 교전에서 화력을 높일 방법을 점검해 보세요." },
+      { icon: "target", title: "유틸리티 활용 점검", desc: "다음 교전 상황에서 투척물 사용 타이밍을 점검해 보세요." },
+    ] });
+    const actionItems = (result?.final.actionItems ?? []) as Array<{ title: string }>;
+    expect(actionItems.map((item) => item.title)).toEqual(["거리 유지 점검", "유틸리티 활용 점검"]);
+  });
+
+  it("adds a maintenance check for the strongest metric when every provider action was dropped", () => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, { actionItems: [
+      { icon: "target", title: "화력 보완", desc: "다음 교전에서 화력을 높일 방법을 점검해 보세요." },
+    ] });
+    expect(result?.final.actionItems).toEqual([
+      { icon: "target", title: "평균 화력 유지 확인", desc: "다음 경기에서도 같은 기록이 이어지는지 확인해 보세요." },
+    ]);
+    expect(result?.final.finalVerdict).toContain("아래 행동 제안은 다음 경기의 점검 과제입니다.");
+  });
+
+  it("keeps an action item for a card whose comparison is unfavourable", () => {
+    const cards = buildSummaryCards({
+      topics: ["화력", "포지셔닝", "유틸리티 활용"],
+      context,
+      evidence: [
+        evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "435.67", benchmarkValue: "599.39", sampleCount: 94 }),
+        evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "0.28", benchmarkValue: "1.10", sampleCount: 93 }),
+        evidence({ metricId: "utility_throws", label: "총 투척 횟수", unit: "회", userValue: "23회" }),
+      ],
+    });
+    const result = normalizeWith(cards, { actionItems: [
+      { icon: "target", title: "화력 보완", desc: "다음 교전 전에 아군과 교전각을 맞추는 방식을 점검해 보세요." },
+    ] });
+    const actionItems = (result?.final.actionItems ?? []) as Array<{ title: string }>;
+    expect(actionItems.map((item) => item.title)).toEqual(["화력 보완"]);
+  });
+
+  it("keeps an action item that names no card topic", () => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, { actionItems: [
+      { icon: "target", title: "다음 경기 점검", desc: "다음 경기 종료 후 마지막 교전 상황을 돌아보세요." },
+    ] });
+    expect(((result?.final.actionItems ?? []) as unknown[]).length).toBe(1);
+  });
+});
+
+describe("action items cover cards with a weakness", () => {
+  // 2026-10-30 00:38 KangHeeSung_ 요약: 화력·생존 운영이 평균보다 불리하고 고립 지수는 방향 없는 비교.
+  const khsCards = () => buildSummaryCards({
+    topics: ["화력", "포지셔닝", "생존 운영"],
+    context,
+    evidence: [
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "435.67", benchmarkValue: "599.39", sampleCount: 94 }),
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "0.28", benchmarkValue: "1.10", sampleCount: 93 }),
+      evidence({ metricId: "death_phase", label: "평균 사망 페이즈", unit: "", userValue: "6.00", benchmarkValue: "6.35", sampleCount: 94 }),
+    ],
+  });
+  const run = (actionItems: unknown[]) => {
+    const cards = khsCards();
+    return normalizeSummaryCardFinal(providerFinal(cards, {
+      debateIssues: cards.map((card) => providerIssue(card, { winner: null })),
+      actionItems,
+    }), cards, { sanitizeText: (value) => value, hasUnsupportedMode: () => false });
+  };
+  const titles = (result: ReturnType<typeof run>) => ((result?.final.actionItems ?? []) as Array<{ title: string }>).map((item) => item.title);
+
+  it("adds server checks for weak cards the provider actions did not cover", () => {
+    const result = run([{ icon: "target", title: "교전 거리 점검", desc: "다음 교전에서 아군과의 위치와 지원 가능 거리를 확인해 보세요." }]);
+    expect(titles(result)).toEqual(["평균 화력 점검", "평균 사망 페이즈 점검", "교전 거리 점검"]);
+    expect(result?.final.finalVerdict).toContain("아래 행동 제안은 다음 경기의 점검 과제입니다.");
+  });
+
+  it("does not duplicate a weak card the provider already covers and keeps that action first", () => {
+    const result = run([
+      { icon: "target", title: "교전 거리 점검", desc: "다음 교전에서 아군과의 위치와 지원 가능 거리를 확인해 보세요." },
+      { icon: "target", title: "화력 보완", desc: "다음 교전 전에 아군과 교전각을 맞추는 방식을 점검해 보세요." },
+    ]);
+    expect(titles(result)).toEqual(["화력 보완", "평균 사망 페이즈 점검", "교전 거리 점검"]);
+  });
+
+  it("keeps at most three actions", () => {
+    const result = run([
+      { icon: "target", title: "교전 거리 점검", desc: "다음 교전에서 아군과의 위치와 지원 가능 거리를 확인해 보세요." },
+      { icon: "target", title: "대열 점검", desc: "다음 이동 경로에서 대열이 유지되는지 확인해 보세요." },
+    ]);
+    expect(titles(result)).toEqual(["평균 화력 점검", "평균 사망 페이즈 점검", "교전 거리 점검"]);
   });
 });

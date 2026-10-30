@@ -6888,7 +6888,7 @@ describe("AI cache route stabilization", () => {
       combatPressure: { pressureIndex: null, utilityStats: { throwCount: 10 } },
     });
     const telemetry = createQueryChain({ data: [complete, incomplete].map(fullResult => ({ match_id: fullResult.matchId, player_id: 'player_a', platform: 'kakao', data: { fullResult } })), error: null });
-    const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5, avg_initiative_rate: 0, avg_initiative_rate_count: 5, avg_duel_win_rate: 0, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 0, avg_solo_kill_rate_count: 5 }, error: null });
+    const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 30, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 30, avg_initiative_rate: 0, avg_initiative_rate_count: 30, avg_duel_win_rate: 0, avg_duel_win_rate_count: 30, avg_solo_kill_rate: 0, avg_solo_kill_rate_count: 30 }, error: null });
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: createQueryChain(), processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
     mockSummaryGeminiResponse();
     const response = await aiSummaryPOST(createRequest({ matchIds: [complete.matchId, incomplete.matchId], nickname: 'Player_A', platform: 'kakao', force: true, summaryContractVersion: 2 }));
