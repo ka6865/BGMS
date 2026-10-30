@@ -965,7 +965,7 @@ function cardEvaluation(card: SummaryCard): string {
     : "사용 기록은 확인되지만 같은 조건의 비교 자료가 없어 강점이나 약점을 판단하지 않습니다."}`;
 }
 
-function groundedVerdict(cards: SummaryCard[]): string {
+function groundedVerdict(cards: SummaryCard[], hasActionItems: boolean): string {
   // 강점과 보완점을 수치와 함께 나눠 쓴다. 비교 자료가 없는 지표는 판단하지 않는다.
   const ready = cards.filter(card => card.analysisStatus === "ready");
   const describe = (direction: boolean | null) => ready.flatMap(card => card.evidence
@@ -979,7 +979,9 @@ function groundedVerdict(cards: SummaryCard[]): string {
     neutral.length ? `비교: ${neutral.join("; ")}.` : "",
     !strengths.length && !weaknesses.length && !neutral.length ? "같은 조건의 비교 자료가 충분하지 않아 강점이나 약점을 판단하지 않습니다." : "",
     withheld.length ? `${withheld.join(", ")}: 해석을 보류했습니다.` : "",
-    "평균·비율만으로 원인이나 경기별 일관성을 판단하지 않습니다. 아래 행동 제안은 다음 경기의 점검 과제입니다.",
+    "평균·비율만으로 원인이나 경기별 일관성을 판단하지 않습니다.",
+    // 행동 제안이 없으면 화면 아래에 가리킬 대상이 없으므로 안내도 쓰지 않는다.
+    hasActionItems ? "아래 행동 제안은 다음 경기의 점검 과제입니다." : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -1195,7 +1197,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     && !UNSUPPORTED_SIGNATURE.test(providerSignature) && !hasUnsupportedSummaryInference(providerSignature) ? providerSignature : SAFE_SIGNATURE;
   safeSignatureSub = "관측된 경기 지표와 다음 경기의 점검 과제입니다.";
   // Include every card, independent of provider winners and card-local praise.
-  safeVerdict = groundedVerdict(finalCards);
+  safeVerdict = groundedVerdict(finalCards, normalizedActionItems.length > 0);
   if (finalCards.every((card) => card.dataStatus === "unavailable")) reject("all_unavailable");
   const usable = finalCards.some((card) => card.analysisStatus === "ready");
   if (!usable && cacheable) reject("all_unavailable");

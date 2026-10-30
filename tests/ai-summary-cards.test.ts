@@ -861,6 +861,8 @@ describe("ai summary v2 card catalog", () => {
       });
       // 지워지거나 다른 모드가 섞인 행동 제안은 항목만 빼고 결과는 완료로 둔다.
       expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete", actionItems: [] } });
+      // 표시할 행동 제안이 없으면 종합 평가도 "아래 행동 제안"을 가리키지 않는다.
+      expect(result?.final.finalVerdict).not.toContain("아래 행동 제안");
       expect(result?.rejectReasons).not.toContain("action_items");
       expect(JSON.stringify(result?.final)).not.toContain("foreign-mode");
       expect(result?.final.cards.every(card => card.analysisStatus === "ready")).toBe(true);
@@ -1078,6 +1080,7 @@ describe("summary prose grounded in card evidence", () => {
     expect(result?.final.actionItems).toEqual([
       { icon: "target", title: "평균 화력 유지 확인", desc: "다음 경기에서도 같은 기록이 이어지는지 확인해 보세요." },
     ]);
+    expect(result?.final.finalVerdict).toContain("아래 행동 제안은 다음 경기의 점검 과제입니다.");
   });
 
   it("keeps an action item for a card whose comparison is unfavourable", () => {
