@@ -42,9 +42,11 @@ function hideBrokenImage(event: React.SyntheticEvent<HTMLImageElement>) {
   event.currentTarget.hidden = true;
 }
 
-export default function LolSearchPanel({ initialRiotId, initialError, publicView = false, adminTools }: {
+export default function LolSearchPanel({ initialRiotId, initialError, publicView = false, adminTools, liveEnabled = false }: {
   publicView?: boolean;
   adminTools?: ReactNode;
+  // 진행 중인 게임 진입점. 공개 화면은 LOL_LIVE_ENABLED가 켜졌을 때만, 관리자 화면은 항상 넘긴다.
+  liveEnabled?: boolean;
   initialRiotId?: string;
   initialError?: string;
 } = {}) {
@@ -339,6 +341,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const visibleFailures = result?.matchFailures?.filter(failure => !["invalid_match", "restricted_match"].includes(failure.kind)) ?? [];
   const keyRenewal = result?.matchFailures?.some(failure => ["key_or_permission", "unconfigured"].includes(failure.kind));
   const summary = summaries?.[filter];
+  const liveHref = result && liveEnabled && ownRiotId ? `${lolRiotIdPath(ownRiotId, pageBase) ?? pageBase}/live` : null;
   const remainingCooldown = Math.max(Math.ceil((refreshAvailableAt - now) / 1000), 0);
   const lastUpdatedSeconds = result?.lastUpdatedAt
     ? Math.max(0, Math.floor((now - Date.parse(result.lastUpdatedAt)) / 1000))
@@ -467,6 +470,11 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                       ? `${lastUpdatedSeconds}초 전`
                       : `${Math.floor(lastUpdatedSeconds / 60)}분 전`}
                   </span>
+                )}
+                {liveHref && (
+                  <a href={liveHref} className="flex min-h-11 items-center rounded-lg border border-amber-700 px-3 text-xs font-semibold text-amber-200 hover:bg-amber-950/40">
+                    진행 중인 게임
+                  </a>
                 )}
                 <button
                   type="button"

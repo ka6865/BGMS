@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { requireLolPublicPage } from "@/lib/lol/publicAccess.server";
+import { isLolLiveEnabled } from "@/lib/lol/liveGame";
 import { LOL_RIOT_ID_ERROR, parseLolRiotIdParam } from "@/lib/lol/riotId";
 import LolSearchPanel from "@/components/lol/LolSearchPanel";
 
@@ -21,5 +22,5 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function LolRiotIdPage({ params }: Props): Promise<React.ReactNode> {
   requireLolPublicPage();
   const riotId = await resolveRiotId(params);
-  return <LolSearchPanel publicView initialRiotId={riotId ?? undefined} initialError={riotId ? undefined : LOL_RIOT_ID_ERROR} />;
+  return <LolSearchPanel publicView liveEnabled={isLolLiveEnabled()} initialRiotId={riotId ?? undefined} initialError={riotId ? undefined : LOL_RIOT_ID_ERROR} />;
 }
