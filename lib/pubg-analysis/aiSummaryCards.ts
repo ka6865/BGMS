@@ -610,10 +610,31 @@ function isNeutralText(value: string): boolean {
   return !remaining.trim();
 }
 
+// 고립 지수는 유리·불리 방향을 정하지 않으므로 서버 문장 검사(validateBenchmarkDirection)가
+// 다루지 않는다. 비교 평균보다 "높다/낮다"고 쓴 문장만 실제 수치와 맞는지 확인한다.
+function hasContradictedIsolationClaim(text: string, row: SummaryEvidence): boolean {
+  const user = evidenceNumericValue(row, "user");
+  const benchmark = evidenceNumericValue(row, "benchmark");
+  if (user === null || benchmark === null) return false;
+  const equal = Math.abs(user - benchmark) <= 1e-9 || isDisplayedEqual(row);
+  for (const sentence of text.split(/(?<=[.!?。！？])\s+|\n+/u)) {
+    if (!/고립\s*지수/u.test(sentence) || !/(?:비교\s*평균|평균보다|평균\s*대비|동일\s*티어)/u.test(sentence)) continue;
+    const claimsHigher = /(?:높(?:습니다|다|아|고|게|은)|상회|초과)/u.test(sentence);
+    const claimsLower = /(?:낮(?:습니다|다|아|고|게|은)|하회|미만)/u.test(sentence);
+    if (claimsHigher === claimsLower) continue;
+    if (equal || (claimsHigher ? user <= benchmark : user >= benchmark)) return true;
+  }
+  return false;
+}
+
 function hasUnsupportedCardConclusion(text: string, card: Pick<SummaryCard, "topicId" | "context" | "evidence">): boolean {
   // A card's match population is server-owned, just like its metric values.
   const populations = Array.from(text.matchAll(/최근\s*(\d+)\s*(?:개\s*)?(?:판|경기)/gu));
   if (populations.some((match) => Number(match[1]) !== card.context.userMatchCount)) return true;
+  if (card.topicId === "positioning") {
+    const comparable = card.evidence.find((row) => row.metricId === "isolation_average" && row.status === "comparable");
+    if (comparable && hasContradictedIsolationClaim(text, comparable)) return true;
+  }
   if (card.topicId === "positioning"
     && !card.evidence.some((row) => row.metricId === "isolation_average" && row.status === "comparable")) {
     for (const sentence of text.split(/(?<=[.!?。！？])\s+|\n+/u)) {
@@ -877,6 +898,44 @@ function metricCheck(card: SummaryCard): string {
   return weak ? METRIC_CHECKS[weak.metricId] : cardCheck(card.topicId);
 }
 
+// 행동 제안 문장이 다루는 카드 주제. 상대 위치·경로처럼 여러 주제에 흔한 말은 넣지 않는다.
+const ACTION_TOPIC_PATTERNS: Readonly<Record<SummaryTopicId, RegExp>> = {
+  firepower: /화력|딜량|피해량|교전각|사격각/u,
+  initiative: /선제|주도권|먼저\s*사격/u,
+  duel: /1\s*[:：]\s*1|일대일|교전\s*승률/u,
+  trade_backup: /복수|백업|합류/u,
+  utility: /투척|연막|수류탄|유틸/u,
+  positioning: /(?:아군|팀원)(?:과|와)?(?:의)?\s*(?:위치|거리)|대열|고립|포지션|이동\s*경로/u,
+  survival: /생존|자기장|사망\s*페이즈/u,
+};
+
+function actionItemTopics(text: string): SummaryTopicId[] {
+  return (Object.keys(ACTION_TOPIC_PATTERNS) as SummaryTopicId[]).filter((topicId) => ACTION_TOPIC_PATTERNS[topicId].test(text));
+}
+
+// 행동 제안을 둘 근거가 있는 주제인지. 비교 카드는 평균보다 불리한 지표가 있을 때만, 사용 기록 카드는 점검 대상이다.
+// 이번 요약에 없는 주제는 판단하지 않고 유지한다.
+function isActionableTopic(readyCards: readonly SummaryCard[], topicId: SummaryTopicId): boolean {
+  const card = readyCards.find((candidate) => candidate.topicId === topicId);
+  if (!card) return true;
+  return card.dataStatus !== "comparable" || card.evidence.some((row) => isUnfavorable(row) === true);
+}
+
+// 약점을 전제한 제안 표현. 보완점이 없는 카드에는 쓰지 않는다.
+const WEAKNESS_PREMISE = /보완|개선|부족|약점|향상|강화|끌어올|높(?:이(?:세요|기|고|려|도록|는|십시오)|일|여야|여\s)|늘(?:리|릴|려)|줄(?:이|일|여)|더\s*(?:적극|많이|빠르|자주)/u;
+const MAINTENANCE_CHECK = "다음 경기에서도 같은 기록이 이어지는지 확인해 보세요.";
+
+// 비교 평균보다 유리한 지표 중 차이가 가장 큰 지표(비율은 %p, 그 밖은 상대 차이).
+function strongestMetric(cards: readonly SummaryCard[]): SummaryEvidence | null {
+  const strong = cards.flatMap(card => card.evidence.filter(row => isUnfavorable(row) === false));
+  if (!strong.length) return null;
+  const gap = (row: SummaryEvidence) => {
+    const user = evidenceNumericValue(row, "user") ?? 0, benchmark = evidenceNumericValue(row, "benchmark") ?? 0;
+    return row.unit === "%" ? Math.abs(user - benchmark) : benchmark > 0 ? Math.abs(user - benchmark) / benchmark * 100 : 0;
+  };
+  return strong.reduce((a, b) => gap(b) > gap(a) ? b : a);
+}
+
 function serverWinner(card: SummaryCard): SummaryCard["winner"] {
   const directions = card.evidence.map(isUnfavorable).filter((value): value is boolean => value !== null);
   if (!directions.length) return null;
@@ -906,7 +965,7 @@ function cardEvaluation(card: SummaryCard): string {
     : "사용 기록은 확인되지만 같은 조건의 비교 자료가 없어 강점이나 약점을 판단하지 않습니다."}`;
 }
 
-function groundedVerdict(cards: SummaryCard[]): string {
+function groundedVerdict(cards: SummaryCard[], hasActionItems: boolean): string {
   // 강점과 보완점을 수치와 함께 나눠 쓴다. 비교 자료가 없는 지표는 판단하지 않는다.
   const ready = cards.filter(card => card.analysisStatus === "ready");
   const describe = (direction: boolean | null) => ready.flatMap(card => card.evidence
@@ -920,7 +979,9 @@ function groundedVerdict(cards: SummaryCard[]): string {
     neutral.length ? `비교: ${neutral.join("; ")}.` : "",
     !strengths.length && !weaknesses.length && !neutral.length ? "같은 조건의 비교 자료가 충분하지 않아 강점이나 약점을 판단하지 않습니다." : "",
     withheld.length ? `${withheld.join(", ")}: 해석을 보류했습니다.` : "",
-    "평균·비율만으로 원인이나 경기별 일관성을 판단하지 않습니다. 아래 행동 제안은 다음 경기의 점검 과제입니다.",
+    "평균·비율만으로 원인이나 경기별 일관성을 판단하지 않습니다.",
+    // 행동 제안이 없으면 화면 아래에 가리킬 대상이 없으므로 안내도 쓰지 않는다.
+    hasActionItems ? "아래 행동 제안은 다음 경기의 점검 과제입니다." : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -979,22 +1040,14 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   // final, whereas bad members inside an array are handled per card below.
   if (Array.from(providerByTopic.values()).some((issue) => !Array.isArray(issue.evidenceIds))) return malformed("evidence_ids");
 
-  let globalModeRejected = false;
+  // 다른 모드 이름 검사는 최종 결과에 남는 모델 문장만 본다. 칭호 설명과 종합 평가는 서버 문장으로
+  // 바꾸므로 검사하지 않는다(버릴 문장 때문에 결과 전체를 부분 완료로 만들지 않는다). 행동 제안은
+  // safeActionItems가 항목 단위로 빼고, 칭호에 다른 모드가 있으면 기본 칭호만 쓴다.
+  let signatureModeRejected = false;
   try {
-    // A foreign-mode sentence in one card invalidates that card's
-    // interpretation.  Keep unrelated cards usable; top-level prose has no
-    // card owner, so it only makes the final non-cacheable.
-    const topLevelProse = [signature, signatureSub, finalVerdict, safeSignature, safeSignatureSub, safeVerdict,
-      ...(input.actionItems as unknown[]).flatMap((item) => isRecord(item) ? [item.title, item.desc] : [])];
-    globalModeRejected = topLevelProse.some((text) => options.hasUnsupportedMode(text));
+    signatureModeRejected = [signature, safeSignature].some((text) => options.hasUnsupportedMode(text));
   } catch {
-    globalModeRejected = true;
-  }
-  if (globalModeRejected) {
-    reject("top_level_mode");
-    safeSignature = SAFE_SIGNATURE;
-    safeSignatureSub = SAFE_SIGNATURE_SUB;
-    safeVerdict = SAFE_VERDICT;
+    signatureModeRejected = true;
   }
 
   let neutralCards = 0;
@@ -1112,21 +1165,43 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   if (readyCards.length > 0 && neutralCards >= readyCards.length) reject("all_neutral");
   const providerActionItems = readyCards.length === 0 ? [] : actionItems.items.flatMap((item) => {
     const desc = conditionalCheckText(item.desc);
-    return desc && !/\d/u.test(item.title) ? [{ ...item, desc }] : [];
+    if (!desc || /\d/u.test(item.title)) return [];
+    // 비교 결과 보완점이 없는 카드(모두 평균 이상이거나 방향이 없는 지표뿐)만 다루는 제안은
+    // 약점을 전제한 표현(보완·높이기·줄이기 등)일 때만 뺀다. "유지되는지 확인"처럼 점검만 하는
+    // 제안은 남긴다. 다른 카드 주제도 함께 다루면 그대로 유지한다.
+    const text = `${item.title} ${desc}`;
+    const topics = actionItemTopics(text);
+    if (topics.length > 0 && topics.every((topicId) => !isActionableTopic(readyCards, topicId)) && WEAKNESS_PREMISE.test(text)) return [];
+    return [{ ...item, desc }];
   });
   const serverActionItems = readyCards
     .map(card => weakestMetric(card))
     .filter((row): row is SummaryEvidence => row !== null)
     .map(row => ({ icon: "target", title: `${row.label} 점검`, desc: METRIC_CHECKS[row.metricId] }));
-  const normalizedActionItems = (providerActionItems.length ? providerActionItems : serverActionItems).slice(0, 3);
+  // 보완점도 남은 모델 제안도 없으면 가장 앞선 강점 지표의 유지 확인을 하나 둔다.
+  const strongest = serverActionItems.length === 0 ? strongestMetric(readyCards) : null;
+  if (strongest) serverActionItems.push({ icon: "target", title: `${strongest.label} 유지 확인`, desc: MAINTENANCE_CHECK });
+  // 모델 제안이 보완점 카드를 다루지 않으면 그 카드의 서버 점검을 함께 둔다.
+  // 순서: 보완점 카드를 다루는 모델 제안 → 다루지 않은 보완점의 서버 점검 → 나머지 모델 제안.
+  const weakCards = readyCards.filter(card => weakestMetric(card) !== null);
+  const coversWeakCard = (item: { title: string; desc: string }) => actionItemTopics(`${item.title} ${item.desc}`)
+    .some(topicId => weakCards.some(card => card.topicId === topicId));
+  const coveredTopics = new Set(providerActionItems.flatMap(item => actionItemTopics(`${item.title} ${item.desc}`)));
+  const uncoveredWeakItems = weakCards
+    .filter(card => !coveredTopics.has(card.topicId))
+    .map(card => weakestMetric(card) as SummaryEvidence)
+    .map(row => ({ icon: "target", title: `${row.label} 점검`, desc: METRIC_CHECKS[row.metricId] }));
+  const normalizedActionItems = (providerActionItems.length
+    ? [...providerActionItems.filter(coversWeakCard), ...uncoveredWeakItems, ...providerActionItems.filter(item => !coversWeakCard(item))]
+    : serverActionItems).slice(0, 3);
   const finalCards = normalizedCards.map(cloneCard);
   // 칭호는 숫자·인성·측정하지 않은 능력 없이 짧을 때만 모델 표현을 쓴다.
   const providerSignature = normalizedSignature.value.trim();
-  safeSignature = !globalModeRejected && !normalizedSignature.changed && providerSignature.length > 0 && providerSignature.length <= 16
+  safeSignature = !signatureModeRejected && !normalizedSignature.changed && providerSignature.length > 0 && providerSignature.length <= 16
     && !UNSUPPORTED_SIGNATURE.test(providerSignature) && !hasUnsupportedSummaryInference(providerSignature) ? providerSignature : SAFE_SIGNATURE;
   safeSignatureSub = "관측된 경기 지표와 다음 경기의 점검 과제입니다.";
   // Include every card, independent of provider winners and card-local praise.
-  safeVerdict = groundedVerdict(finalCards);
+  safeVerdict = groundedVerdict(finalCards, normalizedActionItems.length > 0);
   if (finalCards.every((card) => card.dataStatus === "unavailable")) reject("all_unavailable");
   const usable = finalCards.some((card) => card.analysisStatus === "ready");
   if (!usable && cacheable) reject("all_unavailable");

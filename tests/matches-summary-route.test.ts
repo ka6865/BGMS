@@ -322,6 +322,18 @@ describe("matches-summary raw timestamp fallback", () => {
     expect(body.ingestedMatchIds).toEqual(['processed-only']);
   });
 
+  it.each([["에란겔", "Baltic_Main"], ["론도", "Neon_Main"], ["Tiger_Main", "Tiger_Main"], ["PillarCompound_Main", "PillarCompound_Main"]])(
+    "stores the map ID when repairing a history row from an analysis whose mapName is %s",
+    async (mapName, expected) => {
+      // 분석 결과의 mapName은 한글 표시명이다(2026-10-29 운영 6행이 한글 맵 이름으로 저장됨).
+      database.rows.processed_match_telemetry = [{ match_id: 'processed-match', player_id: 'fixtureplayer', platform: 'steam', data: { fullResult: {
+        v: RESULT_VERSION, createdAt: '2026-10-03T00:00:00Z', gameMode: 'squad-fpp', matchType: 'competitive', mapName,
+        stats: { name: 'FixturePlayer', kills: 2, damageDealt: 180, winPlace: 4, DBNOs: 1, timeSurvived: 900 } } } }];
+      await POST(request(['processed-match']));
+      expect(database.writes).toEqual([expect.objectContaining({ table: 'pubg_player_matches', rows: [expect.objectContaining({ map_name: expected })] })]);
+    },
+  );
+
   it('does not silently complete collection when repairing a basic row fails', async () => {
     database.errors['pubg_player_matches:write'] = { message: 'write unavailable' };
     const response = await POST(request());

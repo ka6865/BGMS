@@ -10,7 +10,7 @@ describe('server summary card evidence', () => {
     expect(rows.find(row => row.metricId === 'utility_smokes')?.userValue).toBe('8회');
     expect(rows.find(row => row.metricId === 'utility_lethal_throws')?.userValue).toBe('8회');
     expect(rows.find(row => row.metricId === 'smoke_rescue_attempts')?.userValue).toBe('1회');
-    expect(rows.find(row => row.metricId === 'smoke_opportunity_rate')).toMatchObject({ userValue: '0%', benchmarkValue: '5.6%', numerator: 0, denominator: 3, sampleCount: 36 });
+    expect(rows.find(row => row.metricId === 'smoke_opportunity_rate')).toMatchObject({ userValue: '0.0%', benchmarkValue: '5.6%', numerator: 0, denominator: 3, sampleCount: 36 });
     expect(buildSummaryCardEvidence({}, null).find(row => row.metricId === 'utility_smokes')?.userValue).toBeNull();
   });
   it('distinguishes missing, partial, and observed zero opportunity records', () => {
@@ -53,6 +53,30 @@ describe('server summary card evidence', () => {
     const rows = buildSummaryCardEvidence(stats, { sampleCount: 40, avgDamage: 0, avgInitiativeRate: 61.2647058823529, metricSampleCounts: { avgDamage: 30, avgInitiativeRate: 30 } });
     expect(rows.find(row => row.metricId === 'damage_average')?.benchmarkValue).toBe('0');
     expect(rows.find(row => row.metricId === 'initiative_rate')).toMatchObject({ benchmarkValue: '61.3%', sampleCount: 30 });
+  });
+  it('compares isolation with its observed benchmark instead of reporting missing data', () => {
+    const rows = buildSummaryCardEvidence({
+      ...stats, avgIsolationStr: '0.3', rawMetricValues: { isolation_average: 0.28447955778055906 }, metricMatchCounts: { isolation_average: 3 },
+    }, { sampleCount: 94, avgIsolationIndex: 1.09429400386847, metricSampleCounts: { avgIsolationIndex: 93 } });
+    const isolation = rows.find(row => row.metricId === 'isolation_average');
+    expect(isolation).toMatchObject({ userValue: '0.28', benchmarkValue: '1.09', sampleCount: 93, userMatchCount: 3 });
+    expect(isolation).not.toHaveProperty('unavailableReason');
+    const small = buildSummaryCardEvidence({ ...stats, avgIsolationStr: '0.3' }, { sampleCount: 94, avgIsolationIndex: 1.09, metricSampleCounts: { avgIsolationIndex: 29 } })
+      .find(row => row.metricId === 'isolation_average');
+    expect(small).toMatchObject({ benchmarkValue: null, unavailableReason: '비교 표본이 30경기 미만이라 비교하지 않습니다.' });
+  });
+  it('shows the user value and benchmark with the same decimal places', () => {
+    const isolation = buildSummaryCardEvidence({ ...stats, avgIsolationStr: '0.3', rawMetricValues: { isolation_average: 0.28447955778055906 } },
+      { sampleCount: 94, avgIsolationIndex: 1.0967741935483886, metricSampleCounts: { avgIsolationIndex: 93 } })
+      .find(row => row.metricId === 'isolation_average');
+    expect(isolation).toMatchObject({ userValue: '0.28', benchmarkValue: '1.10' });
+    const trade = buildSummaryCardEvidence({ ...stats, totalTradeKills: 1, totalTeammateKnocks: 4 },
+      { sampleCount: 40, avgTradeRate: 14.3, metricSampleCounts: { avgTradeRate: 30 } })
+      .find(row => row.metricId === 'trade_success_rate');
+    expect(trade).toMatchObject({ userValue: '25.0%', benchmarkValue: '14.3%' });
+    const userOnly = buildSummaryCardEvidence({ ...stats, totalTradeKills: 1, totalTeammateKnocks: 4 }, null)
+      .find(row => row.metricId === 'trade_success_rate');
+    expect(userOnly?.userValue).toBe('25%');
   });
   it('keeps a benchmark under the comparison sample threshold user-only with a reason', () => {
     const rows = buildSummaryCardEvidence(stats, { sampleCount: 40, avgDamage: 300, metricSampleCounts: { avgDamage: 29 } });

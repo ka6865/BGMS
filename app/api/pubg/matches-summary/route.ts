@@ -1,5 +1,6 @@
 import { readPerformanceCache, readPerformanceStates } from "@/lib/pubg/performanceCache";
 import { readRetainedPerformance } from "@/lib/pubg/retainedPerformance";
+import { toBattleRoyaleMapId } from "@/lib/stats/mapDisplayName";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
@@ -102,7 +103,8 @@ export async function POST(request: NextRequest) {
         summary.matchId = matchId;
         summaries[matchId] = summary;
         cachedRecords.set(matchId, {
-          created_at: summary.createdAt, game_mode: summary.gameMode, map_name: summary.mapName,
+          // 경기 기록에는 맵 ID를 저장한다. 분석 요약의 mapName은 한글 표시명이라 되돌린다.
+          created_at: summary.createdAt, game_mode: summary.gameMode, map_name: toBattleRoyaleMapId(summary.mapName) ?? summary.mapName,
           match_type: summary.matchType, kills: fullResult.stats?.kills, damage: fullResult.stats?.damageDealt,
           win_place: fullResult.stats?.winPlace, knocks: fullResult.stats?.DBNOs,
           survival_time: fullResult.stats?.timeSurvived, account_id: fullResult.stats?.playerId,

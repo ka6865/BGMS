@@ -7,6 +7,7 @@ import { getNextTierInfo } from "@/lib/pubg-analysis/benchmarkScore";
 import { IsolationRadar } from "./IsolationRadar";
 import { SpiderChart } from "./SpiderChart";
 import { MapKingCard } from "./MapKingCard";
+import { SummaryActionItems, visibleSummaryActionItems, type SummaryActionItem } from "./SummaryActionItems";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
 import { supabase } from "@/lib/supabase";
@@ -38,11 +39,7 @@ interface DebateIssue {
   benchmarkStats: DebateStat[];
 }
 
-interface ActionItem {
-  icon: string;
-  title: string;
-  desc: string;
-}
+type ActionItem = SummaryActionItem;
 
 // 서버가 계산한 확정 칭호의 횟수형 근거량. thin이면 칭호를 관측 성향으로 설명한다.
 interface RoleEvidenceAmountView {
@@ -1262,6 +1259,7 @@ export const RecentAISummary = ({
   }, [identity]);
 
   const partialSummary = debateData?.analysisStatus === "partial";
+  const visibleActionItems = visibleSummaryActionItems(debateData?.actionItems);
   const summaryVerdict = typeof debateData?.finalVerdict === "string"
     ? debateData.finalVerdict.trim()
     : "";
@@ -1689,6 +1687,9 @@ export const RecentAISummary = ({
               )}
             </button>
           </div>
+
+          {/* 종합 평가가 가리키는 다음 경기 점검 과제. 서버가 보완점·강점 근거로 정리한 항목만 온다. */}
+          {!loading && <SummaryActionItems items={visibleActionItems} />}
         </div>
       </div>
 
