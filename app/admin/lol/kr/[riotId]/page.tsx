@@ -22,5 +22,5 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function LolRiotIdPage({ params }: Props): Promise<React.ReactNode> {
   await requireLolDevPageAdmin();
   const riotId = await resolveRiotId(params);
-  return <LolSearchPanel adminTools={<LolOpsPanel />} initialRiotId={riotId ?? undefined} initialError={riotId ? undefined : LOL_RIOT_ID_ERROR} />;
+  return <LolSearchPanel adminTools={<LolOpsPanel />} liveEnabled initialRiotId={riotId ?? undefined} initialError={riotId ? undefined : LOL_RIOT_ID_ERROR} />;
 }

@@ -61,7 +61,7 @@ type RiotQueueEntry = {
   losses: number;
 };
 
-type RiotEndpoint = "account" | "summoner" | "league" | "mastery" | "challenges" | "match_ids" | "match" | "status";
+type RiotEndpoint = "account" | "summoner" | "league" | "mastery" | "challenges" | "match_ids" | "match" | "status" | "spectator";
 type RiotFailureStage =
   | "configuration"
   | "queue"
@@ -186,6 +186,7 @@ function getRiotEndpoint(path: string): RiotEndpoint {
   if (path.startsWith("/lol/summoner/v4/")) return "summoner";
   if (path.startsWith("/lol/league/v4/")) return "league";
   if (path === "/lol/status/v4/platform-data") return "status";
+  if (path.startsWith("/lol/spectator/v5/")) return "spectator";
   if (path.startsWith("/lol/champion-mastery/v4/")) return "mastery";
   if (path.startsWith("/lol/challenges/v1/")) return "challenges";
   if (path.includes("/matches/by-puuid/")) return "match_ids";
@@ -624,7 +625,7 @@ export async function requestJson<T>(
   }
 }
 
-function parseRiotId(
+export function parseRiotId(
   input: unknown,
 ): { gameName: string; tagLine: string } | null {
   if (
