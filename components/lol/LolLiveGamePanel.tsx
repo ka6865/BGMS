@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowLeft, Ban, Bot, Clock, EyeOff, Radio, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { LOL_STAT_DEFAULT_TIER_FILTER, LOL_STAT_MIN_GAMES, LOL_STAT_TIER_FILTERS, LOL_STAT_TIER_LABELS, type LolStatTierFilterId } from "@/lib/lol/championStats";
 import {
@@ -53,25 +54,60 @@ function championText(stat: LolLiveChampionStat): string {
   }
 }
 
-function ParticipantRow({ item }: { item: LolLiveParticipantView }) {
-  const rank = rankText(item.rank);
+const TEAM_STYLE: Record<number, { accent: string; ring: string; soft: string }> = {
+  100: { accent: "text-sky-300", ring: "ring-sky-500/60", soft: "from-sky-500/15" },
+  200: { accent: "text-rose-300", ring: "ring-rose-500/60", soft: "from-rose-500/15" },
+};
+
+// 승패를 숫자와 막대로 함께 보여 준다. 막대는 장식이므로 읽기 도구에는 숫자만 전달한다.
+function WinBar({ wins, losses, rate }: { wins: number; losses: number; rate: number | null }) {
+  return <span className="flex min-w-0 items-center gap-2 text-xs tabular-nums text-zinc-400">
+    <span aria-hidden="true" className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-rose-500/35">
+      <span className="block h-full rounded-full bg-sky-400" style={{ width: `${Math.round((rate ?? 0) * 100)}%` }} />
+    </span>
+    <span className="truncate">{wins}승 {losses}패 <span className={(rate ?? 0) >= 0.55 ? "font-semibold text-sky-300" : ""}>{pct(rate)}</span></span>
+  </span>;
+}
+
+function RankLine({ rank }: { rank: LolLiveRank }) {
+  if (rank.status !== "ranked") {
+    const { text, tone } = rankText(rank);
+    return <p className={`text-xs ${tone === "warn" ? "text-amber-300" : "text-zinc-500"}`}>{text}</p>;
+  }
+  return <div className="min-w-0">
+    <p className="flex min-w-0 items-center gap-1 text-xs font-semibold text-zinc-200">
+      <img src={`/lol/ranked-emblems/${rank.tier.toLowerCase()}.webp`} alt="" width={20} height={20} loading="lazy" onError={hideBrokenImage} className="size-5 shrink-0 object-contain" />
+      <span className="truncate">{TIER_LABEL[rank.tier] ?? rank.tier}{rank.rank ? ` ${rank.rank}` : ""}, {rank.leaguePoints.toLocaleString()} LP</span>
+    </p>
+    <WinBar wins={rank.wins} losses={rank.losses} rate={rank.winRate} />
+  </div>;
+}
+
+function ParticipantRow({ item, teamId }: { item: LolLiveParticipantView; teamId: number }) {
+  const hidden = item.identity.status !== "visible";
   const name = item.identity.status === "visible" ? item.identity.riotId : item.identity.status === "bot" ? "봇" : "비공개 참가자";
+  const style = TEAM_STYLE[teamId] ?? TEAM_STYLE[100];
   return (
-    <li className="flex min-w-0 items-center gap-3 border-t border-zinc-800 py-3 first:border-t-0">
-      <Icon src={item.championIconUrl} label={item.championName ?? "챔피언"} size={44} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{item.championName ?? `챔피언 #${item.championId}`}</p>
-        <p className="break-all text-xs text-zinc-300">{name}</p>
-        <p className={`text-xs ${rank.tone === "warn" ? "text-amber-300" : rank.tone === "muted" ? "text-zinc-500" : "text-zinc-400"}`}>
-          {rank.text}
+    <li className="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)_auto] items-start gap-3 border-t border-zinc-800/80 py-3 first:border-t-0">
+      <span className={`relative block size-14 overflow-hidden rounded-lg ring-2 ${style.ring}`}>
+        {item.championIconUrl
+          ? <img src={item.championIconUrl} alt={item.championName ?? "챔피언"} width={56} height={56} loading="lazy" referrerPolicy="no-referrer" onError={hideBrokenImage} className="size-full object-cover" />
+          : <span aria-hidden="true" className="block size-full bg-zinc-800" />}
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-bold">{item.championName ?? `챔피언 #${item.championId}`}</p>
+        <p className={`flex min-w-0 items-center gap-1 text-xs ${hidden ? "text-zinc-500" : "text-zinc-300"}`}>
+          {item.identity.status === "bot" ? <Bot aria-hidden="true" className="size-3.5 shrink-0" /> : hidden && <EyeOff aria-hidden="true" className="size-3.5 shrink-0" />}
+          <span className="truncate">{name}</span>
         </p>
-        <p className="text-xs text-zinc-500">{championText(item.champion)}</p>
-      </div>
-      <div className="flex shrink-0 flex-col items-center gap-1">
-        <div className="flex gap-1">
-          {item.spells.map((spell, index) => <Icon key={index} src={spell.iconUrl} label={spell.name ?? "소환사 주문"} size={22} />)}
+        <div className="mt-1 space-y-0.5">
+          <RankLine rank={item.rank} />
+          <p className="text-xs text-zinc-500">{championText(item.champion)}</p>
         </div>
-        <Icon src={item.keystone?.iconUrl ?? null} label={item.keystone?.name ?? "핵심 룬"} size={22} />
+      </div>
+      <div className="grid shrink-0 grid-cols-2 gap-1">
+        {item.spells.map((spell, index) => <Icon key={index} src={spell.iconUrl} label={spell.name ?? "소환사 주문"} size={22} />)}
+        <span className="col-span-2 flex justify-center"><Icon src={item.keystone?.iconUrl ?? null} label={item.keystone?.name ?? "핵심 룬"} size={24} /></span>
       </div>
     </li>
   );
@@ -147,11 +183,11 @@ export default function LolLiveGamePanel({ apiBase, backHref, initialRiotId, ini
     <main className="h-full min-h-0 overflow-y-auto bg-zinc-950 px-4 py-5 text-zinc-100 sm:px-6">
       <div className="mx-auto w-full max-w-5xl pb-8">
         <a href={backHref} className="inline-flex min-h-11 items-center text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline">
-          ← 전적으로 돌아가기
+          <ArrowLeft aria-hidden="true" className="mr-1 size-4" />전적으로 돌아가기
         </a>
         <header className="mb-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-400">{publicView ? "BGMS · KR" : "관리자 전용 · KR"}</p>
-          <h1 className="mt-1 text-xl font-bold sm:text-2xl">진행 중인 게임</h1>
+          {!publicView && <p className="text-xs font-semibold text-amber-400">관리자 전용</p>}
+          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold sm:text-2xl"><Radio aria-hidden="true" className="size-5 text-rose-400" />진행 중인 게임</h1>
           {shownId && <p className="mt-1 break-all text-sm text-zinc-400">{shownId}</p>}
         </header>
 
@@ -165,8 +201,8 @@ export default function LolLiveGamePanel({ apiBase, backHref, initialRiotId, ini
               </select>
             </label>
             <button type="button" disabled={loading} onClick={() => setRefreshKey(current => current + 1)}
-              className="min-h-11 rounded-lg border border-zinc-700 px-4 text-sm font-semibold text-zinc-200 disabled:opacity-50">
-              {loading ? "확인 중…" : "다시 조회"}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-zinc-700 px-4 text-sm font-semibold text-zinc-200 disabled:opacity-50">
+              <RefreshCw aria-hidden="true" className={`size-4 ${loading ? "animate-spin motion-reduce:animate-none" : ""}`} />{loading ? "확인 중…" : "다시 조회"}
             </button>
           </div>
         )}
@@ -198,9 +234,9 @@ export default function LolLiveGamePanel({ apiBase, backHref, initialRiotId, ini
 
         {ready && !loading && (
           <section aria-label="진행 중인 경기" className="space-y-4">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm">
-              <p className="font-semibold">{ready.queue.label ?? `큐 ${ready.queue.id}`}</p>
-              {elapsed && <p className="text-zinc-400">조회 시점 경과 {elapsed}</p>}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <p className="font-bold">{ready.queue.label ?? `큐 ${ready.queue.id}`}</p>
+              {elapsed && <p className="flex items-center gap-1 tabular-nums text-zinc-300"><Clock aria-hidden="true" className="size-4 text-zinc-500" />조회 시점 {elapsed}</p>}
               <p className="text-xs text-zinc-500">챔피언 통계: {ready.championStats.status === "ok"
                 ? `${ready.championStats.patch} 패치 · ${ready.championStats.tierLabel} · 솔로 랭크 ${ready.championStats.matches.toLocaleString()}경기 표본`
                 : ready.championStats.status === "unavailable" ? "불러오지 못함"
@@ -217,28 +253,24 @@ export default function LolLiveGamePanel({ apiBase, backHref, initialRiotId, ini
               {ready.championStats.tierLabel} 기준 BGMS 익명 집계입니다. {LOL_STAT_MIN_GAMES}판 미만 챔피언은 승률 대신 표본 부족으로 표시합니다.
             </p>}
 
-            {ready.bans.length > 0 && (
-              <section aria-label="밴" className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                <h2 className="text-sm font-semibold">밴</h2>
-                <ul className="mt-2 flex flex-wrap gap-2">
-                  {ready.bans.map((ban, index) => (
-                    <li key={`${ban.teamId}-${ban.championId}-${index}`} className="flex min-h-11 items-center gap-2 rounded-lg bg-zinc-950 px-2 text-xs text-zinc-300">
-                      <Icon src={ban.championIconUrl} label={ban.championName ?? "밴 챔피언"} size={24} />
-                      <span>{TEAM_LABEL[ban.teamId] ?? "팀"} · {ban.championName ?? `챔피언 #${ban.championId}`}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
             <div className="grid gap-4 md:grid-cols-2">
               {[100, 200].map(teamId => {
                 const members = ready.participants.filter(item => item.teamId === teamId);
+                const bans = ready.bans.filter(ban => ban.teamId === teamId);
                 return (
-                  <section key={teamId} aria-label={TEAM_LABEL[teamId]} className="min-w-0 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-                    <h2 className="text-sm font-semibold">{TEAM_LABEL[teamId]}</h2>
-                    <ul className="mt-2">
-                      {members.map((item, index) => <ParticipantRow key={`${teamId}-${item.championId}-${index}`} item={item} />)}
+                  <section key={teamId} aria-label={TEAM_LABEL[teamId]} className={`min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-linear-to-b ${TEAM_STYLE[teamId].soft} via-zinc-900 to-zinc-900 to-30% p-3 sm:p-4`}>
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                      <h2 className={`text-sm font-bold ${TEAM_STYLE[teamId].accent}`}>{TEAM_LABEL[teamId]}</h2>
+                      {bans.length > 0 && <ul aria-label={`${TEAM_LABEL[teamId]} 밴`} className="flex flex-wrap gap-1">
+                        {bans.map((ban, index) => <li key={`${ban.championId}-${index}`} title={ban.championName ?? undefined} className="relative size-6 overflow-hidden rounded">
+                          <Icon src={ban.championIconUrl} label={`밴: ${ban.championName ?? `챔피언 #${ban.championId}`}`} size={24} />
+                          <span aria-hidden="true" className="absolute inset-0 bg-zinc-950/45" />
+                          <Ban aria-hidden="true" className="absolute inset-0.5 size-5 text-rose-400" />
+                        </li>)}
+                      </ul>}
+                    </div>
+                    <ul className="mt-1">
+                      {members.map((item, index) => <ParticipantRow key={`${teamId}-${item.championId}-${index}`} item={item} teamId={teamId} />)}
                     </ul>
                   </section>
                 );
