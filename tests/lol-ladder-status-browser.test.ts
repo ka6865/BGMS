@@ -8,7 +8,7 @@ import tailwind from "@tailwindcss/postcss";
 import puppeteer, { type Browser } from "puppeteer";
 
 const stubs: Plugin = { name: "ladder-status-fixture", setup(builder) {
-  builder.onResolve({ filter: /^(server-only|next\/link|next\/navigation|@\/lib\/lol\/(publicAccess|status|ladder)\.server)$/ }, args => ({ path: args.path, namespace: "fixture" }));
+  builder.onResolve({ filter: /^(server-only|next\/link|next\/navigation|@\/lib\/lol\/(publicAccess|status|ladder|ranking)\.server)$/ }, args => ({ path: args.path, namespace: "fixture" }));
   builder.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ loader: "tsx", resolveDir: process.cwd(), contents:
     args.path === "next/link" ? "export default ({ children, ...props }) => <a {...props}>{children}</a>;"
       : args.path === "next/navigation" ? "export const usePathname = () => globalThis.__lolFixturePath ?? null;"
@@ -17,6 +17,7 @@ const stubs: Plugin = { name: "ladder-status-fixture", setup(builder) {
           { id: 1, kind: 'maintenance', title: '한국 서버 정기 점검 안내와 게임 접속 지연 현상에 관한 상세 공지', message: '한국어 공지 내용입니다.' },
           { id: 2, kind: 'incident', title: '게임 접속 장애', message: '확인 중입니다.' }
         ] });`
+          : args.path.includes("ranking.server") ? "export const getCachedLolRankingBoard = async () => null;"
           : args.path.includes("ladder.server") ? `export const getLolLadderDaily = async () => {
             const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
             return Array.from({ length: 30 }, (_, i) => {
@@ -76,10 +77,10 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 컷·상태 공
     page.on("request", request => { if (request.url().startsWith(base)) void request.continue(); else void request.abort(); });
     for (const route of ["ladder", "status", "ladder?empty", "ladder?error", "status?empty", "status?error"]) {
       const response = await page.goto(`${base}/lol/kr/${route}`, { waitUntil: "networkidle0" }); expect(response?.status()).toBe(200);
-      expect(await page.$eval("main h1", element => element.textContent)).toContain(route.startsWith("ladder") ? "랭크 컷" : "서버 상태");
+      expect(await page.$eval("main h1", element => element.textContent)).toContain(route.startsWith("ladder") ? "랭킹" : "서버 상태");
       // 공개 LoL 경로는 사이트 공통 헤더 대신 LoL 헤더를 쓰고, 현재 페이지 메뉴를 표시한다.
       expect(await page.$eval('[data-testid="lol-header"] [aria-current="page"]', element => element.textContent))
-        .toBe(route.startsWith("ladder") ? "랭크 컷" : "서버 상태");
+        .toBe(route.startsWith("ladder") ? "랭킹" : "서버 상태");
       expect(await page.$$eval('[data-testid="lol-header"] nav a', links => links.map(link => link.getAttribute("href"))))
         .toEqual(["/lol/kr", "/lol/kr/champions", "/lol/kr/aram-mayhem", "/lol/kr/ladder", "/lol/kr/status"]);
       // 공지 배너는 한 줄로 접혀 있고, 같은 공지를 본문에 보여 주는 상태 페이지에서는 숨긴다.

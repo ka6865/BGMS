@@ -60,11 +60,16 @@
 | 항목 | 상태 |
 | --- | --- |
 | 현재 명단 호출 | 확정. 랭크 컷이 3티어×2큐, 6회 호출하고 명단은 버린다 |
-| 명단의 `puuid`·`wins`·`losses` | 미확인. 2차 미러에만 근거가 있고 공식 문서 본문을 읽지 못했다. 로컬 키가 401이라 실측도 못 했다 |
-| 숙련도 응답 | 코드 파서 기준 판수 필드 없음. 공식 DTO 미확인 |
-| KR 티어별 인원 | 미확인 |
+| 명단 응답 키 | **확정(2026-10-30 실측, 유효한 키)**. 최상위에 `queue`, `tier`, `entries`. entries 키는 `freshBlood, hotStreak, inactive, leaguePoints, losses, puuid, rank, veteran, wins`. `summonerId`와 `summonerName`은 없다 |
+| 챌린저·그랜드마스터·마스터 인원 | **실측(2026-10-30)**: 챌린저 300명, 그랜드마스터 700명, 마스터 10000명. 마스터 값은 상한과 같아 잘렸을 수 있다(미확인). 게시 대상은 챌린저·그랜드마스터 1000명이다 |
+| 비활성 계정 | **실측**: 챌린저 `inactive` 0명. 같은 LP가 70건 있어 동순위 정렬이 필요하다 |
+| 숙련도 응답 | **실측**: `top?count=10`은 항목 10개. 키는 `championId, championLevel, championPoints, championPointsSinceLastLevel, championPointsUntilNextLevel, championSeasonMilestone, lastPlayTime, markRequiredForNextLevel, milestoneGrades, nextSeasonMilestone, puuid, tokensEarned`. 판수 필드는 없다. 항목의 `puuid`는 게시본에 넘기지 않는다 |
+| Account-V1 by-puuid(asia) | **실측**: `gameName, puuid, tagLine` |
+| 개발 키 한도 | **실측**: 100회/2분(`100:120`), 20회/1초(`20:1`). 개발 키는 24시간마다 만료된다 |
 
-하루 호출 추정(대상 1,000명 가정): 명단 3회 + Riot ID 최대 1,000회 + 숙련도 최대 1,000회. 프로덕션 시작 한도(10초 500회, 10분 30,000회)에서는 1분 안팎이고, 개발 키(2분 100회)로는 약 40분이다.
+**비활성 계정 처리 규칙**: 공식 명단에 있는 계정은 `inactive`와 무관하게 순서를 바꾸지 않는다. 표시도 하지 않는다. 명단이 공식 순서의 근거이므로 BGMS가 임의로 빼지 않는다.
+
+하루 호출 추정(대상 1,000명): 명단 2회(챌린저·그랜드마스터) + Riot ID 최대 1,000회 + 숙련도 최대 1,000회. 프로덕션 시작 한도(10초 500회, 10분 30,000회)에서는 1분 안팎이고, 개발 키(2분 100회)로는 약 40분이다.
 
 호출 예산(확정): `reserve_lol_riot_request`는 interactive에 창의 90%, background에 50%를 허용한다. 수집기는 `LOL_RIOT_PRIORITY=background`로 돌려 검색 몫을 남긴다.
 **현재 `lol-ladder.yml`에는 이 값이 없어 interactive로 돈다(확정).** 챔피언 통계 수집기만 background를 쓴다. 새 수집기를 만들 때 함께 고친다.
@@ -107,9 +112,9 @@
 
 ## 9. 구현 순서
 
-1. 프로덕션 또는 유효한 개발 키로 명단·숙련도 응답 필드와 KR 인원을 실측한다.
+1. 프로덕션 또는 유효한 개발 키로 명단·숙련도 응답 필드와 KR 인원을 실측한다. (2026-10-30 완료, 4절)
 2. `lol-ladder.yml`에 background 우선순위를 넣는다(독립 수정).
-3. `lib/lol/ranking.ts`와 단위 테스트.
+3. `lib/lol/ranking.ts`와 단위 테스트. (완료)
 4. migration, RPC, 삭제 경로, 시나리오 SQL. `verify_migrations_local.sh` 배열 갱신.
 5. 수집기와 워크플로(dry-run 기본).
 6. 신청서·제품 설명, 개인정보처리방침 갱신과 시행일 공지.
@@ -129,3 +134,36 @@
 | 인게임 듀오 예측 | **확정(2026-10-30)**: 프로덕션 키 승인 뒤로 보류 |
 | 미검색 계정 Riot ID 저장 | **확정(2026-10-30)**: 허용. 처리방침 갱신과 공지가 먼저다 |
 | 운영 시점 | 프로덕션 키 승인 뒤 |
+
+
+## 11. 구현 상태와 문서 초안 (2026-10-30)
+
+구현 범위와 검증은 [운영 절차](../operations/2026-10-30-lol-ranking-masters.md)에 적었다. 아래는 공개 전 문구 초안이다. 실제 `/privacy`와 신청서 파일은 이번 작업에서 고치지 않았다.
+
+### 11-1. 개인정보처리방침 초안 (공개 전 반영)
+
+처리 항목 표에 추가할 행:
+
+| 항목 | 보유 기간 |
+| --- | --- |
+| LoL 랭킹·장인 게시 명단(Riot ID, 티어, LP, 승패, 챔피언별 숙련도 포인트와 레벨) | 명단에서 빠진 뒤 다음 수집 때 삭제(최대 1일). 게시본은 하루 한 번 교체하며 이력을 남기지 않음 |
+| LoL 삭제 요청 제외 목록(Riot ID의 HMAC 값) | 삭제 요청 처리 중 계속 보관(재수집 차단용). 원문 Riot ID는 저장하지 않음 |
+
+처리 목적과 절차에 추가할 문장(2-6절 아래):
+
+> LoL 랭킹과 장인 화면은 Riot 공식 챌린저·그랜드마스터 명단에 있는 소환사의 Riot ID, 티어, LP, 승패와 챔피언별 숙련도 포인트를 보여 줍니다. 검색하지 않은 소환사도 명단에 있으면 표시될 수 있습니다. Riot ID 삭제를 요청하면 다음 게시부터 제외하고, 제외 목록에 Riot ID의 HMAC 값을 보관해 다시 수집하지 않습니다. Riot ID를 변경한 경우 새 Riot ID로 다시 요청해 주세요.
+
+### 11-2. 신청서 제품 설명 초안 (Riot 프로덕션 신청, 수정 전 원문은 그대로 둠)
+
+추가할 문장:
+
+> We also display an official ladder leaderboard for Challenger and Grandmaster solo queue players (Riot ID, tier, LP, and win/loss from League-V4), ordered as Riot returns the ladder. For those players we also show their Champion Mastery points per champion (top 10 champions per player). We do not compute any score, rating, or replacement for official ranks, and we do not show a player's history over time. Players can request removal of their Riot ID, which removes them from these boards and prevents re-collection.
+
+확인할 것: 이 문장을 쓰면 신청서의 "without player identifiers" 문구와 맞지 않는 부분이 생긴다. 공개 전 Riot 신청 문구를 다시 맞추고, 프로덕션 범위 확인 여부는 적지 않는다.
+
+### 11-3. 구현에서 설계와 달라진 점
+
+- 게시 조건 실패 시 `--apply`는 exit 1로 끝난다. 이전 게시본은 그대로 남는다(설계는 "유지"만 적었고 실패 신호는 없었음).
+- 제외 목록 대조는 Riot ID HMAC으로 한다. 설계 초안의 `puuid_hmac`은 키 교체 때 깨지므로 쓰지 않는다.
+- 삭제 요청 경로는 `delete_lol_account_data`를 고치지 않고 `add_lol_ranking_exclusion`과 CLI로 처리한다. 게시본에 PUUID가 없어 PUUID 기준 삭제가 필요하지 않다.
+- 장인 화면 금지 표현 검사는 `점수`, `실력`, `1등`을 본문 전체에서 찾는 테스트로 고정했다.

@@ -1,4 +1,7 @@
+import Link from "next/link";
 import { LOL_LADDER_QUEUES, LOL_LADDER_TIERS, type LolLadderDaily, type LolLadderTier } from "@/lib/lol/ladder";
+import type { LolRankingBoard } from "@/lib/lol/ranking";
+import { lolRiotIdPath } from "@/lib/lol/riotId";
 
 const tierNames: Record<LolLadderTier, string> = { CHALLENGER: "챌린저", GRANDMASTER: "그랜드마스터", MASTER: "마스터" };
 const colors = { CHALLENGER: "#fbbf24", GRANDMASTER: "#f87171", MASTER: "#c084fc" };
@@ -64,11 +67,53 @@ function CutGraph({ rows, today }: { rows: LolLadderDaily[]; today: string }) {
   </figure>;
 }
 
-export default function LolLadderView({ rows, today, error = false }: { rows: LolLadderDaily[]; today: string; error?: boolean }) {
+const tierLabel: Record<string, string> = { CHALLENGER: "챌린저", GRANDMASTER: "그랜드마스터" };
+
+// 공식 명단 순서(티어, LP, 같은 LP는 Riot ID)를 그대로 보여 준다. 자체 점수나 보정은 없다.
+function RankingBoard({ board, error }: { board: LolRankingBoard | null; error: boolean }) {
+  if (error) return <p role="status" className="text-sm text-amber-300">순위를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>;
+  if (!board) return <p role="status" className="text-sm text-zinc-400">아직 집계되지 않았습니다. 수집이 끝나면 여기에 표시됩니다.</p>;
+  const observed = new Date(board.observedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+  return <section aria-label="솔로 랭크 순위" className="min-w-0 space-y-3">
+    <h2 className="font-semibold">솔로 랭크 순위 · 챌린저·그랜드마스터</h2>
+    <p className="text-xs text-zinc-400">기준 {observed} KST · 대상 {board.playerCount.toLocaleString()}명 · 공식 명단 순서이며 자체 계산 값이 아닙니다.</p>
+    <table className="hidden w-full text-left text-sm sm:table">
+      <thead className="text-zinc-400"><tr><th scope="col" className="py-2">순위</th><th scope="col">Riot ID</th><th scope="col">티어</th><th scope="col" className="text-right">LP</th><th scope="col" className="text-right">승패</th></tr></thead>
+      <tbody>{board.rows.map(row => {
+        const path = lolRiotIdPath(row.riotId, "/lol/kr");
+        return <tr key={row.rank} className="border-t border-zinc-800">
+          <td className="py-2 tabular-nums">{row.rank}</td>
+          <td>{path ? <Link href={path} className="inline-flex min-h-11 items-center underline-offset-2 hover:underline">{row.riotId}</Link> : row.riotId}</td>
+          <td>{tierLabel[row.tier]}</td>
+          <td className="text-right tabular-nums">{row.leaguePoints.toLocaleString()}</td>
+          <td className="text-right tabular-nums">{row.wins}승 {row.losses}패</td>
+        </tr>;
+      })}</tbody>
+    </table>
+    <ol className="space-y-2 sm:hidden">{board.rows.map(row => {
+      const path = lolRiotIdPath(row.riotId, "/lol/kr");
+      return <li key={row.rank} className="flex min-w-0 items-center gap-3 rounded-lg border border-zinc-800 px-3 py-2">
+        <span className="w-8 shrink-0 tabular-nums text-zinc-400">{row.rank}</span>
+        <span className="min-w-0 flex-1">
+          {path ? <Link href={path} className="block min-h-11 truncate py-2 font-medium underline-offset-2 hover:underline">{row.riotId}</Link>
+            : <span className="block truncate py-2 font-medium">{row.riotId}</span>}
+          <span className="block text-xs text-zinc-400">{tierLabel[row.tier]} · {row.leaguePoints.toLocaleString()} LP · {row.wins}승 {row.losses}패</span>
+        </span>
+      </li>;
+    })}</ol>
+  </section>;
+}
+
+export default function LolLadderView({ rows, today, error = false, ranking = null, rankingError = false }: {
+  rows: LolLadderDaily[]; today: string; error?: boolean; ranking?: LolRankingBoard | null; rankingError?: boolean;
+}) {
   return <main className="mx-auto w-full max-w-4xl space-y-6 px-4 py-6 text-zinc-100">
-    <header><h1 className="text-xl font-bold">한국 서버 랭크 컷 기록</h1>
-      <p className="mt-2 text-sm text-zinc-400">{today} KST · 하루 한 번 확인한 티어별 최저 LP입니다. 승급 예측이나 실시간 승급 기준이 아닙니다.</p>
+    <header><h1 className="text-xl font-bold">한국 서버 랭킹</h1>
+      <p className="mt-2 text-sm text-zinc-400">{today} KST · 공식 랭크 명단과 하루 한 번 확인한 티어별 컷 기록입니다. 승급 예측이나 실시간 승급 기준이 아닙니다.</p>
     </header>
+    <RankingBoard board={ranking} error={rankingError} />
+    <section aria-label="랭크 컷 기록" className="space-y-4">
+      <h2 className="font-semibold">랭크 컷 기록</h2>
     {error && <p role="status" className="text-sm text-amber-300">기록을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>}
     {!rows.length && !error && <p className="text-sm text-zinc-400">기록 시작일 이후 표시됩니다.</p>}
     {LOL_LADDER_QUEUES.map(queue => <section key={queue} aria-label={queue === "RANKED_SOLO_5x5" ? "솔로 랭크 컷" : "자유 랭크 컷"} className="min-w-0 space-y-4 border-t border-zinc-800 pt-4">
@@ -93,5 +138,6 @@ export default function LolLadderView({ rows, today, error = false }: { rows: Lo
         </li>)}</ul>
       </details>
     </section>)}
+    </section>
   </main>;
 }
