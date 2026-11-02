@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AI_SQUAD_CACHE_VERSION, GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 import { COACHING_JUDGMENT_WITHHELD } from "@/lib/pubg-analysis/aiCoachingQuality";
+import { SQUAD_SPICY_PASS_LINES } from "@/lib/pubg-analysis/squadAiPolicy";
 
 type StreamScript =
   | { kind: "ok"; text: string; usage?: { inputTokens: number; outputTokens: number } }
@@ -93,6 +94,8 @@ function squadFixture(overrides: Record<string, unknown> = {}) {
     stats: {
       avgIsolation: 1.5,
       avgTradeLatency: 8000,
+      // 실제 집계는 백업 속도와 같은 표본을 함께 준다. 표본이 있어야 백업 문장이 평가된다.
+      totalTradeKills: 4,
       totalSmokeRescues: 2,
       totalRevives: 3,
       avgCoverRate: 0.45,
@@ -311,7 +314,18 @@ describe("AI squad route stability", () => {
     expect(text).not.toMatch(/에임|명중률|뇌|손가락/);
     expect(text).toContain("팀 기여가 큽니다.");
     expect(text).toContain("백업 반응 속도는 8초입니다.");
-    expect(text).toContain(COACHING_JUDGMENT_WITHHELD);
+    // 기본 매운맛은 보류 문장을 넘김 문장으로 바꾼다.
+    expect(text).not.toContain(COACHING_JUDGMENT_WITHHELD);
+    expect(SQUAD_SPICY_PASS_LINES.some((line) => text.includes(line))).toBe(true);
+    expect(streamCalls).toHaveLength(0);
+
+    // 다정한맛은 기존 보류 문장을 그대로 쓴다.
+    useSupabase(cacheChain({ data: { ai_result: cached }, error: null }));
+    const mildResponse = await aiSquadPOST(squadRequest({ coachingStyle: "mild" }));
+    const mildText = JSON.stringify(await mildResponse.json());
+    expect(mildResponse.status).toBe(200);
+    expect(mildText).toContain(COACHING_JUDGMENT_WITHHELD);
+    expect(SQUAD_SPICY_PASS_LINES.some((line) => mildText.includes(line))).toBe(false);
     expect(streamCalls).toHaveLength(0);
   });
 
