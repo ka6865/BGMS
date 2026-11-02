@@ -229,7 +229,7 @@ describe("stats route-first/deep-link", () => {
     fireEvent.change(input, { target: { value: "Au" } });
     fireEvent.focus(input);
 
-    fireEvent.click(await screen.findByRole("button", { name: "AutoPlayer 카카오로 검색" }));
+    fireEvent.click(await screen.findByRole("option", { name: /AutoPlayer\s*카카오/ }));
 
     expect(routerPush).toHaveBeenCalledWith("/stats/kakao/AutoPlayer");
     expect(playerRequests()).toHaveLength(0);

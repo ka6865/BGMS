@@ -221,7 +221,7 @@ describe("StatSearch baseline", () => {
     fireEvent.click(screen.getByRole("button", { name: "스쿼드 시너지" }));
     expect(screen.getByRole("button", { name: "스쿼드 시너지" })).toHaveClass("border-purple-500");
 
-    const seasonSelect = screen.getAllByRole("combobox")[1];
+    const seasonSelect = screen.getByRole("combobox", { name: "시즌 선택" });
     fireEvent.change(seasonSelect, {
       target: { value: "division.bro.official.pc-2026-07" },
     });

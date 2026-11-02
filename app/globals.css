@@ -295,6 +295,7 @@ input, textarea, select {
 
 .stats-result-grid {
   display: grid;
+  grid-template-areas: "match" "summary";
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
@@ -302,6 +303,14 @@ input, textarea, select {
 .stats-overview-rail,
 .stats-match-column {
   min-width: 0;
+}
+
+.stats-overview-rail {
+  grid-area: summary;
+}
+
+.stats-match-column {
+  grid-area: match;
 }
 
 .stats-page .stats-ad-slot {
@@ -335,6 +344,7 @@ input, textarea, select {
   }
 
   .stats-result-grid {
+    grid-template-areas: "match" "summary";
     gap: 16px;
   }
 
@@ -353,6 +363,7 @@ input, textarea, select {
 
 @media (min-width: 1024px) {
   .stats-result-grid {
+    grid-template-areas: "summary match";
     grid-template-columns: 320px minmax(0, 1fr);
   }
 }

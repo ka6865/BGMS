@@ -40,8 +40,8 @@ function ControlledButtons<T extends string>({
             type="button"
             aria-pressed={selected}
             onClick={() => onChange(option.value)}
-            className={`min-h-11 min-w-11 flex-1 rounded-lg px-3 text-xs font-black transition-colors ${
-              selected ? "bg-amber-500 text-black" : "text-white/50 hover:bg-white/5 hover:text-white"
+            className={`min-h-11 min-w-11 flex-1 rounded-lg px-3 text-xs font-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
+              selected ? "bg-amber-500 text-black" : "text-white/75 hover:bg-white/5 hover:text-white"
             }`}
           >
             {option.label}

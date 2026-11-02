@@ -62,7 +62,7 @@ function ClanTrigger({
       {open && (
         <div className="absolute left-0 top-full z-20 mt-2 min-w-48 rounded-xl border border-white/10 bg-[#161616] p-3 text-xs shadow-2xl">
           <div className="font-black text-white">{clan.name}</div>
-          <div className="mt-1 text-white/50">Lv. {clan.level} · {clan.memberCount}명</div>
+          <div className="mt-1 text-white/75">Lv. {clan.level} · {clan.memberCount}명</div>
         </div>
       )}
     </div>
@@ -90,10 +90,10 @@ export function PlayerProfileHeader({
   const seasonSummary = getCurrentSeasonSummary(player, partySize, statsMode);
 
   return (
-    <header className="rounded-2xl border border-white/10 bg-[#161616] p-4 md:p-5" aria-label="플레이어 프로필">
-      <div className="flex min-w-0 flex-col gap-4">
+    <header className="rounded-2xl border border-white/10 bg-[#161616] p-3 md:p-5" aria-label="플레이어 프로필">
+      <div className="flex min-w-0 flex-col gap-3 md:gap-4">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="shrink-0 text-xs font-black uppercase tracking-wider text-white/40">
+          <span className="shrink-0 text-xs font-black uppercase tracking-wider text-white/75">
             {player.platform === "steam" ? "Steam" : "Kakao"}
           </span>
           <h2 title={player.nickname} className="min-w-0 flex-1 truncate text-xl font-black text-white md:text-2xl">
@@ -145,7 +145,7 @@ export function PlayerProfileHeader({
           >
             <Star size={17} fill={favorite ? "currentColor" : "none"} aria-hidden="true" />
           </button>
-          <span className="text-[11px] font-bold text-white/40">최근 업데이트: {updatedLabel(player.updatedAt ?? undefined)}</span>
+          <span className="text-xs font-bold text-white/75">최근 업데이트: {updatedLabel(player.updatedAt ?? undefined)}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -167,7 +167,7 @@ export function PlayerProfileHeader({
             <Crosshair size={15} aria-hidden="true" />
             무기 분석
           </button>
-          <label className="ml-auto flex min-h-11 items-center gap-2 text-xs font-black text-white/50">
+          <label className="ml-auto flex min-h-11 items-center gap-2 text-xs font-black text-white/75">
             <span>시즌</span>
             <select
               aria-label="시즌 선택"

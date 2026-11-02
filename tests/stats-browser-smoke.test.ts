@@ -182,8 +182,21 @@ async function waitForButtonEnabled(
   }, { timeout: timeoutMs }, { expected: text, useLast: last }));
 }
 
+// 고정 하단 내비게이션 아래에 걸친 버튼을 화면 중앙으로 옮긴 뒤 실제 포인터로 클릭한다.
+async function clickVisibleButton(page: Page, selector: string): Promise<void> {
+  await page.$eval(selector, element => element.scrollIntoView({ block: "center", behavior: "instant" }));
+  await page.waitForFunction((target) => {
+    const element = document.querySelector(target);
+    if (!element) return false;
+    const rect = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    return Boolean(hit && element.contains(hit));
+  }, {}, selector);
+  await page.click(selector);
+}
+
 async function clickRefresh(page: Page): Promise<void> {
-  await page.click('button[aria-label="전적 갱신"], button[aria-label="최신 전적"]');
+  await clickVisibleButton(page, 'button[aria-label="전적 갱신"], button[aria-label="최신 전적"]');
 }
 
 async function waitForSearchCooldownReleased(
@@ -707,10 +720,10 @@ async function layoutEvidence(page: Page) {
       .slice(0, 20);
     const sequenceSpecs = [
       ["profile", '[aria-label="플레이어 프로필"]'],
-      ["top-ad", '[data-ad-placement="stats-top"]'],
       ["tabs", '[aria-label="전적 분석 섹션"]'],
-      ["overview", ".stats-overview-rail"],
       ["match", '[aria-label="최근 매치"]'],
+      ["overview", ".stats-overview-rail"],
+      ["top-ad", '[data-ad-placement="stats-top"]'],
     ] as const;
     const sequence = sequenceSpecs.flatMap(([name, selector]) => {
       const element = shell?.querySelector<HTMLElement>(selector);
@@ -788,13 +801,13 @@ function assertMountedCreativeEvidence(
 ): void {
   const expected = width < 768
     ? [
-        ["stats-top", "adsense"],
         ["stats-mobile-after-6", "adsense"],
+        ["stats-top", "adsense"],
       ]
     : [
-        ["stats-top", "adsense"],
         ["stats-after-5", "adsense"],
         ["stats-after-15", "adsense"],
+        ["stats-top", "adsense"],
       ];
   expect(evidence.adEvidence.map(({ placement, provider }) => [placement, provider]), "광고 목록 불일치").toEqual(expected);
   for (const creative of evidence.adEvidence) {
@@ -839,19 +852,19 @@ function assertLayoutContract(
   expect(evidence.gridColumnCount).toBe(width < 1024 ? 1 : 2);
   expect(evidence.sequence.map((item) => item.name)).toEqual([
     "profile",
-    "top-ad",
     "tabs",
-    "overview",
     "match",
+    "overview",
+    "top-ad",
   ]);
   expect(evidence.sequence[0].top).toBeLessThan(evidence.sequence[1].top);
   expect(evidence.sequence[1].top).toBeLessThan(evidence.sequence[2].top);
-  expect(evidence.sequence[2].top).toBeLessThan(evidence.sequence[3].top);
   if (width < 1024) {
-    expect(evidence.sequence[3].top).toBeLessThan(evidence.sequence[4].top);
+    expect(evidence.sequence[2].top).toBeLessThan(evidence.sequence[3].top);
   } else {
-    expect(Math.abs(evidence.sequence[3].top - evidence.sequence[4].top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(evidence.sequence[2].top - evidence.sequence[3].top)).toBeLessThanOrEqual(1);
   }
+  expect(evidence.sequence[3].bottom).toBeLessThanOrEqual(evidence.sequence[4].top);
   expect(evidence.topReservation).toBe(width < 768 ? 100 : 90);
   expect(evidence.topState).toBe("mounted");
   expect(evidence.bottomSafePaddingOk).toBe(true);
@@ -866,8 +879,8 @@ async function setStatsViewportAndWait(
 ): Promise<void> {
   await page.setViewport(viewport);
   const expectedPlacements = viewport.width < 768
-    ? ["stats-top", "stats-mobile-after-6"]
-    : ["stats-top", "stats-after-5", "stats-after-15"];
+    ? ["stats-mobile-after-6", "stats-top"]
+    : ["stats-after-5", "stats-after-15", "stats-top"];
   await dispatcher.withFatal(page.waitForFunction((expected) => {
     const grid = document.querySelector<HTMLElement>(".stats-result-grid");
     const top = document.querySelector<HTMLElement>('[data-ad-placement="stats-top"]');
@@ -1319,7 +1332,7 @@ describeBrowser("stats browser smoke", () => {
         await goToPlayer(page, dispatcher, baseUrl, "steam", "FixturePlayer");
         await waitForPlayerSuccess(dispatcher, "FixturePlayer", "steam");
         await waitForSummarySuccess(dispatcher, "FixturePlayer", "steam");
-        await page.click('button[aria-label="즐겨찾기 추가"]');
+        await clickVisibleButton(page, 'button[aria-label="즐겨찾기 추가"]');
         const storage = await page.evaluate(() => ({
           recent: localStorage.getItem("pubg_recent_searches_v3"),
           favorites: localStorage.getItem("pubg_favorites_v3"),
@@ -1361,8 +1374,17 @@ describeBrowser("stats browser smoke", () => {
         await fillNickname(page, dispatcher, "Old");
         await waitUntil(dispatcher, () => dispatcher.ledger.records.some((record) => record.pathname === "/api/pubg/suggest" && record.query.q === "Old"), "old autocomplete request start");
         await fillNickname(page, dispatcher, "Latest");
-        await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label="LatestPlayer 카카오로 검색"]' });
-        expect(await page.$('button[aria-label="OldPlayer 스팀으로 검색"]')).toBeNull();
+        await waitForStatsSelector({ dispatcher, page, selector: 'input[role="combobox"][aria-expanded="true"][aria-controls]' });
+        await dispatcher.withFatal(page.waitForFunction(() =>
+          [...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')]
+            .some((option) => option.innerText.includes("LatestPlayer") && option.innerText.includes("카카오")),
+        ));
+        expect(await page.$$eval('[role="listbox"] [role="option"]', (options) =>
+          options.some((option) => {
+            const label = option.textContent ?? "";
+            return label.includes("OldPlayer") && label.includes("스팀");
+          }),
+        )).toBe(false);
         await waitUntil(dispatcher, () => dispatcher.ledger.records.some((record) => record.pathname === "/api/pubg/suggest" && record.query.q === "Old" && record.state === "aborted"), "old autocomplete abort");
         await recordScenarioEvidence("autocomplete-abort", viewport, dispatcher, log);
       },

@@ -23,12 +23,12 @@ export function StatsSectionTabs({ value, onChange }: StatsSectionTabsProps) {
             type="button"
             aria-pressed={selected}
             onClick={() => onChange(tab.value)}
-            className={`min-h-11 border-b-2 px-4 text-xs font-black transition-colors ${
+            className={`min-h-11 border-b-2 px-4 text-xs font-black transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${
               selected
                 ? tab.value === "overview"
                   ? "border-amber-500 text-amber-500"
                   : "border-purple-500 text-purple-400"
-                : "border-transparent text-gray-500 hover:text-gray-300"
+                : "border-transparent text-gray-300 hover:text-white"
             }`}
           >
             {tab.label}

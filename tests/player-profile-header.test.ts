@@ -130,14 +130,21 @@ describe("PlayerProfileHeader", () => {
 
     expect(screen.getAllByText("현재 랭크")).toHaveLength(1);
     expect(screen.getByText("Gold 3")).toBeInTheDocument();
+    expect(screen.getByText("평균 딜량").parentElement?.parentElement).toHaveTextContent("200");
+    expect(screen.getByText("KDA").parentElement?.parentElement).toHaveTextContent("2.40");
+    expect(screen.getByText("승률").parentElement?.parentElement).toHaveTextContent("10.0%");
+    expect(screen.getByText("KDA").parentElement?.parentElement?.parentElement).toHaveClass("grid-cols-2", "md:grid-cols-4");
     expect(screen.getByText("2450 RP")).toBeInTheDocument();
     expect(screen.getByText(/최고 Platinum 4/)).toHaveTextContent("2780 RP");
     expect(screen.getByRole("img", { name: "Gold 3 티어 아이콘" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Season 2" })).toBeInTheDocument();
-    expect(screen.getByText("생존 티어 3").parentElement).toHaveTextContent("Lv.441");
+    const secondaryStats = screen.getByText("기타 시즌 지표 및 생존 레벨").closest("details")!;
+    expect(secondaryStats).not.toHaveAttribute("open");
+    fireEvent.click(within(secondaryStats).getByText("기타 시즌 지표 및 생존 레벨"));
+    expect(secondaryStats).toHaveAttribute("open");
+    expect(within(secondaryStats).getByRole("group", { name: /생존 티어 3, 레벨 441/ })).toHaveTextContent("Lv.441");
     expect(screen.getByRole("tooltip")).toHaveTextContent("누적 XP 1,317");
-    expect(screen.getByText("승률").parentElement?.parentElement).toHaveTextContent("10.0%");
     expect(screen.getByText("Top 10률").parentElement?.parentElement).toHaveTextContent("40.0%");
     expect(screen.getByText("평균 생존").parentElement?.parentElement).toHaveTextContent("16:40");
     expect(screen.queryByText(/Master/)).not.toBeInTheDocument();
