@@ -63,8 +63,8 @@ describe("GitHub Actions workflow permissions and action pins", () => {
       const setupNodeUses = [...source.matchAll(/uses:\s*actions\/setup-node@([0-9a-f]{40})\s+#\s+v([\d.]+)/g)];
       const artifactUses = [...source.matchAll(/uses:\s*actions\/upload-artifact@([0-9a-f]{40})\s+#\s+v([\d.]+)/g)];
       for (const match of checkoutUses) expect(match[1]).toBe("3d3c42e5aac5ba805825da76410c181273ba90b1");
-      for (const match of setupNodeUses) expect(match[1]).toBe("820762786026740c76f36085b0efc47a31fe5020");
-      for (const match of artifactUses) expect(match[1]).toBe("043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
+      for (const match of setupNodeUses) expect(match[1]).toBe("949feb2413d6458794dcd2491c4babbbce0c15c1");
+      for (const match of artifactUses) expect(match[1]).toBe("cf430e030ddbb5b0abf93d22962f4752f3646cd9");
       expect(checkoutUses.length, file).toBe((source.match(/uses:\s*actions\/checkout@/g) ?? []).length);
       expect(setupNodeUses.length, file).toBe((source.match(/uses:\s*actions\/setup-node@/g) ?? []).length);
       expect(artifactUses.length, file).toBe((source.match(/uses:\s*actions\/upload-artifact@/g) ?? []).length);
