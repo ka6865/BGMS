@@ -1,6 +1,7 @@
 import { AI_SUMMARY_HIGHER_IS_BETTER } from "./aiSummaryDebate";
 import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText } from "./aiSummaryJudgment";
 import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
+import { ANALYSIS_CALCULATION_VERSION } from "./constants";
 
 /**
  * Server-owned card composition for the v2 AI summary contract.
@@ -41,6 +42,11 @@ export interface SummaryEvidence {
   sampleCount: number | null;
   /** Matches with complete observations for this metric; absent on older cards. */
   userMatchCount?: number;
+  /**
+   * Matches in the user population on an older calculation version. Present only
+   * on calculation-5 comparison metrics; such a row must never be comparable.
+   */
+  legacyCalculationMatchCount?: number;
   numerator?: number | null;
   denominator?: number | null;
 }
@@ -124,6 +130,64 @@ const METRIC_DEFINITIONS: Readonly<Record<string, MetricDefinition>> = {
 const TOPIC_ID_BY_LABEL: Readonly<Record<string, SummaryTopicId>> = Object.fromEntries(
   Object.entries(SUMMARY_TOPIC_DEFINITIONS).map(([topicId, definition]) => [definition.topic, topicId as SummaryTopicId]),
 ) as Record<string, SummaryTopicId>;
+
+/**
+ * 계산 5에서 의미가 바뀐 비교 지표(benchmarkLookup.ts CALCULATION_5_REDEFINED_METRICS)에 대응하는 카드 지표.
+ * 비교 평균은 계산 5 행만 쓰므로, 개인 값도 계산 5 경기만으로 집계된 때만 비교한다.
+ */
+export const CALCULATION_5_COMPARISON_METRIC_IDS: ReadonlySet<string> = new Set([
+  "initiative_rate",
+  "pressure_index",
+  "reaction_latency",
+  "counter_failure_rate",
+  "duel_win_rate",
+  "solo_kill_share",
+  "trade_success_rate",
+  "backup_latency",
+  "smoke_opportunity_rate",
+]);
+
+/** 위 지표의 비교 평균 키(ObservedBenchmark, 계산 5에서 의미가 바뀐 지표 전체). 프롬프트 비교 게이트에 쓴다. */
+export const CALCULATION_5_BENCHMARK_KEYS: readonly string[] = [
+  "avgInitiativeRate",
+  "avgPressureIndex",
+  "avgFirstReplyLatency",
+  "avgCounterFailureRate",
+  "avgDuelWinRate",
+  "avgSoloKillRate",
+  "avgTradeRate",
+  "avgTradeLatency",
+  "avgSmokeRate",
+  "avgReviveRate",
+  "avgTeamWipes",
+  "avgReversalRate",
+  "avgCounterLatency",
+];
+
+/** 개인 입력 경기 중 현재 계산 버전이 아닌 경기 수. 버전이 없는 경기도 이전 계산으로 본다(보수적 처리). */
+export function countPriorCalculationMatches(matches: readonly unknown[]): number {
+  return matches.filter((match) => !isRecord(match) || match.calculationVersion !== ANALYSIS_CALCULATION_VERSION).length;
+}
+
+/**
+ * 이전 계산 경기가 섞인 입력에서 계산 5 비교 지표의 비교 평균을 떼고, 행에 이전 계산 경기 수를 남긴다.
+ * 개인 값과 다른 지표의 비교는 그대로 둔다.
+ */
+export function applyCalculationVersionGuard(
+  evidence: readonly SummaryEvidenceInput[],
+  priorCalculationMatchCount: number,
+): SummaryEvidenceInput[] {
+  if (priorCalculationMatchCount <= 0) return evidence.map((row) => ({ ...row }));
+  return evidence.map((row) => CALCULATION_5_COMPARISON_METRIC_IDS.has(row.metricId)
+    ? {
+      ...row,
+      benchmarkValue: null,
+      benchmarkNumericValue: null,
+      sampleCount: null,
+      legacyCalculationMatchCount: priorCalculationMatchCount,
+    }
+    : { ...row });
+}
 
 const COMPARISON_QUESTION_SUFFIX = "은 비슷한 조건 평균과 비교해 어떤가?";
 const UNAVAILABLE_COPY = "AI 해석을 표시할 수 없습니다.";
@@ -255,11 +319,29 @@ function rawValueMatchesDisplay(raw: number | null, display: string | null, unit
   return displayed !== null && displayed === Number(raw.toFixed(unit === "%" ? 1 : 2));
 }
 
+// 입력 단계의 방어선. 계산 5 비교 지표에 이전 계산 경기가 섞였으면 비교 평균과 표본 수를 버리고 개인 값만 남긴다.
+function withCalculationVersionGuard(input: SummaryEvidenceInput): SummaryEvidenceInput | null {
+  const priorCount = input.legacyCalculationMatchCount === undefined
+    ? 0
+    : finiteNonNegativeInteger(input.legacyCalculationMatchCount);
+  if (priorCount === null) return null;
+  if (priorCount === 0 || !CALCULATION_5_COMPARISON_METRIC_IDS.has(String(input.metricId))) return input;
+  return {
+    ...input,
+    benchmarkValue: null,
+    benchmarkNumericValue: null,
+    sampleCount: null,
+    legacyCalculationMatchCount: priorCount,
+  };
+}
+
 function normalizeEvidenceInput(
-  input: SummaryEvidenceInput,
+  rawInput: SummaryEvidenceInput,
   contextId: string,
 ): SummaryEvidence | null {
-  if (!isRecord(input)) return null;
+  if (!isRecord(rawInput)) return null;
+  const input = withCalculationVersionGuard(rawInput);
+  if (!input) return null;
   const metricId = nonEmptyString(input.metricId);
   const metric = metricId ? metricDefinitionForId(metricId) : undefined;
   const label = nonEmptyString(input.label);
@@ -307,6 +389,7 @@ function normalizeEvidenceInput(
     sampleCount,
     ...(userMatchCount !== undefined ? { userMatchCount } : {}),
     ...(input.unavailableReason ? { unavailableReason: String(input.unavailableReason).trim() } : {}),
+    ...(input.legacyCalculationMatchCount !== undefined ? { legacyCalculationMatchCount: input.legacyCalculationMatchCount } : {}),
     ...(input.userNumericValue !== undefined ? { userNumericValue: input.userNumericValue } : {}),
     ...(input.benchmarkNumericValue !== undefined ? { benchmarkNumericValue: input.benchmarkNumericValue } : {}),
     ...(numerator !== null ? { numerator } : {}),
@@ -544,6 +627,11 @@ function validateSummaryEvidence(
   const userMatchCount = value.userMatchCount === undefined ? undefined : finiteNonNegativeInteger(value.userMatchCount);
   if (userMatchCount === null || (userMatchCount !== undefined && userMatchCount > context.userMatchCount)
     || (userMatchCount === 0 && userValue !== null)) return null;
+  const legacyCalculationMatchCount = value.legacyCalculationMatchCount === undefined
+    ? undefined
+    : finiteNonNegativeInteger(value.legacyCalculationMatchCount);
+  if (legacyCalculationMatchCount === null
+    || (legacyCalculationMatchCount !== undefined && legacyCalculationMatchCount > context.userMatchCount)) return null;
   const numerator = value.numerator === null || value.numerator === undefined ? null : finiteNonNegativeNumber(value.numerator);
   const denominator = value.denominator === null || value.denominator === undefined ? null : finiteNumber(value.denominator);
   if ((value.numerator !== null && value.numerator !== undefined && numerator === null)
@@ -564,6 +652,9 @@ function validateSummaryEvidence(
         ? "user_only"
         : "comparable";
   if (status !== derivedStatus) return null;
+  // 계산 5 비교 지표는 이전 계산 경기가 섞인 개인 값을 비교 근거로 쓸 수 없다. 비교 행으로 저장된 카드는 거부한다.
+  if (legacyCalculationMatchCount && CALCULATION_5_COMPARISON_METRIC_IDS.has(metricId)
+    && (status === "comparable" || benchmarkValue !== null)) return null;
   if (derivedStatus === "unavailable" && userValue !== null) return null;
   if (derivedStatus === "comparable" && (sampleCount === null || sampleCount <= 0)) return null;
   if (derivedStatus === "user_only" && benchmarkValue !== null) return null;
@@ -581,6 +672,7 @@ function validateSummaryEvidence(
     ...(unavailableReason ? { unavailableReason } : {}),
     sampleCount,
     ...(userMatchCount !== undefined ? { userMatchCount } : {}),
+    ...(legacyCalculationMatchCount !== undefined ? { legacyCalculationMatchCount } : {}),
     ...(value.userNumericValue !== undefined ? { userNumericValue: value.userNumericValue as number | null } : {}),
     ...(value.benchmarkNumericValue !== undefined ? { benchmarkNumericValue: value.benchmarkNumericValue as number | null } : {}),
     ...(numerator !== null ? { numerator } : {}),
