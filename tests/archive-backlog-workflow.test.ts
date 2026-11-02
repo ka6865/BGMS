@@ -82,7 +82,7 @@ describe("PUBG archive backlog wrapper", () => {
       with: { "persist-credentials": false },
     });
     expect(job.steps.find((step: any) => step.uses?.startsWith("actions/setup-node@"))).toMatchObject({
-      uses: "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+      uses: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
       with: { "node-version": "22", cache: "npm" },
     });
     expect(job.steps.find((step: any) => step.run === "npm ci --ignore-scripts")).toBeDefined();
@@ -123,7 +123,7 @@ describe("PUBG archive backlog wrapper", () => {
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]).toMatchObject({
       if: "${{ always() }}",
-      uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      uses: "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
       with: {
         name: "pubg-archive-backlog-${{ github.run_id }}-${{ github.run_attempt }}",
         path: "${{ runner.temp }}/private.jsonl", "retention-days": 7, "if-no-files-found": "ignore",
