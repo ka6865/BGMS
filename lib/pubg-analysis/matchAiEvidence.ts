@@ -16,6 +16,8 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   const accuracy = hits !== null && lethal !== null && lethal > 0 ? display(hits / lethal * 100) : null;
   const isolation = finite(match?.isolationData?.isolationIndex);
   const throwFacts = `총 투척 ${total === null ? '측정 불가' : `${total}회`}, 피해형 투척 ${lethal === null ? '측정 불가' : `${lethal}회`}, 피해 적중 ${hits === null ? '측정 불가' : `${hits}회`}입니다. 피해형 투척 적중률은 ${accuracy === null ? '측정 불가' : `${accuracy}%`}입니다.`;
+  // 투척 표본이 3회 미만이면 사용량·명중률을 늘리라는 행동 제안을 점검 질문으로 바꾼다.
+  const smallThrowSample = total !== null && total < 3 && (lethal === null || lethal < 3);
   const comparison = /(?:상위권|동일\s*티어|비교\s*평균|엘리트)[^.!?。！？]{0,40}(?:비해|보다|기준|수준|평균|부족|낮|높|느|뒤처)/u;
   const stats = match?.stats || {}, trade = match?.tradeStats || {};
   const duels = finite(match?.duelStats?.totalDuels), initiativeSamples = finite(match?.initiativeSampleCount);
@@ -36,6 +38,11 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     [/백업\s*속도/u, 'avgTradeLatency'], [/고립/u, 'avgIsolationIndex'],
     [/(?:피해량|딜량|화력)/u, 'avgDamage'], [/복수/u, 'avgTradeRate'],
   ];
+  // 투척 판단 치환 앞에 붙는 "...했" 사실 구절. 판단어가 남아 있으면 버려야 재적용 때 다시 치환되지 않는다.
+  const factPrefix = (sentence: string): string => {
+    const prefix = sentence.match(/^(.+?했)으나[,，]?\s/u)?.[1];
+    return prefix && !negativeJudgment.test(prefix) ? `${prefix}습니다. ` : '';
+  };
   const clean = (value: string, key: string): string => {
     if (key === 'title' && /(?:복구|합류|지원)\s*(?:소요\s*)?시간\s*(?:단축|개선)/u.test(value)) return '아군 상태 확인';
     // Rewrite only matched sentences; untouched values keep their original line breaks.
@@ -77,11 +84,18 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       }
       if (/(?:(?:대응|반응)\s*(?:사격)?\s*속도|반격\s*소요\s*시간)/u.test(sentence) && negativeJudgment.test(sentence) && !negatedJudgment.test(sentence)
         && !hasComparableBenchmarkMetric(match?.eliteBenchmark, 'avgFirstReplyLatency')
-        && !/3초\s*(?:안|내)/u.test(sentence)) {
+        && !/3초\s*(?:안|내)/u.test(sentence) && !/측정.{0,8}불가|평가.{0,8}보류|판단.{0,8}없/u.test(sentence)) {
         return firstReply === null ? null : `기습당한 교전에서 반격 소요 시간은 평균 ${(firstReply / 1000).toFixed(2)}초입니다. 비교 자료가 없어 빠르기 평가는 보류합니다.`;
       }
       if ((key === 'desc' || key === 'title') && lethal !== null && lethal > 0 && lethal < 3 && /투척/u.test(sentence) && /명중|적중|정밀|정확/u.test(sentence)) {
         return key === 'title' ? '투척 결과 확인' : `피해형 투척은 ${lethal}회라 명중률을 판단하기 어렵습니다. 다음 경기에서는 투척 후 피해가 들어갔는지 확인해 보세요.`;
+      }
+      // 행동 제안(desc)의 사용량·명중률 증가 지시는 표본 부족 시 점검 질문으로 바꾸고, 부정형 권고는 그대로 둔다.
+      if (key === 'desc' && smallThrowSample && /투척|수류탄|유틸리티/u.test(sentence)
+        && ((/늘리|늘려|늘릴|높이|높여|높일|올리|올려|올릴|끌어올리|끌어올려|끌어올릴|향상|키우|키워|키울/u.test(sentence) && /사용|빈도|횟수|명중|적중|정확|정밀|활용/u.test(sentence))
+          || /(?:더\s*)?(?:많이|자주)\s*(?:던지|사용|활용)/u.test(sentence))
+        && !/필요(?:는|가|도)?\s*없|필요하지\s*않|지\s*않|말고|마세요|마십시오/u.test(sentence)) {
+        return '다음 경기에서는 투척을 쓸 수 있었던 교전이 있었는지 확인해 보세요.';
       }
       if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && /최전선|전방에서|선두에서|앞장서/u.test(sentence)) {
         return '관측 기록만으로 전방 위치나 교전 의도를 단정할 수 없습니다.';
@@ -104,19 +118,18 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       }
       if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && total !== null && total > 0 && total < 3 && (lethal === null || lethal < 3)
         && /유틸리티|투척/u.test(sentence) && negativeJudgment.test(sentence) && !negatedJudgment.test(sentence)) {
-        const prefix = sentence.match(/^(.+?했)으나[,，]?\s/u)?.[1];
-        return `${prefix ? `${prefix}습니다. ` : ''}투척은 총 ${total}회라 활용 능력을 평가하기에는 표본이 적습니다.`;
+        return `${factPrefix(sentence)}투척은 총 ${total}회라 활용 능력을 평가하기에는 표본이 적습니다.`;
       }
       if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && lethal !== null && lethal > 0 && lethal < 3
         && /유틸리티|투척/u.test(sentence) && /저조|무너|부족|형편없|아쉬|아쉽|보완이 필요|개선이 필요|개선의 여지|끌어올려야|높여야|채워야/u.test(sentence)
         && !/(?:부족|아쉬)(?:함|움)?(?:이|은|도)?\s*없|부족하지\s*않|아쉽지\s*않/u.test(sentence)) {
-        const prefix = sentence.match(/^(.+?했)으나[,，]?\s/u)?.[1];
-        return `${prefix ? `${prefix}습니다. ` : ''}피해형 투척은 ${lethal}회로 표본이 적어 전반적인 활용 능력 평가는 보류합니다.`;
+        return `${factPrefix(sentence)}피해형 투척은 ${lethal}회로 표본이 적어 전반적인 활용 능력 평가는 보류합니다.`;
       }
       return sentence;
     });
     if (rewritten.some((sentence, index) => sentence !== sentences[index])) {
-      const kept = rewritten.filter((sentence): sentence is string => Boolean(sentence && sentence.trim()));
+      // 치환문이 두 문장 이상이면 덩어리가 아니라 문장 단위로 중복을 제거해 재적용 시 문장이 늘지 않게 한다.
+      const kept = rewritten.flatMap(sentence => (sentence ?? '').split(/(?<=[.!?。！？])\s+/u).map(part => part.trim()).filter(Boolean));
       // 모두 빠지면 필드를 비우지 않고 근거 있는 사실이나 보류 문장으로 채운다.
       value = kept.length ? [...new Set(kept)].join(' ')
         : key === 'signature' ? '경기 기록 점검'

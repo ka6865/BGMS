@@ -43,7 +43,15 @@ import {
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
 import crypto from "crypto";
-import { buildSummaryCardComparisonText, buildSummaryCards, normalizeSummaryCardFinal, type SummaryCard } from "@/lib/pubg-analysis/aiSummaryCards";
+import {
+  applyCalculationVersionGuard,
+  buildSummaryCardComparisonText,
+  buildSummaryCards,
+  CALCULATION_5_BENCHMARK_KEYS,
+  countPriorCalculationMatches,
+  normalizeSummaryCardFinal,
+  type SummaryCard,
+} from "@/lib/pubg-analysis/aiSummaryCards";
 import { buildSummaryCardEvidence } from "@/lib/pubg-analysis/aiSummaryCardEvidence";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
@@ -515,6 +523,23 @@ function sumCompleteObservations(values: unknown[]): number | null {
   const observed = values.map(readObservedNonNegative);
   if (observed.length === 0 || observed.some((value) => value === null)) return null;
   return (observed as number[]).reduce((total, value) => total + value, 0);
+}
+
+/**
+ * 이전 계산 경기가 섞인 입력에서 계산 5 비교 지표의 비교 평균을 뺀 사본을 돌려준다.
+ * 비교 평균은 계산 5 행만 쓰므로 개인 값이 계산 5 경기만으로 집계되지 않으면 비교할 수 없다.
+ */
+function withoutCalculation5Benchmark(bench: ObservedBenchmark | null, priorCalculationMatchCount: number): ObservedBenchmark | null {
+  if (!bench || priorCalculationMatchCount <= 0) return bench;
+  const gated: Record<string, any> = { ...bench };
+  for (const key of CALCULATION_5_BENCHMARK_KEYS) delete gated[key];
+  for (const field of ["metricSampleCounts", "rawMetricValues"] as const) {
+    if (!gated[field]) continue;
+    const kept: Record<string, unknown> = { ...gated[field] };
+    for (const key of CALCULATION_5_BENCHMARK_KEYS) delete kept[key];
+    gated[field] = kept;
+  }
+  return gated as ObservedBenchmark;
 }
 
 function aggregateMatches(matches: any[]) {
@@ -1904,7 +1929,10 @@ export async function POST(request: Request) {
 
       // Expose a benchmark to this route's comparison prompt/visuals only
       // when the row passed the observed sample-count and NULL-metric checks.
-      const bench = adaptObservedBenchmark(rawTierStats);
+      const tierBench = adaptObservedBenchmark(rawTierStats);
+      // 이 모드 경기에 이전 계산 경기가 있으면 계산 5 비교 지표는 비교 평균을 붙이지 않는다. 개인 값은 그대로 쓴다.
+      const groupPriorCount = countPriorCalculationMatches(gMatches);
+      const bench = withoutCalculation5Benchmark(tierBench, groupPriorCount);
       const benchmarkContext = {
         gameMode: benchmarkGameMode,
         matchType: dominantMatchType,
@@ -1920,7 +1948,7 @@ export async function POST(request: Request) {
 
       if (gMatches.length > maxMatches) {
         maxMatches = gMatches.length;
-        mainBench = bench;
+        mainBench = tierBench;
         mainBenchContext = benchmarkContext;
       }
 
@@ -1931,6 +1959,9 @@ export async function POST(request: Request) {
       userPrompt += `### [${mode.toUpperCase()} 모드 분석] (최근 유효 ${selectedMatches.length}판 중 상위 ${bestMatches.length}판 분석; 상위 ${bestMatches.length}판 중 ${gMatches.length}판)\n`;
       userPrompt += `- 유저 티어: ${userTier}\n`;
       userPrompt += `- 비교 표본 출처: ${benchmarkProvenance}\n`;
+      if (groupPriorCount > 0) {
+        userPrompt += `- [계산 기록] 이전 계산 경기 ${groupPriorCount}판 포함: 계산 5에서 의미가 바뀐 지표(선제 타격, 압박, 1:1 승률, 복수·백업, 반격, 연막 구출, 솔로 킬 비중)는 비교 평균을 붙이지 않았습니다. 해당 지표는 개인 값만 설명하고 비교하지 마세요.\n`;
+      }
       userPrompt += `- 평균 화력: ${gStats.avgDamage}${bench?.avgDamage !== undefined ? ` (${metricBenchmarkProvenance("avgDamage")}: 평균 화력 ${bench.avgDamage})` : ""}, 평균 ${gStats.avgKills}킬\n`;
       userPrompt += `- [선제 공격] 선제 타격 성공률: ${formatObservedPercent(gStats.userInitiativeRate)}${bench?.avgInitiativeRate !== undefined ? ` (${metricBenchmarkProvenance("avgInitiativeRate")}: 선제 타격 성공률 ${bench.avgInitiativeRate}%)` : ""}\n`;
       userPrompt += `- [교전 결정력] 1:1 교전 승률: ${formatObservedPercent(gStats.avgDuelWinRate)}${bench?.avgDuelWinRate !== undefined ? ` (${metricBenchmarkProvenance("avgDuelWinRate")}: 1:1 교전 승률 ${bench.avgDuelWinRate}%)` : ""}, 승리: ${gStats.totalDuelWins}회, 패배: ${gStats.totalDuelLosses}회, 역전승: ${gStats.totalReversalWins}회\n`;
@@ -2011,7 +2042,14 @@ export async function POST(request: Request) {
     const sameComparisonContext = Boolean(mainBenchContext) && cardMatches.every(inBenchContext);
     const cardBenchmark = sameComparisonContext ? mainBench : null;
     const cardStats = cardMatches === mainModeMatches ? mainModeStats : aggregateMatches(cardMatches);
-    const autoTopics = selectDebateTopics(useIdCards ? cardStats : mainModeStats, useIdCards ? cardBenchmark : mainBench);
+    // 이전 계산 경기가 섞인 계산 5 비교 지표는 비교 평균을 보류한다. 주제 순위도 같은 기준을 써서
+    // 계산 정의가 다른 값의 차이로 비교 주제를 고르지 않게 한다.
+    const cardPriorCount = countPriorCalculationMatches(cardMatches);
+    const mainModePriorCount = countPriorCalculationMatches(mainModeMatches);
+    const topicBench = useIdCards
+      ? withoutCalculation5Benchmark(cardBenchmark, cardPriorCount)
+      : withoutCalculation5Benchmark(mainBench, mainModePriorCount);
+    const autoTopics = selectDebateTopics(useIdCards ? cardStats : mainModeStats, topicBench);
     userPrompt += `\n### [분석 집중 영역 (Debate Issues)]\n반드시 아래 3개 주제를 순서대로 다루어 주십시오:\n${autoTopics.map((t, i) => `${i + 1}. ${t}`).join(', ')}\n`;
 
     const canonicalDebateEvidence: Record<string, { user: { label: string; value: string }; benchmark: { label: string; value: string } }> = {};
@@ -2034,35 +2072,36 @@ export async function POST(request: Request) {
       };
     };
     const canonicalStats = useIdCards ? cardStats : mainModeStats;
+    const canonicalBench = withoutCalculation5Benchmark(mainBench, useIdCards ? cardPriorCount : mainModePriorCount);
     const mainTradeRate = calculateBoundedRate(canonicalStats.totalTradeKills, canonicalStats.totalTeammateKnocks);
     const mainSmokeOpportunityRate = calculateBoundedRate(canonicalStats.totalSmokeRescues, canonicalStats.totalTeammateKnocks);
-    addCanonicalEvidence("damage_average", "평균 화력", canonicalStats.avgDamage, "동일 티어 평균 화력", mainBench?.avgDamage);
+    addCanonicalEvidence("damage_average", "평균 화력", canonicalStats.avgDamage, "동일 티어 평균 화력", canonicalBench?.avgDamage);
     if (typeof canonicalStats.userInitiativeRate === "number" && Number.isFinite(canonicalStats.userInitiativeRate)) {
-      addCanonicalEvidence("initiative_rate", "선제 타격 성공률", `${canonicalStats.userInitiativeRate}%`, "동일 티어 평균 선제 타격 성공률", mainBench?.avgInitiativeRate === undefined ? undefined : `${mainBench.avgInitiativeRate}%`);
+      addCanonicalEvidence("initiative_rate", "선제 타격 성공률", `${canonicalStats.userInitiativeRate}%`, "동일 티어 평균 선제 타격 성공률", canonicalBench?.avgInitiativeRate === undefined ? undefined : `${canonicalBench.avgInitiativeRate}%`);
     }
     if (typeof canonicalStats.avgDuelWinRate === "number" && Number.isFinite(canonicalStats.avgDuelWinRate)) {
-      addCanonicalEvidence("duel_win_rate", "1:1 교전 승률", `${canonicalStats.avgDuelWinRate}%`, "동일 티어 평균 1:1 교전 승률", mainBench?.avgDuelWinRate === undefined ? undefined : `${mainBench.avgDuelWinRate}%`);
+      addCanonicalEvidence("duel_win_rate", "1:1 교전 승률", `${canonicalStats.avgDuelWinRate}%`, "동일 티어 평균 1:1 교전 승률", canonicalBench?.avgDuelWinRate === undefined ? undefined : `${canonicalBench.avgDuelWinRate}%`);
     }
     if (typeof canonicalStats.avgPressureIndex === "number" && Number.isFinite(canonicalStats.avgPressureIndex)) {
-      addCanonicalEvidence("pressure_index", "평균 압박 지수", canonicalStats.avgPressureIndex, "동일 티어 평균 압박 지수", mainBench?.avgPressureIndex);
+      addCanonicalEvidence("pressure_index", "평균 압박 지수", canonicalStats.avgPressureIndex, "동일 티어 평균 압박 지수", canonicalBench?.avgPressureIndex);
     }
     if (mainTradeRate !== null) {
-      addCanonicalEvidence("trade_success_rate", "복수 성공률", `${mainTradeRate}%`, "동일 티어 평균 복수 성공률", mainBench?.avgTradeRate === undefined ? undefined : `${mainBench.avgTradeRate}%`);
+      addCanonicalEvidence("trade_success_rate", "복수 성공률", `${mainTradeRate}%`, "동일 티어 평균 복수 성공률", canonicalBench?.avgTradeRate === undefined ? undefined : `${canonicalBench.avgTradeRate}%`);
     }
     if (mainSmokeOpportunityRate !== null) {
-      addCanonicalEvidence("smoke_opportunity_rate", "아군 기절 대비 연막 구출률", `${mainSmokeOpportunityRate}%`, "동일 티어 기회 대비 평균 연막 구출률", mainBench?.avgSmokeRate === undefined ? undefined : `${mainBench.avgSmokeRate}%`);
+      addCanonicalEvidence("smoke_opportunity_rate", "아군 기절 대비 연막 구출률", `${mainSmokeOpportunityRate}%`, "동일 티어 기회 대비 평균 연막 구출률", canonicalBench?.avgSmokeRate === undefined ? undefined : `${canonicalBench.avgSmokeRate}%`);
     }
     if (canonicalStats.avgMeasuredReactionLatency !== "측정 불가") {
-      addCanonicalEvidence("reaction_latency", "반격 소요 시간", canonicalStats.avgMeasuredReactionLatency, "동일 티어 평균 반격 소요 시간", mainBench?.avgFirstReplyLatency === undefined ? undefined : `${mainBench.avgFirstReplyLatency}s`);
+      addCanonicalEvidence("reaction_latency", "반격 소요 시간", canonicalStats.avgMeasuredReactionLatency, "동일 티어 평균 반격 소요 시간", canonicalBench?.avgFirstReplyLatency === undefined ? undefined : `${canonicalBench.avgFirstReplyLatency}s`);
     }
     if (canonicalStats.avgBackupLatency !== "측정 불가") {
-      addCanonicalEvidence("backup_latency", "백업 속도", canonicalStats.avgBackupLatency, "동일 티어 평균 백업 속도", mainBench?.avgTradeLatency === undefined ? undefined : `${mainBench.avgTradeLatency}s`);
+      addCanonicalEvidence("backup_latency", "백업 속도", canonicalStats.avgBackupLatency, "동일 티어 평균 백업 속도", canonicalBench?.avgTradeLatency === undefined ? undefined : `${canonicalBench.avgTradeLatency}s`);
     }
     if (typeof canonicalStats.soloKillRate === "number" && Number.isFinite(canonicalStats.soloKillRate)) {
-      addCanonicalEvidence("solo_kill_share", "솔로 킬 비중", `${canonicalStats.soloKillRate}%`, "동일 티어 평균 솔로 킬 비중", mainBench?.avgSoloKillRate === undefined ? undefined : `${mainBench.avgSoloKillRate}%`);
+      addCanonicalEvidence("solo_kill_share", "솔로 킬 비중", `${canonicalStats.soloKillRate}%`, "동일 티어 평균 솔로 킬 비중", canonicalBench?.avgSoloKillRate === undefined ? undefined : `${canonicalBench.avgSoloKillRate}%`);
     }
     if (typeof canonicalStats.avgDeathPhase === "number" && Number.isFinite(canonicalStats.avgDeathPhase)) {
-      addCanonicalEvidence("death_phase", "평균 사망 페이즈", canonicalStats.avgDeathPhase, "동일 티어 평균 사망 페이즈", mainBench?.avgDeathPhase);
+      addCanonicalEvidence("death_phase", "평균 사망 페이즈", canonicalStats.avgDeathPhase, "동일 티어 평균 사망 페이즈", canonicalBench?.avgDeathPhase);
     }
     const canonicalEvidence: CanonicalDebateEvidenceMap = canonicalDebateEvidence;
     let serverCards: SummaryCard[] = [];
@@ -2073,7 +2112,7 @@ export async function POST(request: Request) {
       const observedDamage = cardMatches
         .map((match) => firstObservedNonNegative(match.stats?.processedDamageDealt, match.stats?.damageDealt))
         .filter((damage): damage is number => damage !== null);
-      const evidence = buildSummaryCardEvidence({
+      const evidence = applyCalculationVersionGuard(buildSummaryCardEvidence({
         ...cardStats,
         totalSmokeRescues: cardStats.totalObservedSmokeRescues,
         totalTeammateKnocks: cardStats.totalObservedTeammateKnocks,
@@ -2081,7 +2120,7 @@ export async function POST(request: Request) {
         avgDamage: observedDamage.length > 0
           ? observedDamage.reduce((sum, damage) => sum + damage, 0) / observedDamage.length
           : null,
-      }, cardBenchmark);
+      }, cardBenchmark), cardPriorCount);
       const rawModes = Array.from(new Set(cardMatches.map(normalizedMatchMode))).sort();
       const matchTypes = Array.from(new Set(cardMatches.map((match) => isCompetitiveMatch(match) ? "competitive" : "official"))).sort();
       const contextInput = {
