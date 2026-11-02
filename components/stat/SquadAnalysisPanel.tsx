@@ -24,6 +24,11 @@ import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import type { StatsPlatform } from "@/types/stats-page";
 
 import { createSquadRequestCache, type SquadRequestCache } from "@/lib/stats/squadRequestCache";
+import {
+  SQUAD_AI_FACTS_ONLY_ERROR_CODE,
+  SQUAD_AI_MIN_MATCH_COUNT,
+  SQUAD_AI_TOO_FEW_MATCHES_ERROR_CODE,
+} from "@/lib/pubg-analysis/squadAiContract";
 
 const Squad2DMap = dynamic(() => import("./Squad2DMap"), { ssr: false });
 
@@ -153,6 +158,10 @@ const CANONICAL_NOT_READY_ERROR_CODE = "PUBG_AI_SQUAD_CANONICAL_NOT_READY";
 const CANONICAL_NOT_READY_MESSAGE = "팀 분석 데이터 준비 필요";
 // 서버가 안내 문구를 보내지 않은 경우에만 사용한다. 선택 기준은 서버가 정하므로 서버 문구를 우선한다.
 const CANONICAL_NOT_READY_DETAIL = "팀 분석 데이터가 있는 최근 경기가 없습니다. 이 팀과 함께한 최근 경기를 상세 분석하면 AI 코칭을 이용할 수 있습니다.";
+const TOO_FEW_MATCHES_MESSAGE = "AI 코칭을 만들기에 함께한 경기가 부족합니다";
+const TOO_FEW_MATCHES_DETAIL = `${SQUAD_AI_MIN_MATCH_COUNT}경기 이상 함께 플레이하면 분석할 수 있습니다.`;
+// 계산된 팀 지표는 화면에 그대로 남고, AI 해석 문장만 빠졌음을 알린다.
+const FACTS_ONLY_MESSAGE = "AI 해석을 완료하지 못했습니다. 위의 계산된 팀 지표는 그대로 확인할 수 있습니다.";
 
 function isCalculationUpgradeError(error: unknown): boolean {
   return Boolean(
@@ -204,7 +213,9 @@ export default function SquadAnalysisPanel({
   const [aiFeedback, setAiFeedback] = useState<AiFeedback | null>(null);
   const [aiError, setAiError] = useState<{ message: string; retryable: boolean; errorCode?: string | null; detail?: string | null } | null>(null);
   const aiPreparationPending = aiError?.errorCode === CALCULATION_UPGRADE_ERROR_CODE
-    || aiError?.errorCode === CANONICAL_NOT_READY_ERROR_CODE;
+    || aiError?.errorCode === CANONICAL_NOT_READY_ERROR_CODE
+    || aiError?.errorCode === SQUAD_AI_TOO_FEW_MATCHES_ERROR_CODE;
+  const aiFactsOnly = aiError?.errorCode === SQUAD_AI_FACTS_ONLY_ERROR_CODE;
 
   // 2D Map Selected Match State
   const [selectedMapMatchId, setSelectedMapMatchId] = useState<string>("");
@@ -373,20 +384,37 @@ export default function SquadAnalysisPanel({
       
       const data = await res.json();
       if (aiRequest.current !== pending) return;
+      if (data?.errorCode === SQUAD_AI_FACTS_ONLY_ERROR_CODE) {
+        // 200 응답이지만 AI 해석 필드가 없으므로 피드백으로 저장하지 않고 사실 지표만 남긴다.
+        setAiError({
+          message: typeof data.message === "string" && data.message.trim() ? data.message : FACTS_ONLY_MESSAGE,
+          errorCode: SQUAD_AI_FACTS_ONLY_ERROR_CODE,
+          retryable: true,
+        });
+        trackEvent({
+          name: "feature_consumption",
+          params: { feature_name: "squad-synergy", status: "fail", error_type: SQUAD_AI_FACTS_ONLY_ERROR_CODE },
+        });
+        return;
+      }
       if (!res.ok || !data || data.error) {
         const calculationUpgradePending = data?.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
         const canonicalNotReady = data?.errorCode === CANONICAL_NOT_READY_ERROR_CODE;
+        const tooFewMatches = data?.errorCode === SQUAD_AI_TOO_FEW_MATCHES_ERROR_CODE;
         setAiError({
           message: calculationUpgradePending
             ? CALCULATION_UPGRADE_MESSAGE
             : canonicalNotReady
               ? CANONICAL_NOT_READY_MESSAGE
-              : res.status === 409
-                ? "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요."
-                : "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+              : tooFewMatches
+                ? TOO_FEW_MATCHES_MESSAGE
+                : res.status === 409
+                  ? "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요."
+                  : "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
           errorCode: typeof data?.errorCode === "string" ? data.errorCode : null,
-          detail: canonicalNotReady && typeof data?.error === "string" && data.error.trim() ? data.error : null,
-          retryable: !calculationUpgradePending && !canonicalNotReady && data?.retryable !== false && res.status !== 409,
+          detail: canonicalNotReady && typeof data?.error === "string" && data.error.trim() ? data.error
+            : tooFewMatches ? TOO_FEW_MATCHES_DETAIL : null,
+          retryable: !calculationUpgradePending && !canonicalNotReady && !tooFewMatches && data?.retryable !== false && res.status !== 409,
         });
         trackEvent({
           name: "feature_consumption",
@@ -1039,16 +1067,18 @@ export default function SquadAnalysisPanel({
             </p>
           )}
           {aiError && (
-            <div role={aiError.errorCode === CANONICAL_NOT_READY_ERROR_CODE ? "status" : "alert"} className={`rounded-lg border p-4 text-center ${aiPreparationPending ? "border-sky-500/20 bg-sky-500/5" : "border-red-500/20 bg-red-500/5"}`}>
-              <p className={`text-sm ${aiPreparationPending ? "text-sky-200" : "text-red-200"}`}>{aiError.message}</p>
+            <div role={aiError.errorCode === CANONICAL_NOT_READY_ERROR_CODE || aiError.errorCode === SQUAD_AI_TOO_FEW_MATCHES_ERROR_CODE || aiFactsOnly ? "status" : "alert"} className={`rounded-lg border p-4 text-center break-keep ${aiPreparationPending ? "border-sky-500/20 bg-sky-500/5" : aiFactsOnly ? "border-amber-500/20 bg-amber-500/5" : "border-red-500/20 bg-red-500/5"}`}>
+              <p className={`text-sm ${aiPreparationPending ? "text-sky-200" : aiFactsOnly ? "text-amber-100" : "text-red-200"}`}>{aiError.message}</p>
               {aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? (
                 <p className="mt-2 text-xs text-sky-100/70">{CALCULATION_UPGRADE_DETAIL}</p>
               ) : aiError.errorCode === CANONICAL_NOT_READY_ERROR_CODE ? (
                 <p className="mt-2 text-xs leading-relaxed break-keep text-sky-100/70">{aiError.detail || CANONICAL_NOT_READY_DETAIL}</p>
+              ) : aiError.errorCode === SQUAD_AI_TOO_FEW_MATCHES_ERROR_CODE ? (
+                <p className="mt-2 text-xs leading-relaxed break-keep text-sky-100/70">{aiError.detail || TOO_FEW_MATCHES_DETAIL}</p>
               ) : aiError.retryable ? <button
                 type="button"
                 onClick={requestAiCoaching}
-                className="mt-3 rounded-lg border border-red-400/30 px-3 py-1.5 text-xs font-bold text-red-200 transition-colors hover:bg-red-400/10"
+                className={`mt-3 rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${aiFactsOnly ? "border-amber-400/30 text-amber-100 hover:bg-amber-400/10" : "border-red-400/30 text-red-200 hover:bg-red-400/10"}`}
               >
                 다시 시도
               </button> : null}

@@ -264,6 +264,52 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     expect(status).not.toHaveTextContent("팀 분석 데이터가 있는 최근 경기가 없습니다");
   });
 
+  it("경기 수가 부족하면 409 안내를 보여주고 재시도 없이 생성 버튼을 막는다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => String(input) === "/api/pubg/ai-squad"
+      ? Promise.resolve(jsonResponse({ error: "3경기 이상 함께 플레이하면 AI 코칭을 이용할 수 있습니다.", errorCode: "PUBG_SQUAD_TOO_FEW_MATCHES", retryable: false, minMatchCount: 3, matchCount: 2 }, 409))
+      : normalFetch(input));
+    renderPanel("g1");
+    await screen.findByText("협동 시너지 밸런스");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("AI 코칭을 만들기에 함께한 경기가 부족합니다");
+    expect(status).toHaveTextContent("3경기 이상 함께 플레이하면 분석할 수 있습니다.");
+    expect(status).toHaveClass("border-sky-500/20");
+    expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 코칭 보고서 생성" })).toBeDisabled();
+  });
+
+  it("AI 해석이 빠진 사실 응답은 계산 지표를 남기고 안내와 재시도만 보여준다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    let fail = true;
+    fetchMock.mockImplementation((input) => String(input) === "/api/pubg/ai-squad" && fail
+      ? Promise.resolve(jsonResponse({
+        mode: "facts_only",
+        aiInterpretation: false,
+        errorCode: "PUBG_AI_SQUAD_FACTS_ONLY",
+        reason: "timeout",
+        message: "AI 해석을 완료하지 못했습니다. 계산된 팀 지표는 그대로 확인할 수 있습니다. 잠시 후 다시 시도해 주세요.",
+        retryable: true,
+        squadGrade: "A",
+        facts: {},
+      }))
+      : normalFetch(input));
+    renderPanel("g1");
+    await screen.findByText("협동 시너지 밸런스");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("AI 해석을 완료하지 못했습니다");
+    expect(status).toHaveClass("border-amber-500/20");
+    expect(screen.queryByText("fixture summary")).not.toBeInTheDocument();
+    expect(screen.getByText("협동 시너지 밸런스")).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    await screen.findByText("fixture summary");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(aiRequests()).toHaveLength(2);
+  });
+
   it("갱신된 팀 요청 캐시는 준비 안내를 해제하고 관측된 듀오 지표로 코칭을 요청한다", async () => {
     const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
     let ready = false;

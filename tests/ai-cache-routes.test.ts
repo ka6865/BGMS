@@ -85,6 +85,7 @@ const {
     });
     let resolveUsage: (usage: { inputTokens?: number; outputTokens?: number }) => void = () => undefined;
     const usage = new Promise<{ inputTokens?: number; outputTokens?: number }>((resolve) => { resolveUsage = resolve; });
+    // AI SDK의 outputTokens는 thinking 토큰을 포함한다.
     let providerIterator: any = null;
     async function* parts() {
       let result: any;
@@ -98,14 +99,14 @@ const {
       Promise.resolve(result?.response)
         .then((response: any) => resolveUsage({
           inputTokens: response?.usageMetadata?.promptTokenCount,
-          outputTokens: response?.usageMetadata?.candidatesTokenCount,
+          outputTokens: (response?.usageMetadata?.candidatesTokenCount ?? 0) + (response?.usageMetadata?.thoughtsTokenCount ?? 0),
         }))
         .catch(() => resolveUsage({}));
       yield { type: "start-step" };
       providerIterator = result.stream[Symbol.asyncIterator]();
       while (true) {
         const next = await providerIterator.next();
-        if (next.done) return;
+        if (next.done) break;
         const text = next.value?.text?.();
         if (typeof text === "string") yield { type: "text-delta", text };
       }
@@ -145,11 +146,14 @@ vi.mock("next/server", async (importOriginal) => ({
   after: vi.fn((task: Promise<unknown>) => task),
 }));
 
-vi.mock("ai", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("ai")>()),
-  streamText: mockStreamText,
-  Output: { json: () => ({ type: "json" }) },
-}));
+vi.mock("ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ai")>();
+  return {
+    ...actual,
+    streamText: mockStreamText,
+    Output: { ...actual.Output, json: () => ({ type: "json" }), object: (options: { schema: unknown }) => ({ type: "json", schema: options.schema }) },
+  };
+});
 
 vi.mock("@ai-sdk/google", () => ({
   createGoogleGenerativeAI: mockCreateGoogleGenerativeAI,
@@ -359,13 +363,14 @@ function createCanonicalAnalyzeRow(
 
 const canonicalSquadAnalysis = {
   groupKey: "alpha,beta",
-  matchCount: 2,
-  latestMatchCount: 2,
-  bestMatchCount: 2,
-  selectedMatchIds: ["match-2", "match-1"],
+  matchCount: 3,
+  latestMatchCount: 3,
+  bestMatchCount: 3,
+  selectedMatchIds: ["match-3", "match-2", "match-1"],
   matchesSummary: [
-    { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: recentMatchDate(1) },
-    { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: recentMatchDate(2) },
+    { matchId: "match-3", mapName: "Baltic_Main", winPlace: 1, createdAt: recentMatchDate(1) },
+    { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: recentMatchDate(2) },
+    { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: recentMatchDate(3) },
   ],
   stats: {
     avgIsolation: 1.5,
@@ -437,13 +442,18 @@ function parseSummaryNdjson(text: string): Array<{ type: string; data?: any; [ke
   return text.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
 }
 
+// 스쿼드 route는 AI SDK 스트림으로 응답을 받는다. 호출마다 새 스트림을 만들어 재사용 실패를 막는다.
+function mockSquadStreamText(text: string, usageMetadata: Record<string, number> = { promptTokenCount: 10, candidatesTokenCount: 20 }) {
+  mockGenerateContentStream.mockImplementation(async () => ({
+    stream: (async function* () {
+      yield { text: () => text };
+    })(),
+    response: Promise.resolve({ usageMetadata }),
+  }));
+}
+
 function mockSquadGeminiJson(json: any) {
-  mockGenerateContent.mockResolvedValue({
-    response: {
-      text: () => JSON.stringify(json),
-      usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 },
-    },
-  });
+  mockSquadStreamText(JSON.stringify(json));
 }
 
 describe("AI cache route stabilization", () => {
@@ -638,7 +648,7 @@ describe("AI cache route stabilization", () => {
     expect(await response.json()).toMatchObject({ errorCode: "PUBG_MATCH_DETAIL_EXPIRED", retryable: false });
     expect(squadCache.maybeSingle).not.toHaveBeenCalled();
     expect(squadCache.upsert).not.toHaveBeenCalled();
-    expect(mockGenerateContent).not.toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
   it.each([2, 3])("ai-analyze는 계산 %s의 실제 버전으로 기존 코칭 캐시를 조회한다", async (calculationVersion) => {
@@ -6591,7 +6601,7 @@ describe("AI cache route stabilization", () => {
     const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "steam" }));
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY", retryable: false });
-    expect(mockGenerateContent).not.toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
     expect(squadCache.upsert).not.toHaveBeenCalled();
     // AI 호출 전에 막혀도 원인이 사용 기록에 남아야 운영에서 추적할 수 있다.
     expect(mockTrackAiFailure).toHaveBeenCalledWith("user-1", "squad", "no squad team observations in selected matches",
@@ -6613,7 +6623,7 @@ describe("AI cache route stabilization", () => {
       memberFeedbacks: [{ name: "Player_A", praise: "집중사격이 우수합니다.", fault: "엄호율 0%입니다.", advice: "커버 능력이 부족합니다." }],
       overallOpinion: "전체 평가는 A입니다. 스쿼드 점수는 80점입니다. 종합 등급은 S입니다.",
     };
-    mockGenerateContent.mockResolvedValue({ response: { text: () => JSON.stringify(generated) } });
+    mockSquadGeminiJson(generated);
     const squadCache = createQueryChain({ data: cached ? { ai_result: generated } : null, error: null });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: squadCache }) });
     const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "steam" }));
@@ -6623,7 +6633,7 @@ describe("AI cache route stabilization", () => {
     expect(json.summary).toBe(generated.summary);
     expect(JSON.stringify(json)).not.toMatch(/엄호가 부족|집중사격이 우수|엄호율 0%|커버 능력이 부족|전체 평가는 A|스쿼드 점수는 80|종합 등급은 S/);
     expect(json.weakness).toContain("보류");
-    if (cached) expect(mockGenerateContent).not.toHaveBeenCalled();
+    if (cached) expect(mockGenerateContentStream).not.toHaveBeenCalled();
     else expect(squadCache.upsert).toHaveBeenCalledWith(expect.objectContaining({ ai_result: expect.objectContaining({ squadGrade: null }) }), expect.anything());
   });
 
@@ -6637,7 +6647,7 @@ describe("AI cache route stabilization", () => {
         { name: "Player_B", praise: "후방에서 든든히 지원했습니다.", fault: "혼자 킬을 주워 담는 데 급급합니다.", advice: "명중률을 확인하세요." },
       ],
     };
-    mockGenerateContent.mockResolvedValue({ response: { text: () => JSON.stringify(generated) } });
+    mockSquadGeminiJson(generated);
     const squadCache = createQueryChain({ data: cached ? { ai_result: generated } : null, error: null });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: squadCache }) });
     const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "steam" }));
@@ -6649,8 +6659,10 @@ describe("AI cache route stabilization", () => {
     expect(json.memberFeedbacks[0].advice).toContain("보류");
     expect(json.memberFeedbacks[1].praise).toContain("보류");
     expect(json.memberFeedbacks[1].fault).toContain("보류");
-    expect(json.memberFeedbacks[1].advice).toBe(generated.memberFeedbacks[1].advice);
-    if (cached) expect(mockGenerateContent).not.toHaveBeenCalled();
+    // 측정하지 않은 명중률 평가는 원문 그대로 두지 않고 보류 문장으로 바꾼다.
+    expect(json.memberFeedbacks[1].advice).toContain("보류");
+    expect(JSON.stringify(json)).not.toContain("명중률");
+    if (cached) expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
   it("ai-squad cache identity separates mixed calculation versions when only a match version changes", async () => {
@@ -6687,8 +6699,8 @@ describe("AI cache route stabilization", () => {
     expect(hashes[1]).not.toBe(hashes[0]);
   });
 
-  it("ai-squad는 Gemini 실패 시 측정되지 않은 fallback 대신 503을 반환한다", async () => {
-    mockGenerateContent.mockRejectedValue(new Error("Gemini unavailable"));
+  it("ai-squad는 Gemini 실패 시 AI 해석 없이 계산된 사실 응답을 반환하고 캐시에 저장하지 않는다", async () => {
+    mockGenerateContentStream.mockRejectedValue(new Error("Gemini unavailable"));
     mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
 
     const squadCache = createQueryChain({ data: null, error: null });
@@ -6726,12 +6738,16 @@ describe("AI cache route stabilization", () => {
     }));
     const json = await response.json();
 
-    expect(response.status).toBe(503);
-    expect(json.error).toContain("스쿼드 AI 분석을 완료하지 못했습니다");
-    expect(json).toMatchObject({ errorCode: "PUBG_AI_SQUAD_PROVIDER_ERROR", retryable: true });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(json).toMatchObject({ mode: "facts_only", aiInterpretation: false, errorCode: "PUBG_AI_SQUAD_FACTS_ONLY", reason: "provider", retryable: true });
+    expect(json.summary).toBeUndefined();
+    expect(json.facts).toMatchObject({ groupKey: "alpha,beta", matchCount: 3, stats: canonicalSquadAnalysis.stats });
     expect(squadCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(squadCache.eq).toHaveBeenCalledWith("platform", "steam");
     expect(squadCache.eq).toHaveBeenCalledWith("prompt_version", AI_SQUAD_CACHE_VERSION);
+    expect(squadCache.upsert).not.toHaveBeenCalled();
+    expect(mockTrackAiFailure).toHaveBeenCalledWith("user-1", "squad", "All Gemini models failed to respond", expect.objectContaining({ errorCode: "model" }));
   });
 
   it("ai-squad는 모델 A의 attempt-local AbortError 뒤 모델 B로 계속해 성공한다", async () => {
@@ -6755,7 +6771,7 @@ describe("AI cache route stabilization", () => {
       let modelCall = 0;
       let firstAttemptSignal: AbortSignal | undefined;
       let secondAttemptSignal: AbortSignal | undefined;
-      mockGenerateContent.mockImplementation((_payload: unknown, options?: { signal?: AbortSignal; timeout?: number }) => {
+      mockGenerateContentStream.mockImplementation((_payload: unknown, options?: { signal?: AbortSignal; timeout?: number }) => {
         modelCall += 1;
         if (modelCall === 1) {
           firstAttemptSignal = options?.signal;
@@ -6768,10 +6784,12 @@ describe("AI cache route stabilization", () => {
 
         secondAttemptSignal = options?.signal;
         return Promise.resolve({
-          response: {
-            text: () => JSON.stringify(resultJson),
+          stream: (async function* () {
+            yield { text: () => JSON.stringify(resultJson) };
+          })(),
+          response: Promise.resolve({
             usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 },
-          },
+          }),
         });
       });
 
@@ -6782,10 +6800,10 @@ describe("AI cache route stabilization", () => {
         coachingStyle: "mild",
       }));
 
-      for (let index = 0; index < 100 && mockGenerateContent.mock.calls.length < 1; index += 1) {
+      for (let index = 0; index < 100 && mockGenerateContentStream.mock.calls.length < 1; index += 1) {
         await Promise.resolve();
       }
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(8_100);
       const response = await responsePromise;
@@ -6793,7 +6811,7 @@ describe("AI cache route stabilization", () => {
 
       expect(firstAttemptSignal?.aborted).toBe(true);
       expect(secondAttemptSignal?.aborted).toBe(false);
-      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
       expect(response.status).toBe(200);
       expect(json).toMatchObject({ squadGrade: "A", summary: "model B squad summary" });
       expect(squadCache.upsert).toHaveBeenCalledTimes(1);
@@ -6810,7 +6828,7 @@ describe("AI cache route stabilization", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
     let providerSignal: AbortSignal | undefined;
-    mockGenerateContent.mockImplementation((_payload: unknown, options?: { signal?: AbortSignal; timeout?: number }) => {
+    mockGenerateContentStream.mockImplementation((_payload: unknown, options?: { signal?: AbortSignal; timeout?: number }) => {
       providerSignal = options?.signal;
       return new Promise((_resolve, reject) => {
         options?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), { once: true });
@@ -6825,16 +6843,16 @@ describe("AI cache route stabilization", () => {
       coachingStyle: "mild",
     }, caller.signal));
 
-    for (let index = 0; index < 100 && mockGenerateContent.mock.calls.length < 1; index += 1) {
+    for (let index = 0; index < 100 && mockGenerateContentStream.mock.calls.length < 1; index += 1) {
       await Promise.resolve();
     }
-    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
 
     caller.abort();
     const response = await responsePromise;
 
     expect(providerSignal?.aborted).toBe(true);
-    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({
       errorCode: "PUBG_AI_SQUAD_ABORTED",
@@ -7312,7 +7330,7 @@ describe("AI 캐시와 제공자 키 장애", () => {
     const response = await aiSquadPOST(createRequest({ nickname: "Player_A", platform: "kakao", groupKey: "alpha,beta" }));
     expect(response.status).toBe(200);
     expect(cache.maybeSingle).toHaveBeenCalled();
-    expect(mockGenerateContent).not.toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
   it("유효한 캐시가 없으면 AI 키가 필요하다", async () => {
@@ -7329,7 +7347,7 @@ describe("스쿼드 생성 토큰 추정", () => {
   afterEach(() => { vi.unstubAllEnvs(); });
   it("후보 답변과 thinking 토큰을 함께 기록한다", async () => {
     mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
-    mockGenerateContent.mockResolvedValue({ response: { text: () => JSON.stringify({ summary: "확인된 기록" }), usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20, thoughtsTokenCount: 30 } } });
+    mockSquadStreamText(JSON.stringify({ summary: "확인된 기록" }), { promptTokenCount: 10, candidatesTokenCount: 20, thoughtsTokenCount: 30 });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: createQueryChain() }) });
     const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "kakao" }));
     expect(response.status).toBe(200);
