@@ -87,6 +87,7 @@ function queryChain(result: QueryResult) {
     "abortSignal",
     "upsert",
     "is",
+    "or",
   ]) {
     chain[method] = vi.fn().mockReturnValue(chain);
   }
@@ -341,6 +342,79 @@ describe("player route recovery contract", () => {
     const body = await (await GET(request())).json();
     expect(body.banCheckedAt).toBeUndefined();
     expect(mockRecordBanObservation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["일반 캐시", "http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam", 0],
+    ["명시 시즌 캐시", "http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&season=pc-2026-01", null],
+    ["자동 갱신 잠금 충돌 캐시", "http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&refresh=auto", 0],
+  ])("%s 성공 응답은 미검색 캐시에 최초 조회를 조건부 기록한다", async (_path, url, searchCount) => {
+    const cacheRow = { ...staleCacheRow(), search_count: searchCount };
+    if (url.includes("refresh=auto")) {
+      cacheRow.updated_at = "2026-01-01T00:00:00.000Z";
+      cacheRow.last_seen_at = "2026-01-01T00:00:00.000Z";
+      mockClaimForceRefresh.mockResolvedValue(false);
+    }
+    const { adminUpdate, partialQuery } = configureSupabase(cacheRow);
+    const { GET } = await loadRoute();
+
+    const response = await GET(request(url));
+
+    expect(response.status).toBe(200);
+    expect(adminUpdate).toHaveBeenCalledTimes(1);
+    expect(adminUpdate).toHaveBeenCalledWith({ search_count: 1 });
+    expect(partialQuery.eq).toHaveBeenCalledWith("id", "account.fixture1");
+    expect(partialQuery.eq).toHaveBeenCalledWith("platform", "steam");
+    expect(partialQuery.or).toHaveBeenCalledWith("search_count.is.null,search_count.eq.0");
+    expect(adminUpdate.mock.calls[0][0]).not.toHaveProperty("updated_at");
+    expect(adminUpdate.mock.calls[0][0]).not.toHaveProperty("last_seen_at");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["일반 캐시", "http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam"],
+    ["명시 시즌 캐시", "http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&season=pc-2026-01"],
+  ])("%s는 이미 검색된 계정에 추가 저장하지 않는다", async (_path, url) => {
+    const { adminUpdate } = configureSupabase({ ...staleCacheRow(), search_count: 4 });
+    const { GET } = await loadRoute();
+
+    const response = await GET(request(url));
+
+    expect(response.status).toBe(200);
+    expect(adminUpdate).not.toHaveBeenCalled();
+  });
+
+  it("미검색 캐시 계정의 private 차단은 search_count를 기록하지 않는다", async () => {
+    mockIsPlayerPrivate.mockResolvedValue(true);
+    const { adminUpdate } = configureSupabase({ ...staleCacheRow(), search_count: 0 });
+    const { GET } = await loadRoute();
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(403);
+    expect(adminUpdate).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["error", "rejected"])("최초 조회 기록 저장 %s는 503으로 fail-closed 처리한다", async (failure) => {
+    const { partialQuery, adminUpdate } = configureSupabase({ ...staleCacheRow(), search_count: 0 });
+    if (failure === "error") {
+      partialQuery.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: null, error: { message: "store offline" } }).then(resolve);
+    } else {
+      partialQuery.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) => (
+        Promise.reject(new Error("store offline")).then(resolve, reject)
+      );
+    }
+    const { GET } = await loadRoute();
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({ code: "PLAYER_UPSTREAM_UNAVAILABLE", retryable: true });
+    expect(response.headers.get("retry-after")).toBe("30");
+    expect(adminUpdate).toHaveBeenCalledWith({ search_count: 1 });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("keeps missing upstream ban types unknown when persistence fails", async () => {

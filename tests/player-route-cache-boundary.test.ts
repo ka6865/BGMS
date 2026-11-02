@@ -72,7 +72,7 @@ describe("player route non-force cache boundary", () => {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       maybeSingle: vi.fn().mockResolvedValue({ data: {
-        id: "account.fixture1", nickname: "Fixture_Player", platform: "steam",
+        id: "account.fixture1", nickname: "Fixture_Player", platform: "steam", search_count: 1,
         last_season_id: "pc-2026-02", recent_match_ids: ["shard:newest", "newest", "older"],
       }, error: null }),
     };
@@ -104,6 +104,8 @@ describe("player route non-force cache boundary", () => {
 
   it("does not call PUBG when mastery is stale and an explicit season is absent", async () => {
     const cacheRow = {
+      id: "account.fixture1",
+      search_count: 1,
       nickname: "Fixture_Player",
       lower_nickname: "fixture_player",
       platform: "steam",

@@ -10,6 +10,10 @@ from generate_series(1,5)n;
 insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,account_id,ranking_eligible)
 values('this-week-player','steam','this-week-match',(select week_end from public.pubg_ranking_week())+interval '1 minute','squad','Baltic_Main',30,9000,1,'official','account.thisweek',true);
 
+insert into public.pubg_player_cache(id,platform,nickname,lower_nickname,search_count)
+select 'account.week'||n,'steam','week-player-'||n,'week-player-'||n,1 from generate_series(1,5)n;
+insert into public.pubg_player_cache(id,platform,nickname,lower_nickname,search_count)
+values('account.thisweek','steam','this-week-player','this-week-player',1);
 do $$
 declare a jsonb; row_payload jsonb; w record; key text; past_finalize boolean; refreshed integer;
 begin
@@ -90,6 +94,8 @@ delete from public.pubg_response_cache where cache_key like 'rankings:%';
 insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,account_id,ranking_eligible)
 select 'queue-player-'||n,'steam','queue-match-'||n,(select week_start from public.pubg_ranking_week())+interval '3 days','squad','Baltic_Main',n,500+n,1,'official','account.queue'||n,true
 from generate_series(1,3)n;
+insert into public.pubg_player_cache(id,platform,nickname,lower_nickname,search_count)
+select 'account.queue'||n,'steam','queue-player-'||n,'queue-player-'||n,1 from generate_series(1,3)n;
 do $$
 declare a jsonb;
 begin
