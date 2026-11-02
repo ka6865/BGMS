@@ -2324,6 +2324,92 @@ describe("AI cache route stabilization", () => {
     expect(tierBenchmarks.maybeSingle).toHaveBeenCalledTimes(8);
   });
 
+  it("ai-summary 이전 형식(v1) 캐시 응답은 읽을 때 근거 없는 판단 문구를 정리한다", async () => {
+    const telemetry = createQueryChain({
+      data: [{ match_id: "legacy-cache", player_id: "player_a", platform: "kakao", data: { fullResult: createSummaryMatch("legacy-cache") } }],
+      error: null,
+    });
+    const legacyFinal = createValidSummaryFinal({
+      finalVerdict: "화력 집중력을 보완해야",
+      actionItems: [
+        { icon: "target", title: "협공 교전 비중 확대", desc: "협공 교전 비중 확대: 아군과 타이밍을 맞춘 집중 타격을 시도하십시오" },
+        { icon: "target", title: "투척 활용", desc: "공격형 투척 시도를 늘려 교전 압박력을 높이십시오." },
+      ],
+    });
+    const summaryCache = createQueryChain({
+      data: { ai_result: { visuals: { overallTier: "C" }, final: JSON.stringify(legacyFinal) } },
+      error: null,
+    });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["legacy-cache"],
+      nickname: "Player_A",
+      platform: "kakao",
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const finalRecord = records.find((record) => record.type === "final");
+    const final = JSON.parse(finalRecord?.data ?? "{}");
+
+    expect(response.status).toBe(200);
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(finalRecord?.data).not.toMatch(/타이밍을 맞춘|공격형 투척 시도를 늘려|집중력을 보완/);
+    expect(final.finalVerdict).toBe("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(final.actionItems.map((item: { desc: string }) => item.desc)).toEqual([
+      "다음 교전 전에 상대 위치와 빠져나올 경로를 확인해 보세요. 팀 모드라면 팀원이 함께 대응할 수 있는지도 확인하세요.",
+      "다음 교전에서 투척을 쓸 수 있었던 상황이 있었는지 확인해 보세요.",
+    ]);
+  });
+
+  it("ai-summary 이전 형식(v1) 새 응답은 저장 전에 근거 없는 판단 문구를 정리한다", async () => {
+    const telemetry = createQueryChain({
+      data: [{ match_id: "legacy-fresh", player_id: "player_a", platform: "kakao", data: { fullResult: createSummaryMatch("legacy-fresh") } }],
+      error: null,
+    });
+    const providerFinal = createValidSummaryFinal({
+      finalVerdict: "화력 집중력을 보완해야",
+      actionItems: [
+        { icon: "target", title: "협공 교전 비중 확대", desc: "협공 교전 비중 확대: 아군과 타이밍을 맞춘 집중 타격을 시도하십시오" },
+        { icon: "target", title: "투척 활용", desc: "공격형 투척 시도를 늘려 교전 압박력을 높이십시오." },
+      ],
+    });
+    mockGenerateContentStream.mockImplementation(async () => ({
+      stream: (async function* () {
+        yield { text: () => JSON.stringify(providerFinal) };
+      })(),
+      response: Promise.resolve({
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 },
+      }),
+    }));
+    const summaryCache = createQueryChain();
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["legacy-fresh"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const finalRecord = records.find((record) => record.type === "final");
+    const saved = summaryCache.upsert.mock.calls[0]?.[0]?.ai_result?.final;
+
+    expect(finalRecord?.data).not.toMatch(/타이밍을 맞춘|공격형 투척 시도를 늘려|집중력을 보완/);
+    expect(saved).toBe(finalRecord?.data);
+  });
+
   it("ai-summary cache hit은 Gemini API 키가 없어도 NDJSON을 반환한다", async () => {
     mockSummaryGeminiResponse();
 

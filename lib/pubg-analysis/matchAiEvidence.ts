@@ -18,6 +18,16 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   const throwFacts = `총 투척 ${total === null ? '측정 불가' : `${total}회`}, 피해형 투척 ${lethal === null ? '측정 불가' : `${lethal}회`}, 피해 적중 ${hits === null ? '측정 불가' : `${hits}회`}입니다. 피해형 투척 적중률은 ${accuracy === null ? '측정 불가' : `${accuracy}%`}입니다.`;
   // 투척 표본이 3회 미만이면 사용량·명중률을 늘리라는 행동 제안을 점검 질문으로 바꾼다.
   const smallThrowSample = total !== null && total < 3 && (lethal === null || lethal < 3);
+  // 소표본일 때 행동 제안을 바꾸는 점검 문장과, 그 문장에 맞춘 중립 title.
+  const throwUsageCheck = '다음 경기에서는 투척을 쓸 수 있었던 교전이 있었는지 확인해 보세요.';
+  const throwUsageTitle = '투척 기회 확인';
+  const lethalAccuracyCheck = /피해형 투척은 \d+회라 명중률을 판단하기 어렵습니다\./u;
+  // 사용량·명중률을 늘리라는 권고인지. 부정된 지시("던지지 마세요", "사용하지 않아도")와 필요 없음은 권고가 아니다.
+  // "무리하지 않으세요"처럼 사용 동작과 무관한 부정은 권고를 바꾸지 않는다.
+  const isThrowUsageDirective = (sentence: string): boolean => (
+    /(?:늘리|늘려|늘릴|높이|높여|높일|올리|올려|올릴|끌어올리|끌어올려|끌어올릴|향상|키우|키워|키울)/u.test(sentence) && /사용|빈도|횟수|명중|적중|정확|정밀|활용/u.test(sentence)
+    || /(?:더\s*)?(?:많이|자주)\s*(?:던지|던져|쓰|써|사용|활용)/u.test(sentence)
+  ) && !/필요(?:는|가|도)?\s*없|필요하지\s*않|말고|마세요|마십시오|않아도|않도록|(?:던지|쓰|사용하|활용하|늘리|높이|올리)지\s*(?:않|마|말)/u.test(sentence);
   const comparison = /(?:상위권|동일\s*티어|비교\s*평균|엘리트)[^.!?。！？]{0,40}(?:비해|보다|기준|수준|평균|부족|낮|높|느|뒤처)/u;
   const stats = match?.stats || {}, trade = match?.tradeStats || {};
   const duels = finite(match?.duelStats?.totalDuels), initiativeSamples = finite(match?.initiativeSampleCount);
@@ -59,10 +69,18 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       // 측정하지 않은 능력(집중력)은 꾸밈말이면 빼고, 주장 자체면 문장을 뺀다.
       // 교전 결과로 집중력을 증명했다는 주장은 아래에서 실제 교전 수로 바꾼다.
       if (/집중력/u.test(sentence) && !/(?:높은|뛰어난|우수한|탁월한)\s*집중력(?:을|이)?\s*(?:보여|입증|증명)/u.test(sentence)
-        && !/집중력[^.!?\n]{0,12}(?:의미하지\s*않|판단할\s*수\s*없|알\s*수\s*없|측정하지)/u.test(sentence)) {
-        // 꾸밈말(…집중력으로/집중력 있는)만 지운다. 서술어를 이루는 표현은 문장째 뺀다.
-        const stripped = sentence.replace(/(?:(?:멋진|뛰어난|높은|탁월한|놀라운|대단한|침착한)\s*)?집중력(?:을\s*바탕으로|으로|\s*있는|\s*있게)\s+/gu, '');
-        return /집중력/u.test(stripped) ? null : stripped;
+        && !/집중력[^.!?\n]{0,20}(?:의미하지\s*않|판단할\s*수\s*없|판단하기\s*어렵|알\s*수\s*없|측정하지|측정할\s*수\s*없|측정되지|평가할\s*수\s*없|관측되지)/u.test(sentence)) {
+        // 꾸밈말(…집중력으로/집중력 있는)과 측정 지표와 나열된 "집중력과/와/및"만 지운다. 나머지 서술은 살린다.
+        // 서술어를 이루는 표현은 문장째 뺀다.
+        const stripped = sentence
+          .replace(/(?:(?:멋진|뛰어난|높은|탁월한|놀라운|대단한|침착한)\s*)?집중력(?:을\s*바탕으로|으로|\s*있는|\s*있게)\s+/gu, '')
+          .replace(/(?:교전\s*)?집중력\s*(?:과|와|및)\s+/gu, '');
+        if (/집중력/u.test(stripped)) return null;
+        // 나열을 뗀 뒤 남은 우열 서술은 비교 근거가 없으면 쓰지 않는다. 문장 자리에는 관측된 기여 사실을 쓰고, 짧은 칭호·제목은 뺀다.
+        if (/(?:높|낮|우수|뛰어|탁월|훌륭|부족|양호|좋)/u.test(stripped) && !/비교|평균|상위|동일\s*티어/u.test(stripped)) {
+          return key === 'signature' || key === 'title' ? null : contributionFacts;
+        }
+        return stripped;
       }
       if (/무책임|무능|민폐|한심|성의\s*없|게으른|이기적/u.test(sentence)) {
         return key === 'signature' ? '경기 기록 점검' : null;
@@ -91,11 +109,10 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
         return key === 'title' ? '투척 결과 확인' : `피해형 투척은 ${lethal}회라 명중률을 판단하기 어렵습니다. 다음 경기에서는 투척 후 피해가 들어갔는지 확인해 보세요.`;
       }
       // 행동 제안(desc)의 사용량·명중률 증가 지시는 표본 부족 시 점검 질문으로 바꾸고, 부정형 권고는 그대로 둔다.
-      if (key === 'desc' && smallThrowSample && /투척|수류탄|유틸리티/u.test(sentence)
-        && ((/늘리|늘려|늘릴|높이|높여|높일|올리|올려|올릴|끌어올리|끌어올려|끌어올릴|향상|키우|키워|키울/u.test(sentence) && /사용|빈도|횟수|명중|적중|정확|정밀|활용/u.test(sentence))
-          || /(?:더\s*)?(?:많이|자주)\s*(?:던지|사용|활용)/u.test(sentence))
-        && !/필요(?:는|가|도)?\s*없|필요하지\s*않|지\s*않|말고|마세요|마십시오/u.test(sentence)) {
-        return '다음 경기에서는 투척을 쓸 수 있었던 교전이 있었는지 확인해 보세요.';
+      if (smallThrowSample && /투척|수류탄|유틸리티/u.test(sentence) && isThrowUsageDirective(sentence)) {
+        if (key === 'desc') return throwUsageCheck;
+        // 요약·판단 문장의 사용량 증가 지시는 표본이 부족하면 보류 문장으로 바꾼다. 점검 질문은 행동 제안에만 쓴다.
+        if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key)) return `${factPrefix(sentence)}투척은 총 ${total}회라 사용량 증감을 판단하기에는 표본이 적습니다.`;
       }
       if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && /최전선|전방에서|선두에서|앞장서/u.test(sentence)) {
         return '관측 기록만으로 전방 위치나 교전 의도를 단정할 수 없습니다.';
@@ -193,6 +210,14 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     }
     return value;
   };
+  // desc가 소표본 점검 문장으로 바뀐 행동 제안은 title도 근거 수준에 맞는 중립 문장으로 맞춘다.
+  // 표본이 충분하면 title과 desc를 그대로 둔다. desc 결과만 보므로 재적용해도 같은 값이 나온다.
+  const syncSmallSampleTitle = (item: Record<string, unknown>): Record<string, unknown> => {
+    if (typeof item.title !== 'string' || typeof item.desc !== 'string') return item;
+    if (smallThrowSample && item.desc.includes(throwUsageCheck)) return { ...item, title: throwUsageTitle };
+    if (lethal !== null && lethal > 0 && lethal < 3 && lethalAccuracyCheck.test(item.desc)) return { ...item, title: '투척 결과 확인' };
+    return item;
+  };
   const visit = (value: unknown, key = ''): unknown => {
     if (typeof value === 'string') return clean(value, key);
     if (Array.isArray(value)) {
@@ -200,7 +225,10 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       // 근거가 모두 빠진 행동 제안은 상투 문장으로 채우지 않고 항목째 뺀다.
       return key === 'actionItems' ? items.filter(item => !(item && typeof item === 'object' && (item as Record<string, unknown>).desc === '')) : items;
     }
-    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, visit(item, name)]));
+    if (value && typeof value === 'object') {
+      const mapped = Object.fromEntries(Object.entries(value).map(([name, item]) => [name, visit(item, name)]));
+      return key === 'actionItems' ? syncSmallSampleTitle(mapped) : mapped;
+    }
     return value;
   };
   try { return JSON.stringify(visit(JSON.parse(text))); } catch { return clean(text, 'briefFeedback'); }

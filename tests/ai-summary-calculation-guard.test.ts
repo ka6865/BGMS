@@ -279,7 +279,7 @@ describe("계산 5 비교 지표의 이전 계산 경기 가드", () => {
       };
     }
 
-    function createSupabaseMock(matches: ReturnType<typeof createSummaryMatch>[]) {
+    function createSupabaseMock(matches: ReturnType<typeof createSummaryMatch>[], tierOverrides: Record<string, unknown> = {}) {
       const rows = matches.map((fullResult) => ({
         match_id: fullResult.matchId,
         player_id: "player_a",
@@ -289,7 +289,7 @@ describe("계산 5 비교 지표의 이전 계산 경기 가드", () => {
       const tables: Record<string, unknown> = {
         player_ai_summary_cache: createQueryChain(),
         processed_match_telemetry: createQueryChain({ data: rows, error: null }),
-        benchmark_stats_by_tier_v2: createQueryChain({ data: tierRow, error: null }),
+        benchmark_stats_by_tier_v2: createQueryChain({ data: { ...tierRow, ...tierOverrides }, error: null }),
         global_benchmarks: createQueryChain({ data: [], error: null }),
       };
       return {
@@ -405,6 +405,65 @@ describe("계산 5 비교 지표의 이전 계산 경기 가드", () => {
 
       expect(rows.find((row: any) => row.metricId === "initiative_rate")).toMatchObject({ status: "comparable", benchmarkValue: "35%" });
       expect(rows.find((row: any) => row.metricId === "initiative_rate")).not.toHaveProperty("legacyCalculationMatchCount");
+    });
+
+    // 최근 5판과 이전 5판의 교전 승률 추세. 한쪽 창이라도 이전 계산 경기가 있으면 승률 추세는 비교 근거가 아니다.
+    const trendMatches = (priorIndex?: number) => Array.from({ length: 10 }, (_, index) => createSummaryMatch(`trend-${index}`, {
+      createdAt: new Date(Date.now() - (index + 1) * 3_600_000).toISOString(),
+      duelStats: index < 5 ? { wins: 3, losses: 0 } : { wins: 0, losses: 3 },
+      ...(index === priorIndex ? { calculationVersion: ANALYSIS_CALCULATION_VERSION - 1 } : {}),
+    }));
+
+    it("이전 계산 경기가 한 창에라도 섞이면 교전 승률 추세와 창별 승률을 내지 않고 딜량 추세는 유지한다", async () => {
+      const matches = trendMatches(7);
+      mockWithAuth(createSupabaseMock(matches));
+      const response = await aiSummaryPOST(createRequest({ matchIds: matches.map((m) => m.matchId), nickname: "Player_A", platform: "kakao", force: true }));
+      const visuals = parseNdjson(await response.text()).find((record) => record.type === "visuals")?.data;
+
+      expect(visuals.trends).toMatchObject({ dmgTrend: 0, winTrend: null, recent: { winRate: null }, older: { winRate: null } });
+      expect(mocks.prompts[0]).toContain("교전 승률: 계산 기준이 달라 창 간 변화 비교 보류");
+      expect(mocks.prompts[0]).not.toMatch(/교전 승률: [^\n]*→/);
+    });
+
+    it("계산 5 경기만 있으면 교전 승률 추세와 창별 승률을 그대로 낸다", async () => {
+      const matches = trendMatches();
+      mockWithAuth(createSupabaseMock(matches));
+      const response = await aiSummaryPOST(createRequest({ matchIds: matches.map((m) => m.matchId), nickname: "Player_A", platform: "kakao", force: true }));
+      const visuals = parseNdjson(await response.text()).find((record) => record.type === "visuals")?.data;
+
+      expect(visuals.trends).toMatchObject({ dmgTrend: 0, winTrend: 100, recent: { winRate: 100 }, older: { winRate: 0 } });
+      expect(mocks.prompts[0]).toMatch(/교전 승률: [^\n]*→[^\n]*\(\+100%\)/);
+    });
+
+    // 백업 기준(visuals.backupTier, benchmarkScope)도 이전 계산 경기가 섞이면 계산 5 평균을 쓰지 않는다.
+    const slowBackupStats = { teammateKnocks: 1, tradeKills: 1, suppCount: 1, revCount: 1, smokeCount: 1, smokeRescues: 1, reactionLatencyMs: 600, tradeLatencyMs: 19000 };
+    const slowBackupTier = { avg_trade_latency_ms: 16000, avg_trade_latency_ms_count: 30 };
+
+    it("이전 계산 경기가 섞이면 visuals의 백업 판정과 비교 표본 수에 계산 5 백업 기준을 쓰지 않는다", async () => {
+      const matches = [
+        createSummaryMatch("backup-prior", { calculationVersion: ANALYSIS_CALCULATION_VERSION - 1, tradeStats: slowBackupStats }),
+        createSummaryMatch("backup-v5", { tradeStats: slowBackupStats }),
+      ];
+      mockWithAuth(createSupabaseMock(matches, slowBackupTier));
+      const response = await aiSummaryPOST(createRequest({ matchIds: matches.map((m) => m.matchId), nickname: "Player_A", platform: "kakao", force: true }));
+      const visuals = parseNdjson(await response.text()).find((record) => record.type === "visuals")?.data;
+
+      // 계산 5 기준 16초를 빼면 19초는 기준 없이(12초 기본) 지연 백업으로 보고 복구 성공 맥락으로 분류된다.
+      expect(visuals.backupTier).toBe("B");
+      expect(visuals.benchmarkScope?.metricSampleCounts?.avgTradeLatency ?? null).toBeNull();
+    });
+
+    it("계산 5 경기만 있으면 visuals의 백업 판정은 계산 5 기준을 반영한다", async () => {
+      const matches = [
+        createSummaryMatch("backup-v5-a", { tradeStats: slowBackupStats }),
+        createSummaryMatch("backup-v5-b", { tradeStats: slowBackupStats }),
+      ];
+      mockWithAuth(createSupabaseMock(matches, slowBackupTier));
+      const response = await aiSummaryPOST(createRequest({ matchIds: matches.map((m) => m.matchId), nickname: "Player_A", platform: "kakao", force: true }));
+      const visuals = parseNdjson(await response.text()).find((record) => record.type === "visuals")?.data;
+
+      expect(visuals.backupTier).toBe("C");
+      expect(visuals.benchmarkScope?.metricSampleCounts?.avgTradeLatency).toBe(30);
     });
   });
 });

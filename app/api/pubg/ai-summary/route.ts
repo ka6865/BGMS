@@ -20,6 +20,7 @@ import { selectSummaryDebateTopics } from "@/lib/pubg-analysis/aiSummaryTopics";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
+import { sanitizeLegacySummaryJudgment } from "@/lib/pubg-analysis/aiSummaryJudgment";
 import {
   hasUnsupportedAiSummaryMode,
   normalizeAiSummaryDebatePayload,
@@ -1852,7 +1853,9 @@ export async function POST(request: Request) {
       const olderStats = aggregateMatches(olderMatches);
       if (recentStats && olderStats) {
         const dmgTrend = Math.round(recentStats.avgDamage - olderStats.avgDamage);
-        const winTrend = recentStats.avgDuelWinRate !== null && olderStats.avgDuelWinRate !== null
+        // 1:1 교전 승률은 계산 5에서 정의가 바뀌었다. 두 창 중 한쪽이라도 이전 계산 경기가 섞이면 창 간 승률 변화는 비교 근거가 아니다.
+        const winRateMixed = countPriorCalculationMatches(recentMatches) > 0 || countPriorCalculationMatches(olderMatches) > 0;
+        const winTrend = !winRateMixed && recentStats.avgDuelWinRate !== null && olderStats.avgDuelWinRate !== null
           ? Number((recentStats.avgDuelWinRate - olderStats.avgDuelWinRate).toFixed(1))
           : null;
         const status = dmgTrend > 50 ? '📈 실력 상승세' : dmgTrend < -50 ? '📉 컨디션 하락세' : '➡️ 안정권 유지';
@@ -1861,18 +1864,22 @@ export async function POST(request: Request) {
           dmgTrend,
           winTrend,
           status,
-          recent: { damage: Math.floor(recentStats.avgDamage), winRate: recentStats.avgDuelWinRate },
-          older: { damage: Math.floor(olderStats.avgDamage), winRate: olderStats.avgDuelWinRate }
+          recent: { damage: Math.floor(recentStats.avgDamage), winRate: winRateMixed ? null : recentStats.avgDuelWinRate },
+          older: { damage: Math.floor(olderStats.avgDamage), winRate: winRateMixed ? null : olderStats.avgDuelWinRate }
         };
 
         userPrompt += `\n### [최근 트렌드 (최근 5판 vs 이전 5판)]\n`;
         userPrompt += `- 딜량 변화: ${Math.floor(olderStats.avgDamage)} → ${Math.floor(recentStats.avgDamage)} (${dmgTrend >= 0 ? '+' : ''}${dmgTrend})\n`;
-        const recentWinRateText = formatObservedPercent(recentStats.avgDuelWinRate);
-        const olderWinRateText = formatObservedPercent(olderStats.avgDuelWinRate);
-        const winTrendText = winTrend === null
-          ? "변화 측정 불가"
-          : `${winTrend >= 0 ? '+' : ''}${winTrend}%`;
-        userPrompt += `- 교전 승률: ${olderWinRateText} → ${recentWinRateText} (${winTrendText})\n`;
+        if (winRateMixed) {
+          userPrompt += `- 교전 승률: 계산 기준이 달라 창 간 변화 비교 보류\n`;
+        } else {
+          const recentWinRateText = formatObservedPercent(recentStats.avgDuelWinRate);
+          const olderWinRateText = formatObservedPercent(olderStats.avgDuelWinRate);
+          const winTrendText = winTrend === null
+            ? "변화 측정 불가"
+            : `${winTrend >= 0 ? '+' : ''}${winTrend}%`;
+          userPrompt += `- 교전 승률: ${olderWinRateText} → ${recentWinRateText} (${winTrendText})\n`;
+        }
         userPrompt += `- 종합 추세: ${status}\n`;
       }
     }
@@ -2241,6 +2248,8 @@ export async function POST(request: Request) {
     }
 
     const reactionTier = (lat: string) => lat === "측정 불가" ? "측정 불가" : "평가 보류";
+    // 시각화의 백업 판정과 비교 표본 수도 카드·프롬프트와 같은 기준을 쓴다. 개인 값은 최근 10판(selectedMatches) 기준이다.
+    const visualBench = withoutCalculation5Benchmark(mainBench, countPriorCalculationMatches(selectedMatches));
     const backupContextForVisuals = buildBackupCoachingContext({
       avgBackupLatency,
       totalTradeKills,
@@ -2248,7 +2257,7 @@ export async function POST(request: Request) {
       totalSmokeRescues,
       totalTeamWipes: masteryStats.totalTeamWipes,
       totalTeammateKnocks,
-      benchmarkTradeLatency: mainBench?.avgTradeLatency,
+      benchmarkTradeLatency: visualBench?.avgTradeLatency,
     });
 
     const isolationVisual = (
@@ -2280,15 +2289,15 @@ export async function POST(request: Request) {
         teammateCount: Math.round(totalTeammateCountFinal / teammateCountFinal),
       } : {}),
       userTier: mainUserTier,
-      ...(mainBench?.avgIsolationIndex !== undefined ? { benchmarkIsolationIndex: mainBench.avgIsolationIndex } : {}),
-      ...(mainBench?.avgMinDist !== undefined ? { benchmarkMinDist: mainBench.avgMinDist } : {}),
-      ...(mainBench && mainBenchContext ? {
+      ...(visualBench?.avgIsolationIndex !== undefined ? { benchmarkIsolationIndex: visualBench.avgIsolationIndex } : {}),
+      ...(visualBench?.avgMinDist !== undefined ? { benchmarkMinDist: visualBench.avgMinDist } : {}),
+      ...(visualBench && mainBenchContext ? {
         benchmarkScope: {
           gameMode: mainBenchContext.gameMode,
           matchType: mainBenchContext.matchType,
           tier: mainBenchContext.tier,
-          sampleCount: mainBench.sampleCount,
-          ...(mainBench.metricSampleCounts ? { metricSampleCounts: mainBench.metricSampleCounts } : {}),
+          sampleCount: visualBench.sampleCount,
+          ...(visualBench.metricSampleCounts ? { metricSampleCounts: visualBench.metricSampleCounts } : {}),
         },
       } : {}),
     } : null;
@@ -2302,13 +2311,13 @@ export async function POST(request: Request) {
       latestMatchTime, latestMatchCount: selectedMatches.length, bestMatchCount: bestMatches.length,
       counterLatency: avgBackupLatency, reactionLatency: avgMeasuredReactionLatency,
       reactionTier: reactionTier(avgMeasuredReactionLatency), backupTier: backupContextForVisuals.tier, overallTier: mainUserTier, tierScope: mainTierScope, tierMatchCount: mainTierMatchCount, roleInfo,
-      ...(mainBench && mainBenchContext ? {
+      ...(visualBench && mainBenchContext ? {
         benchmarkScope: {
           gameMode: mainBenchContext.gameMode,
           matchType: mainBenchContext.matchType,
           tier: mainBenchContext.tier,
-          sampleCount: mainBench.sampleCount,
-          ...(mainBench.metricSampleCounts ? { metricSampleCounts: mainBench.metricSampleCounts } : {}),
+          sampleCount: visualBench.sampleCount,
+          ...(visualBench.metricSampleCounts ? { metricSampleCounts: visualBench.metricSampleCounts } : {}),
         },
       } : {}),
       tierBreakdown: finalTierBreakdown,
@@ -2468,7 +2477,8 @@ export async function POST(request: Request) {
         canonicalEvidence,
       });
       if (!normalized) return null;
-      return JSON.stringify(sanitizeSummaryPayload(normalized));
+      // 이 함수는 새 응답 저장과 캐시 읽기에 모두 쓰이므로 판단 문자열 정책도 여기서 함께 적용한다.
+      return JSON.stringify(sanitizeLegacySummaryJudgment(sanitizeSummaryPayload(normalized)));
     };
 
     // Cache lookup must happen after every effective prompt/visual/benchmark
