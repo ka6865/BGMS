@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
+import { AI_GENERATION_DISABLED_ERROR_CODE, AI_GENERATION_DISABLED_MESSAGE, isAiGenerationDisabled } from "@/lib/pubg-analysis/aiGenerationSwitch";
 import { AI_MATCH_PROMPT_VERSION, isSupportedAnalysisCalculationVersion, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
@@ -248,6 +249,12 @@ export async function POST(request: Request) {
       console.warn("[AI-ANALYZE] Cache lookup failed:", dbErr);
     }
     if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
+
+    // 차단 스위치는 캐시 적중 뒤에 둔다. 적중한 분석은 계속 돌려주고, 새 생성만 막는다.
+    if (isAiGenerationDisabled()) {
+      trackAiFailure(authenticatedUserId, "analyze", AI_GENERATION_DISABLED_ERROR_CODE, { errorCode: AI_GENERATION_DISABLED_ERROR_CODE, durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: AI_GENERATION_DISABLED_MESSAGE, errorCode: AI_GENERATION_DISABLED_ERROR_CODE, retryable: false }, { status: 503 });
+    }
 
     const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!apiKey) {
