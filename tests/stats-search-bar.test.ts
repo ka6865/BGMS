@@ -223,4 +223,27 @@ describe("StatsSearchBar 접근성 및 키보드 동작", () => {
     expect(props.onFavoriteToggle).toHaveBeenCalledWith("Recent", "steam");
     expect(props.onRecentRemove).toHaveBeenCalledWith("Recent", "steam");
   });
+
+  it("Safari처럼 버튼에 focus가 가지 않아도 최근 검색·즐겨찾기 클릭이 닫힘보다 먼저 막히지 않는다", () => {
+    const { props } = renderSearchBar({
+      nickname: "",
+      suggestions: [],
+      recentSearches: [{ nickname: "Recent", platform: "steam" }],
+    });
+    const input = screen.getByLabelText("닉네임");
+    // Safari 순서: mousedown → (기본 동작이 남아 있으면) relatedTarget 없는 입력창 blur → click
+    const safariClick = (name: string) => {
+      const button = screen.getByRole("button", { name });
+      if (fireEvent.mouseDown(button)) fireEvent.blur(input, { relatedTarget: null });
+      fireEvent.click(button);
+    };
+
+    safariClick("Recent 스팀 즐겨찾기 추가");
+    safariClick("Recent 스팀 최근 검색 삭제");
+    safariClick("Recent 스팀으로 검색");
+
+    expect(props.onFavoriteToggle).toHaveBeenCalledWith("Recent", "steam");
+    expect(props.onRecentRemove).toHaveBeenCalledWith("Recent", "steam");
+    expect(props.onQuickSearch).toHaveBeenCalledWith("Recent", "steam");
+  });
 });

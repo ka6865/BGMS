@@ -183,7 +183,8 @@ export function StatsSearchBar({
               )}
 
               {(nickname.trim().length < 2 || suggestions.length === 0) && items.length > 0 && (
-                <div role="region" aria-label="즐겨찾기 및 최근 검색">
+                // Safari는 클릭한 버튼에 focus를 주지 않으므로 입력창 blur로 popup이 먼저 닫히지 않게 막는다
+                <div role="region" aria-label="즐겨찾기 및 최근 검색" onMouseDown={(event) => event.preventDefault()}>
                   {items.map((item) => {
                 const favorite = favorites.some(entry => statsSearchKey(entry) === statsSearchKey(item));
                 return (
