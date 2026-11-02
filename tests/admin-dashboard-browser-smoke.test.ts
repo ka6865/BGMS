@@ -467,6 +467,74 @@ describe.skipIf(!enabled)("관리자 대시보드 격리 브라우저 검증", (
     }
   }, 120_000);
 
+  it.each(viewports)("패치노트 Actions 요청·취소·오류 안내 $width × $height", async (viewport) => {
+    let fail = false;
+    const { context, page, errors, requests } = await openAdminPage({
+      browser, baseUrl: server.baseUrl, supabaseUrl, viewport, unexpected,
+      handler: ({ path }) => {
+        if (path === "/api/admin/dashboard") return { body: {} };
+        if (path === "/api/admin/settings") return { body: { success: true, settings: {} } };
+        if (path === "/api/admin/patch-notes/run") return fail
+          ? { status: 503, body: { error: "GitHub Actions 실행 토큰이 설정되지 않았습니다." } }
+          : { status: 202, delayMs: 600, body: { success: true, message: "패치노트 동기화 실행을 요청했습니다." } };
+        if (path === "/api/admin/patch-notes/sync") return { status: 500, body: { error: "직접 동기화 검증 오류" } };
+        return undefined;
+      },
+    });
+    const runs = () => requests.filter((request) => request.path === "/api/admin/patch-notes/run");
+    const button = '[data-testid="patch-notes-actions-run"]';
+    try {
+      await page.goto(`${server.baseUrl}/admin/game-data`, { waitUntil: "domcontentloaded" });
+      await waitText(page, "M416");
+      if (viewport.width < 768) await page.select('select[aria-label="편집할 데이터 분류"]', "system");
+      else await clickText(page, "시스템 설정", "nav button");
+      await page.waitForSelector(button);
+      const sourceUrl = "https://pubg.com/ko/news/11057";
+      await page.type("#manual-sync-url", sourceUrl);
+      await page.click(button);
+      await waitText(page, "기존 자동 수집과 동일하게 처리됩니다.");
+      await clickText(page, "취소", CONFIRM_MODAL_BUTTON);
+      expect(runs()).toHaveLength(0);
+      await page.click(button);
+      await clickText(page, "확인", CONFIRM_MODAL_BUTTON);
+      await page.waitForFunction((selector) => (document.querySelector(selector) as HTMLButtonElement)?.disabled, {}, button);
+      expect(await page.$eval("#sync-btn", (element) => (element as HTMLButtonElement).disabled)).toBe(true);
+      await waitText(page, "패치노트 동기화 실행을 요청했습니다.");
+      await page.waitForFunction((selector) => !(document.querySelector(selector) as HTMLButtonElement)?.disabled, {}, button);
+      expect(runs()).toHaveLength(1);
+      expect(runs()[0].method).toBe("POST");
+      expect(requests.filter((request) => request.path === "/api/admin/patch-notes/sync")).toHaveLength(0);
+      expect(await page.$eval("#manual-sync-url", (element) => (element as HTMLInputElement).value)).toBe(sourceUrl);
+      expect(page.url()).toContain("/admin/game-data");
+      expect(await page.$eval('a[href*="actions/workflows/patch-notes-sync.yml"]', (element) => element.getAttribute("target"))).toBe("_blank");
+      fail = true;
+      await page.click(button);
+      await clickText(page, "확인", CONFIRM_MODAL_BUTTON);
+      await waitText(page, "GitHub Actions 실행 토큰이 설정되지 않았습니다.");
+      await page.waitForFunction((selector) => !(document.querySelector(selector) as HTMLButtonElement)?.disabled, {}, button);
+      expect(runs()).toHaveLength(2);
+      expect(await hasNoHorizontalOverflow(page)).toBe(true);
+      const fits = await page.$eval(button, (element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width <= innerWidth && rect.height >= 44 && element.scrollWidth <= element.clientWidth;
+      });
+      expect(fits).toBe(true);
+      await page.screenshot({ path: shot("patch-notes-actions", viewport) });
+      await page.click("#sync-btn");
+      await waitText(page, `입력하신 URL(${sourceUrl})`);
+      await clickText(page, "확인", CONFIRM_MODAL_BUTTON);
+      await waitText(page, "직접 동기화 검증 오류");
+      const direct = requests.filter((request) => request.path === "/api/admin/patch-notes/sync");
+      expect(direct).toHaveLength(1);
+      expect(direct[0].body).toEqual({ url: sourceUrl });
+      expect(runs()).toHaveLength(2);
+      expect(errors).toEqual([]);
+      expect(unexpected).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  }, 90_000);
+
   it.each(viewports)("일부 운영 정보 조회 실패를 확인 불가로 표시 $width × $height", async (viewport) => {
     // 서버가 일부 집계를 읽지 못해 기본값(0)으로 채운 응답. 화면은 0건을 정상으로 보여주면 안 된다.
     const degradedPayload = {
