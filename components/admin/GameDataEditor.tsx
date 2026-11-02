@@ -26,7 +26,7 @@ export default function GameDataEditor() {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const [isSyncConfirmOpen, setIsSyncConfirmOpen] = useState(false);
+  const [syncMode, setSyncMode] = useState<"url" | "actions" | null>(null);
   const [syncTargetUrl, setSyncTargetUrl] = useState<string | null>(null);
 
   const [dashboardData, setDashboardData] = useState<any>(null);
@@ -636,21 +636,30 @@ export default function GameDataEditor() {
   };
 
   const executeSync = async () => {
-    setIsSyncConfirmOpen(false);
+    const viaActions = syncMode === "actions";
+    setSyncMode(null);
     setIsSaving(true);
     const manualUrl = syncTargetUrl || "";
     const urlInput = document.getElementById("manual-sync-url") as HTMLInputElement;
 
     try {
-      const apiUrl = `/api/admin/patch-notes/sync`;
+      const { data: { session } } = await supabase.auth.getSession();
+      const apiUrl = viaActions ? "/api/admin/patch-notes/run" : "/api/admin/patch-notes/sync";
       const res = await fetch(apiUrl, { 
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: manualUrl })
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+        },
+        body: viaActions ? undefined : JSON.stringify({ url: manualUrl })
       });
       const result = await res.json();
       
-      if (result.success) {
+      if (res.ok && result.success) {
+        if (viaActions) {
+          toast.success(result.message);
+          return;
+        }
         toast.success("동기화 완료! (" + (result.details?.join(", ") || "내역 없음") + ")");
         if (urlInput) urlInput.value = ""; // 성공 시 비우기
         router.push("/board");
@@ -1229,16 +1238,37 @@ export default function GameDataEditor() {
                 <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333] space-y-4">
                   <h3 className="text-lg font-bold text-[#F2A900]">패치노트 데이터 수동 동기화</h3>
                   <p className="text-sm text-gray-400">
-                    공식 PUBG 패치노트 뉴스를 크롤링하여 무기 및 아이템 스탯 데이터를 동기화합니다.<br/>
-                    특정 뉴스 URL을 입력하거나 빈칸으로 제출하여 전체 자동 동기화를 진행할 수 있습니다.
+                    공식 PUBG 뉴스를 수집하고 AI 요약을 게시판 초안으로 저장합니다. 무기 변경 제안은 별도 검토 후 적용합니다.<br/>
+                    URL을 입력해 직접 동기화하거나, GitHub Actions에서 기존 자동 수집 스크립트를 실행할 수 있습니다.
                   </p>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <button
+                      type="button"
+                      data-testid="patch-notes-actions-run"
+                      onClick={() => setSyncMode("actions")}
+                      disabled={isSaving}
+                      className="min-h-11 px-4 py-2.5 rounded-lg text-sm font-bold border border-[#F2A900]/30 text-[#F2A900] bg-[#F2A900]/10 hover:bg-[#F2A900]/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      {isSaving ? "동기화 요청 처리 중..." : "GitHub Actions로 동기화"}
+                    </button>
+                    <a
+                      href="https://github.com/ka6865/BGMS/actions/workflows/patch-notes-sync.yml"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-11 items-center text-sm text-gray-400 underline hover:text-white"
+                    >
+                      Actions 실행 내역 (새 탭)
+                    </a>
+                  </div>
+                  <p className="text-xs text-gray-500">최신 뉴스 1건을 확인하며 이미 동기화한 뉴스는 건너뜁니다. 일일 유지보수 실행 중에는 대기할 수 있습니다.</p>
                   <div className="flex flex-col sm:flex-row gap-3 max-w-[600px]">
                     <input
                       id="manual-sync-url"
                       name="manual_url"
                       type="text"
                       placeholder="수동 동기화 뉴스 URL (선택사항)"
-                      className="flex-1 bg-[#222] border border-[#333] rounded px-4 py-2.5 text-sm focus:outline-none focus:border-[#F2A900]"
+                      aria-label="수동 동기화 뉴스 URL"
+                      className="min-w-0 flex-1 bg-[#222] border border-[#333] rounded px-4 py-2.5 text-sm focus:outline-none focus:border-[#F2A900]"
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           const btn = document.getElementById("sync-btn");
@@ -1252,7 +1282,7 @@ export default function GameDataEditor() {
                         const urlInput = document.getElementById("manual-sync-url") as HTMLInputElement;
                         const manualUrl = urlInput?.value.trim() || "";
                         setSyncTargetUrl(manualUrl);
-                        setIsSyncConfirmOpen(true);
+                        setSyncMode("url");
                       }}
                       disabled={isSaving}
                       className={`px-6 py-2.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap cursor-pointer ${
@@ -2194,16 +2224,18 @@ export default function GameDataEditor() {
       />
 
       <ConfirmModal
-        isOpen={isSyncConfirmOpen}
+        isOpen={syncMode !== null}
         onCancel={() => {
-          setIsSyncConfirmOpen(false);
+          setSyncMode(null);
           setSyncTargetUrl(null);
         }}
         onConfirm={executeSync}
         title="패치노트 동기화"
         type="info"
         description={
-          syncTargetUrl
+          syncMode === "actions"
+            ? "GitHub Actions에서 최신 공식 뉴스 동기화를 실행할까요? AI 요약·초안 저장·무기 변경 제안과 설정된 Discord 알림이 기존 자동 수집과 동일하게 처리됩니다."
+            : syncTargetUrl
             ? `입력하신 URL(${syncTargetUrl})로 강제 동기화를 진행할까요?`
             : "모든 공식 뉴스를 훑어보고 최신 패치노트 전 내용을 동기화할까요?"
         }
