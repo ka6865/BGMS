@@ -57,6 +57,7 @@ const FETCH_CONCURRENCY = 8;
 interface Options {
   envFile: string;
   cache: string | null;
+  fromSample: string | null;
   reuseCache: boolean;
   json: string | null;
   ts: string | null;
@@ -77,6 +78,7 @@ function parseArgs(argv: string[]): Options {
   return {
     envFile: value("--env-file") ?? `${process.cwd()}/.env.local`,
     cache: value("--cache"),
+    fromSample: value("--from-sample"),
     reuseCache: argv.includes("--reuse-cache"),
     json: value("--json"),
     ts: value("--ts"),
@@ -179,8 +181,25 @@ interface PopulationPlayer {
   mainMode: string;
   score: number | null;
   stats: any;
-  // 선택된 최근 경기 메타(후속 지표용): 순위·팀 전멸 기여
-  selectedMeta: Array<{ matchId: string | null; winPlace: number | null; totalTeams: number | null; enemyTeamWipes: number | null; mode: string }>;
+  // 선택된 최근 경기(최대 10)의 경기별 필드. 생존·순위·팀 피해 점검과 후속 지표에 쓴다.
+  selectedMeta: PerMatchRecord[];
+}
+
+export interface PerMatchRecord {
+  matchId: string | null;
+  mode: string;
+  calc: string | null;
+  // 점수 상위 5경기 안에 들었는지
+  inBest: boolean;
+  winPlace: number | null;
+  totalTeams: number | null;
+  enemyTeamWipes: number | null;
+  teamDamageShare: number | null;
+  timeSurvived: number | null;
+  deathPhase: number | null;
+  damageDealt: number | null;
+  goldenTime: { early: number; mid1: number; mid2: number; late: number } | null;
+  distance: { short: number; mid: number; long: number } | null;
 }
 
 function candidateFromRow(row: { match_id: string; player_id: string; platform: string; data: any }, index: number) {
@@ -248,45 +267,95 @@ async function collectPopulation(sb: SupabaseClient, days: number, windowHours: 
           .eq("player_id", playerId)
           .in("match_id", rows.map((row) => row.match_id))
           .range(from, to));
-      const candidates = data
-        .map((row, rowIndex) => candidateFromRow(row, rowIndex))
-        .filter((candidate): candidate is RecentMatchCandidate<any> => Boolean(candidate))
-        .filter((candidate) => isAiSummaryEligibleMatch(candidate.value));
-      const selection = selectRecentMatches(candidates, { limit: TOP_N_MATCHES, selectionVersion: RECENT_MATCH_SELECTION_VERSION });
-      const best = selectBestMatches(selection.selected);
-      const bestValues = best.map(({ value }) => value);
-      if (bestValues.length === 0) return null;
-      const mainMode = mainModeOf(bestValues);
-      // 라우트의 티어 평균: 최고 점수 5경기 중 다수 점수 범위(solo/team)만 평균한다.
-      const scope = dominantTierScope(bestValues.map((match) => tierScopeOfMode(normalizedMatchMode(match))));
-      const scoped = bestValues.filter((match) => tierScopeOfMode(normalizedMatchMode(match)) === scope);
-      const score = scoped.length > 0
-        ? scoped.reduce((sum, match) => sum + normalizeBenchmarkScore(match?.benchmark?.score), 0) / scoped.length
-        : null;
-      const source: CalibrationSource = sourceOfCohort.get(key)
-        ?? (searchedKeys.has(key) ? "searched" : "other");
-      return {
-        key,
-        playerId,
-        platform,
-        source,
-        candidateCount: candidates.length,
-        selectedCount: selection.selected.length,
-        bestCount: bestValues.length,
-        mainMode,
-        score,
-        stats: aggregateMatches(bestValues),
-        selectedMeta: selection.selected.map(({ value }) => ({
-          matchId: value?.matchId ?? null,
-          winPlace: Number.isFinite(Number(value?.stats?.winPlace)) ? Number(value.stats.winPlace) : null,
-          totalTeams: Number.isFinite(Number(value?.totalTeams)) ? Number(value.totalTeams) : null,
-          enemyTeamWipes: Number.isFinite(Number(value?.tradeStats?.enemyTeamWipes)) ? Number(value.tradeStats.enemyTeamWipes) : null,
-          mode: normalizedMatchMode(value),
-        })),
-      } satisfies PopulationPlayer;
+      return buildPlayerRecord({ key, playerId, platform, source: sourceOfCohort.get(key) ?? (searchedKeys.has(key) ? "searched" : "other"), rows: data });
     }));
     for (const result of results) if (result) players.push(result);
     if ((offset / FETCH_CONCURRENCY) % 10 === 0) console.info(`진행 ${Math.min(offset + FETCH_CONCURRENCY, eligible.length)}/${eligible.length}`);
+  }
+  return players;
+}
+
+const numberOrNull = (value: unknown): number | null => {
+  const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+/** 한 플레이어의 DB 행(processed_match_telemetry)에서 판정 기록을 만든다. collect와 from-sample이 같이 쓴다. */
+function buildPlayerRecord(input: {
+  key: string;
+  playerId: string;
+  platform: string;
+  source: CalibrationSource;
+  rows: Array<{ match_id: string; player_id: string; platform: string; data: any }>;
+}): PopulationPlayer | null {
+  const { key, playerId, platform, source, rows } = input;
+  const candidates = rows
+    .map((row, rowIndex) => candidateFromRow(row, rowIndex))
+    .filter((candidate): candidate is RecentMatchCandidate<any> => Boolean(candidate))
+    .filter((candidate) => isAiSummaryEligibleMatch(candidate.value));
+  const selection = selectRecentMatches(candidates, { limit: TOP_N_MATCHES, selectionVersion: RECENT_MATCH_SELECTION_VERSION });
+  const best = selectBestMatches(selection.selected);
+  const bestIds = new Set(best.map((candidate) => String(candidate.id)));
+  const bestValues = best.map(({ value }) => value);
+  if (bestValues.length === 0) return null;
+  const mainMode = mainModeOf(bestValues);
+  // 라우트의 티어 평균: 최고 점수 5경기 중 다수 점수 범위(solo/team)만 평균한다.
+  const scope = dominantTierScope(bestValues.map((match) => tierScopeOfMode(normalizedMatchMode(match))));
+  const scoped = bestValues.filter((match) => tierScopeOfMode(normalizedMatchMode(match)) === scope);
+  const score = scoped.length > 0
+    ? scoped.reduce((sum, match) => sum + normalizeBenchmarkScore(match?.benchmark?.score), 0) / scoped.length
+    : null;
+  return {
+    key,
+    playerId,
+    platform,
+    source,
+    candidateCount: candidates.length,
+    selectedCount: selection.selected.length,
+    bestCount: bestValues.length,
+    mainMode,
+    score,
+    stats: aggregateMatches(bestValues),
+    selectedMeta: selection.selected.map(({ id, value }) => ({
+      matchId: value?.matchId ?? null,
+      mode: normalizedMatchMode(value),
+      calc: value?.calculationVersion === undefined ? null : String(value.calculationVersion),
+      inBest: bestIds.has(String(id)),
+      winPlace: numberOrNull(value?.stats?.winPlace),
+      totalTeams: numberOrNull(value?.totalTeams),
+      enemyTeamWipes: numberOrNull(value?.tradeStats?.enemyTeamWipes),
+      teamDamageShare: numberOrNull(value?.teamImpact?.teamDamageShare),
+      timeSurvived: numberOrNull(value?.stats?.timeSurvived),
+      deathPhase: numberOrNull(value?.deathPhase),
+      damageDealt: numberOrNull(value?.stats?.processedDamageDealt ?? value?.stats?.damageDealt),
+      goldenTime: value?.goldenTimeDamage
+        ? { early: numberOrNull(value.goldenTimeDamage.early) ?? 0, mid1: numberOrNull(value.goldenTimeDamage.mid1) ?? 0, mid2: numberOrNull(value.goldenTimeDamage.mid2) ?? 0, late: numberOrNull(value.goldenTimeDamage.late) ?? 0 }
+        : null,
+      distance: value?.itemUseStats?.distanceDamage
+        ? { short: numberOrNull(value.itemUseStats.distanceDamage.short) ?? 0, mid: numberOrNull(value.itemUseStats.distanceDamage.mid) ?? 0, long: numberOrNull(value.itemUseStats.distanceDamage.long) ?? 0 }
+        : null,
+    })),
+  };
+}
+
+/** 저장된 표본의 경기 ID로 같은 행을 다시 읽어 기록을 만든다(기간 창 이동 없이 같은 표본을 재현한다). */
+async function refreshPopulation(sb: SupabaseClient, sample: PopulationPlayer[]): Promise<PopulationPlayer[]> {
+  const players: PopulationPlayer[] = [];
+  for (let offset = 0; offset < sample.length; offset += FETCH_CONCURRENCY) {
+    const batch = sample.slice(offset, offset + FETCH_CONCURRENCY);
+    const results = await Promise.all(batch.map(async (previous) => {
+      const ids = previous.selectedMeta.map((match) => match.matchId).filter((id): id is string => Boolean(id));
+      const data = await fetchAll<{ match_id: string; player_id: string; platform: string; data: any }>((from, to) =>
+        sb.from("processed_match_telemetry")
+          .select("match_id, player_id, platform, data")
+          .eq("platform", previous.platform)
+          .eq("player_id", previous.playerId)
+          .in("match_id", ids)
+          .range(from, to));
+      return buildPlayerRecord({ key: previous.key, playerId: previous.playerId, platform: previous.platform, source: previous.source, rows: data });
+    }));
+    for (const result of results) if (result) players.push(result);
+    console.info(`재조회 ${Math.min(offset + FETCH_CONCURRENCY, sample.length)}/${sample.length}`);
   }
   return players;
 }
@@ -336,7 +405,14 @@ async function main() {
     const env = readServiceEnv(options.envFile);
     const sb = createClient(env.url, env.key, { auth: { persistSession: false, autoRefreshToken: false } });
     collectedAt = new Date().toISOString();
-    population = await collectPopulation(sb, options.days, options.windowHours);
+    if (options.fromSample) {
+      // 저장된 표본과 같은 플레이어·경기 ID만 다시 읽는다. 기간 창을 새로 잡지 않는다.
+      const sample = JSON.parse(readFileSync(options.fromSample, "utf8")).players as PopulationPlayer[];
+      population = await refreshPopulation(sb, sample);
+      console.info(`표본 재조회: ${options.fromSample} -> ${population.length}명`);
+    } else {
+      population = await collectPopulation(sb, options.days, options.windowHours);
+    }
     if (options.cache) {
       mkdirSync(dirname(options.cache), { recursive: true });
       writeFileSync(options.cache, JSON.stringify({ collectedAt, windowDays: options.days, players: population }));

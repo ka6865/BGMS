@@ -4,8 +4,29 @@
  * AI 전적 요약 라우트와 칭호 기준 재산출 스크립트(scripts/recalibrate_role_reference.ts)가 같은 함수를 쓴다.
  * 라우트에서 옮긴 동작 불변 이동이며, 집계 규칙을 바꾸면 두 소비자가 함께 바뀐다.
  */
-import { WEAPON_NAMES } from "./constants";
+import { ANALYSIS_CALCULATION_VERSION, WEAPON_NAMES } from "./constants";
 import { firstReplyFailureRate, firstReplyLatencyMs } from "./firstReply";
+
+/** 경기의 모드 문자열(소문자, 공백 제거). 라우트의 모드 분류와 같은 필드 순서를 쓴다. */
+export function normalizedMatchMode(match: any): string {
+  const rawMode = match?.gameMode
+    ?? match?.game_mode
+    ?? match?.mode
+    ?? match?.matchInfo?.mode;
+  return String(rawMode ?? "").trim().toLowerCase();
+}
+
+/**
+ * 모드 이름에서 팀 인원 수를 구한다. 듀오 2명, 스쿼드 4명이며 그 밖의 모드는 null이다(팀 비중 보정 대상 아님).
+ * 공정 분담은 100 / 인원 수(듀오 50%, 스쿼드 25%)다.
+ */
+export function teamSizeOfMode(mode: unknown): number | null {
+  const text = String(mode ?? "").toLowerCase();
+  if (text.includes("solo")) return null;
+  if (text.includes("duo")) return 2;
+  if (text.includes("squad")) return 4;
+  return null;
+}
 
 export function normalizeWeaponName(weaponId: string): string {
   if (!weaponId) return "Unknown";
@@ -104,6 +125,10 @@ export function aggregateMatches(matches: any[]) {
   let totalCoverSuccess = 0, totalCoverAttempts = 0;
   let totalInitiativeSuccess = 0, totalInitiativeAttempts = 0;
   let totalCrossfireCount = 0, totalTeamWipes = 0, totalMaxHitDist: number | null = null;
+  // 칭호 배지용: 선택된 경기의 우승 횟수와, 계산 5 경기에서 내 기여로 귀속된 팀 전멸 수
+  let totalWins = 0, totalTeamWipesCalc5 = 0;
+  // 팀 피해 비중을 공정 분담(100 / 인원 수) 대비 배수로 바꾼 값의 경기별 합
+  let fairTeamDamageSum = 0, fairTeamDamageCount = 0;
   let totalDuelWins = 0, totalDuelLosses = 0, totalReversalWins = 0, totalReversalAttempts = 0;
   const metricMatchCounts: Record<string, number> = { initiative_rate: 0, duel_win_rate: 0, solo_kill_share: 0 };
   const observedUtilityThrows: Array<number | null> = [];
@@ -301,6 +326,10 @@ export function aggregateMatches(matches: any[]) {
         : Math.max(totalMaxHitDist, maxHitDistance);
     }
     totalTeamWipes += coerceNonNegativeNumber(m.tradeStats?.enemyTeamWipes);
+    if (Number(m.stats?.winPlace) === 1) totalWins++;
+    if (Number(m.calculationVersion) === ANALYSIS_CALCULATION_VERSION) {
+      totalTeamWipesCalc5 += coerceNonNegativeNumber(m.tradeStats?.enemyTeamWipes);
+    }
 
     if (m.goldenTimeDamage) {
       goldenTimeFinal.early += coerceFiniteNumber(m.goldenTimeDamage.early);
@@ -328,6 +357,12 @@ export function aggregateMatches(matches: any[]) {
     if (teamDamageShare !== null) {
       totalTeamDamageShare += teamDamageShare;
       teamDamageShareCount++;
+    }
+    // 듀오·스쿼드만 공정 분담 대비로 바꾼다(1.0 = 공정 분담). 솔로와 인원 불명 모드는 빼서 섞지 않는다.
+    const teamSize = teamSizeOfMode(normalizedMatchMode(m));
+    if (teamDamageShare !== null && teamSize !== null) {
+      fairTeamDamageSum += (Math.min(100, teamDamageShare) * teamSize) / 100;
+      fairTeamDamageCount++;
     }
     const teamKillShare = readObservedNonNegative(m.teamImpact?.teamKillShare);
     if (teamKillShare !== null) {
@@ -428,6 +463,9 @@ export function aggregateMatches(matches: any[]) {
   const avgTeamDamageShare = teamDamageShareCount > 0
     ? Number(Math.max(0, Math.min(100, totalTeamDamageShare / teamDamageShareCount)).toFixed(1))
     : null;
+  const avgTeamDamageShareFair = fairTeamDamageCount > 0
+    ? Number((fairTeamDamageSum / fairTeamDamageCount).toFixed(3))
+    : null;
   const avgTeamKillShare = teamKillShareCount > 0
     ? Number(Math.max(0, Math.min(100, totalTeamKillShare / teamKillShareCount)).toFixed(1))
     : null;
@@ -527,7 +565,8 @@ export function aggregateMatches(matches: any[]) {
       death_phase: deathPhaseCount > 0 ? totalDeathPhase / deathPhaseCount : null,
       isolation_average: isolationCountFinal > 0 ? totalIsolationIndexFinal / isolationCountFinal : null,
     },
-    mLen, avgDamage, avgKills, avgDamageImpact, avgTeamDamageShare, avgTeamKillShare, avgPlacementPct, topBadges,
+    mLen, avgDamage, avgKills, avgDamageImpact, avgTeamDamageShare, avgTeamDamageShareFair, avgTeamKillShare, avgPlacementPct, topBadges,
+    totalWins, totalTeamWipesCalc5,
     userInitiativeRate, userReversalRate, avgBackupLatency, avgReactionLatency, avgMeasuredReactionLatency, counterFailureMatches, counterObservedMatches, counterFailureRate, avgCoverRate, avgDuelWinRate,
     totalDuelWins, totalDuelLosses, totalReversalWins, totalReversalAttempts, avgDeathPhase,
     avgPressureIndex, totalLethalThrows, totalUtilityThrows, avgUtilityEfficiency, avgMinDistStr, avgHeightDiffStr,

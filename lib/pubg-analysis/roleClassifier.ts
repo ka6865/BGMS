@@ -114,8 +114,8 @@ const ROLE_DEFINITIONS: Record<Exclude<RoleKey, "fieldCommander">, RoleDefinitio
     description: "자기장 가장자리를 타며 적을 압박하고 높은 순위까지 살아남습니다.",
   },
   dropPredator: {
-    label: "핫드랍 약탈자 (Drop Predator)", title: "핫존의 포식자", metrics: ["earlyShare"],
-    description: "경기 초반에 넣는 피해 비중이 높습니다.",
+    label: "핫드랍 약탈자 (Drop Predator)", title: "핫존의 포식자", metrics: ["earlyDamagePerMatch"],
+    description: "경기 초반에 한 경기당 넣는 피해가 많습니다.",
   },
   decoy: {
     label: "미끼 전술가 (Decoy)", title: "희생의 전략가", metrics: ["baitPerMatch", "supportPerMatch"], teamOnly: true,
@@ -126,8 +126,8 @@ const ROLE_DEFINITIONS: Record<Exclude<RoleKey, "fieldCommander">, RoleDefinitio
     description: "수류탄·화염병 같은 피해형 투척물을 자주 쓰고 적중시킵니다.",
   },
   brawler: {
-    label: "근접 난전가 (Brawler)", title: "난전의 지배자", metrics: ["shortShare"],
-    description: "50m 안쪽 근거리에서 넣는 피해 비중이 높습니다.",
+    label: "근접 난전가 (Brawler)", title: "난전의 지배자", metrics: ["shortShare", "shortDamagePerMatch"],
+    description: "50m 안쪽 근거리에서 넣는 피해 비중과 양이 많습니다.",
   },
   mainGun: {
     label: "팀의 주포 (Main Gun)", title: "화력의 중심", metrics: ["teamDamageShare"], teamOnly: true,
@@ -152,6 +152,31 @@ const INSUFFICIENT = {
   description: "역할을 판정할 만큼 교전·팀 기록이 쌓이지 않았습니다.",
 };
 
+// 조합 칭호와 보조 역할을 막는 역할 쌍. 두 종류다.
+// (1) 같은 측정 분모를 공유한 쌍: shield·avenger는 아군 기절 수(teammateKnocks)를 나눠 쓴다.
+// (2) 기준 표본(2026-11-03 재산출, 계산 5, B' 가중, 판정 기준 점수 상위 집합)에서 동시 상위 빈도 lift가 2 이상이고
+//     함께 상위인 플레이어가 5명 이상인 쌍. 같은 행동을 두 번 세는 쌍이라 조합 칭호로 따로 주지 않는다.
+// 목록은 scripts/recalibrate_role_reference.ts로 기준 표를 다시 낸 뒤 같은 방식으로 갱신한다.
+const COMBO_BLOCKED_PAIRS: ReadonlyArray<readonly [RoleKey, RoleKey]> = [
+  ["shield", "avenger"],
+  ["dropPredator", "brawler"],
+  ["zoneController", "decoy"],
+  ["zoneController", "grenadier"],
+  ["executor", "zoneController"],
+  ["decoy", "grenadier"],
+  ["decoy", "crossfire"],
+  ["executor", "grenadier"],
+  ["dropPredator", "mainGun"],
+  ["brawler", "mainGun"],
+  ["phantomOverwatch", "crossfire"],
+  ["shield", "grenadier"],
+  ["shield", "zoneController"],
+  ["decoy", "brawler"],
+  ["phantomOverwatch", "grenadier"],
+  ["executor", "avenger"],
+  ["zoneController", "crossfire"],
+];
+
 // 두 역할이 모두 강할 때만 쓰는 조합 칭호. 순서와 무관하게 찾는다.
 const COMBO_TITLES: Array<[RoleKey, RoleKey, string]> = [
   ["executor", "pointMan", "선봉의 심판자"],
@@ -172,18 +197,19 @@ const METRIC_LABELS: Record<RoleMetricKey, string> = {
   initiative: "선제 타격 성공률", reactionSec: "반격 소요 시간", duelWin: "1:1 승률", reversal: "역전 승률",
   longShare: "원거리 피해 비중", shortShare: "근거리 피해 비중", maxHitDist: "최대 명중 거리",
   rescueRate: "기절 아군 구조율", tradeRate: "복수 처치율", tradeSec: "복수 속도", pressure: "압박 지수",
-  placement: "평균 순위", edgePerMatch: "자기장 가장자리 운영", earlyShare: "초반 피해 비중",
+  placement: "평균 순위", edgePerMatch: "자기장 가장자리 운영", earlyDamagePerMatch: "초반 피해량(경기당)", shortDamagePerMatch: "근거리 피해량(경기당)",
   baitPerMatch: "미끼 플레이", supportPerMatch: "처치 지원", utilityHitsPerMatch: "투척물 적중",
-  lethalPerMatch: "피해형 투척", teamDamageShare: "팀 내 피해 비중", focusFirePerMatch: "협공 타격",
+  lethalPerMatch: "피해형 투척", teamDamageShare: "팀 내 피해 기여(공정 분담 대비)", focusFirePerMatch: "협공 타격",
   assistShare: "협공 처치 비중",
 };
 
 // 값이 낮을수록 좋은 지표(초 단위 지연)는 백분위를 뒤집는다.
 const LOWER_IS_BETTER = new Set<RoleMetricKey>(["reactionSec", "tradeSec"]);
 
-// 역할 점수 기준(85점). 2026-11-03 재산출 표본에서 확정 비율이 구 기준과 ±3%p 안에 들도록 유지했다(임계는 조정하지 않음).
-// 85점은 역할별로 기준 분포의 상위 15% 수준이고, 12개 역할 중 하나라도 닿으면 확정되므로 희귀 칭호 기준이 아니다.
-const PRIMARY_MIN_PERCENTILE = 85;
+// 대표 역할 기준 점수(83점). 2026-11-03 재산출에서 검색 사용자 확정 비율이 구 기준과 같고(71.8%), B' 가중 전체는 1.2%p 낮다.
+// 뒤의 보조 역할 기준(85점)은 조합 칭호가 두 역할 모두 강할 때만 붙도록 더 높게 둔다.
+// 점수는 역할별 기준 분포의 백분위라 "상위 17% 수준"이다. 12개 역할 중 하나라도 닿으면 확정되므로 희귀 칭호 기준이 아니다.
+export const PRIMARY_MIN_PERCENTILE = 83;
 const SECONDARY_MIN_PERCENTILE = 85;
 const COMMANDER_ROLE_PERCENTILE = 75;
 const COMMANDER_MIN_ROLES = 6;
@@ -311,12 +337,16 @@ export function extractRoleMetrics(stats: any): Record<RoleMetricKey, number | n
     pressure: finiteOrNull(stats?.avgPressureIndex),
     placement: finiteOrNull(stats?.avgPlacementPct),
     edgePerMatch: perMatch(stats?.totalEdgePlay),
-    earlyShare: goldenTotal * mLen >= MIN_DISTANCE_DAMAGE ? ratio(goldenParts[0], goldenTotal) : null,
+    // 초반 피해 비중은 생존에 따라 기계적으로 바뀌어(일찍 죽으면 비중이 100%에 가깝다) 쓰지 않고, 경기당 초반 피해량을 쓴다.
+    earlyDamagePerMatch: goldenTotal * mLen >= MIN_DISTANCE_DAMAGE ? goldenParts[0] : null,
+    // 근거리 피해 비중만 보면 일찍 죽은 경기처럼 전체 피해가 작을 때 비중이 높게 나온다. 경기당 양을 함께 본다.
+    shortDamagePerMatch: distanceTotal >= MIN_DISTANCE_DAMAGE ? short / mLen : null,
     baitPerMatch: perMatch(stats?.totalBaitCount),
     supportPerMatch: perMatch(stats?.totalSuppCount),
     utilityHitsPerMatch: perMatch(stats?.totalUtilityHits),
     lethalPerMatch: perMatch(stats?.totalLethalThrows),
-    teamDamageShare: finiteOrNull(stats?.avgTeamDamageShare),
+    // 공정 분담(100 / 인원 수) 대비 배수로 바꾼 값(1.0 = 공정 분담). 솔로와 인원 불명 모드는 기록이 없다.
+    teamDamageShare: finiteOrNull(stats?.avgTeamDamageShareFair),
     focusFirePerMatch: perMatch(stats?.totalFocusFireCount),
     assistShare: killTotal >= 3 ? ratio(assist, killTotal) : null,
   };
@@ -365,6 +395,11 @@ export function roleMeanPercentiles(
 
 function formatTopShare(percentile: number): string {
   return `상위 ${Math.max(1, Math.round(100 - percentile))}%`;
+}
+
+/** 두 역할이 조합 칭호와 보조 역할 표시에서 막힌 쌍인지(순서 무관). */
+export function isComboBlocked(first: RoleKey, second: RoleKey): boolean {
+  return COMBO_BLOCKED_PAIRS.some(([a, b]) => (a === first && b === second) || (a === second && b === first));
 }
 
 function comboTitle(first: RoleKey, second: RoleKey): string | null {
@@ -438,6 +473,9 @@ export function classifyRole(stats: any, _bench: any, overallTier: string, optio
     : primaryRole === "balanced" ? BALANCED
       : primaryRole === "fieldCommander" ? FIELD_COMMANDER
         : ROLE_DEFINITIONS[primaryRole];
+  // 막힌 조합 쌍이면 보조 역할도 주지 않는다(조합 칭호와 보조 역할 표시를 함께 막는다).
+  if (secondaryRole && primaryRole !== "fieldCommander" && primaryRole !== "balanced" && primaryRole !== "insufficient"
+    && isComboBlocked(primaryRole, secondaryRole)) secondaryRole = null;
   const combo = secondaryRole && primaryRole !== "fieldCommander" && primaryRole !== "balanced" && primaryRole !== "insufficient"
     ? comboTitle(primaryRole, secondaryRole) : null;
   const roleLabel = secondaryRole
@@ -470,6 +508,11 @@ export function classifyRole(stats: any, _bench: any, overallTier: string, optio
   if (vehicleCombatSum >= 3 && (finiteOrNull(stats?.vehicleCombatMatchCount) ?? 0) >= 2) badges.push("차량 교전");
   if (weapon.isSpecial && weapon.stats.isReliable) badges.push(weapon.name);
   else if (weapon.stats.isReliable) badges.push(`${weapon.name} 주력`);
+  // 우승은 선택된 전체 경기 기준이고, 전멸 기여는 계산 5 경기에서 내 기여로 귀속된 수다(2회 이상일 때만 표시).
+  const wins = Math.max(0, finiteOrNull(stats?.totalWins) ?? 0);
+  if (wins >= 1) badges.push(`우승 ${wins}회`);
+  const wipes = Math.max(0, finiteOrNull(stats?.totalTeamWipesCalc5) ?? 0);
+  if (wipes >= 2) badges.push(`전멸 기여 ${wipes}회`);
 
   const verdict = buildVerdict({ primaryRole, ranked, unjudged, metricPercentiles, isSoloMode, matchCount: mLen, rawMeans });
   const evidenceAmount = primaryRole in ROLE_DEFINITIONS
@@ -695,7 +738,7 @@ function buildVerdict(input: {
       && !(isSoloMode && TEAM_ONLY_METRICS.has(entry[0])))
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
-    // 칭호 기준(상위 15%)과 헷갈리지 않게 올림해 실제보다 높게 표시하지 않는다(84.97은 상위 16%).
+    // 칭호 기준(역할별 상위 수준)과 헷갈리지 않게 올림해 실제보다 높게 표시하지 않는다.
     .map(([key, value]) => `${METRIC_LABELS[key]} 상위 ${Math.max(1, Math.ceil(100 - value))}%`);
   return {
     ...base,

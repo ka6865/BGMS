@@ -360,7 +360,7 @@ async function clickText(page: Page, text: string) {
       description: "특정 역할이 다른 플레이어보다 두드러지지 않습니다. 여러 상황을 고르게 경험하고 있습니다.",
       evidence: [], badges: [], signatureWeapon: "M416", signatureWeaponStats: { kills: 3, dbnos: 2 }, scores: { brawler: 85 },
       verdict: { kind: "below_threshold", matchCount: 5, judgedRoles: 8, totalRoles: 12, headline: "뚜렷한 대표 역할 없음", label: "칭호 기준 미달 · 판정 역할 8/12",
-        detail: "점수 상위 5판에서 판정한 역할 8개 모두 역할별 칭호 기준 85점(기준 표본에서 역할 하나가 상위 15% 수준)에 못 미쳤습니다(최고: 근접 난전가 84.96).",
+        detail: "점수 상위 5판에서 판정한 역할 8개 모두 역할별 칭호 기준 83점(기준 표본에서 역할 하나가 상위 17% 수준)에 못 미쳤습니다(최고: 근접 난전가 82.96).",
         note: "판정에 필요한 기록이 부족하거나 없는 역할 3개, 비교 기준이 아직 준비되지 않은 역할 1개는 판정하지 않았습니다.",
         observations: ["근거리 피해 비중 상위 16%", "협공 처치 비중 상위 8%"] },
     };

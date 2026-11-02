@@ -104,7 +104,7 @@ export interface CalibrationTableResult<K extends string> {
 
 const METRIC_KEYS = [
   "initiative", "duelWin", "reversal", "longShare", "shortShare", "maxHitDist", "rescueRate", "tradeRate", "tradeSec",
-  "pressure", "placement", "edgePerMatch", "earlyShare", "baitPerMatch", "supportPerMatch", "utilityHitsPerMatch",
+  "pressure", "placement", "edgePerMatch", "earlyDamagePerMatch", "shortDamagePerMatch", "baitPerMatch", "supportPerMatch", "utilityHitsPerMatch",
   "lethalPerMatch", "teamDamageShare", "focusFirePerMatch", "assistShare",
 ] as const satisfies readonly RoleMetricKey[];
 

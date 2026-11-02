@@ -450,7 +450,7 @@ describe("RecentAISummary callback bridge", () => {
 
   it.each([
     ["기준 미달", { primaryRole: "balanced", title: "균형형 전술가", roleLabel: "균형형", description: "특정 역할이 다른 플레이어보다 두드러지지 않습니다. 여러 상황을 고르게 경험하고 있습니다." },
-      { kind: "below_threshold", headline: "뚜렷한 대표 역할 없음", label: "칭호 기준 미달 · 판정 역할 6/12", detail: "점수 상위 1판에서 판정한 역할 6개 모두 칭호 기준 85점(상위 15%)에 못 미쳤습니다(최고: 미끼 전술가 43.9).", note: "판정에 필요한 기록이 부족하거나 없는 역할 5개, 비교 기준이 아직 준비되지 않은 역할 1개는 판정하지 않았습니다.", observations: ["미끼 플레이 상위 20%"] }],
+      { kind: "below_threshold", headline: "뚜렷한 대표 역할 없음", label: "칭호 기준 미달 · 판정 역할 6/12", detail: "점수 상위 1판에서 판정한 역할 6개 모두 역할별 칭호 기준 83점(기준 표본에서 역할 하나가 상위 17% 수준)에 못 미쳤습니다(최고: 미끼 전술가 43.9).", note: "판정에 필요한 기록이 부족하거나 없는 역할 5개, 비교 기준이 아직 준비되지 않은 역할 1개는 판정하지 않았습니다.", observations: ["미끼 플레이 상위 20%"] }],
     ["기록 부족", { primaryRole: "insufficient", title: "전술 분석 중", roleLabel: "근거 수집 중", description: "역할을 판정할 만큼 교전·팀 기록이 쌓이지 않았습니다." },
       { kind: "insufficient", headline: "판정할 기록 부족", label: "근거 수집 중 · 판정 역할 0/12", detail: "점수 상위 1판에서 칭호를 판정할 만큼 기록이 쌓인 역할이 없습니다.", note: "", observations: [] }],
   ])("%s 상태는 서버 판정 설명으로 제목·라벨·설명을 바꾸고 관측 성향을 칭호와 구분한다", async (_name, role, verdict) => {

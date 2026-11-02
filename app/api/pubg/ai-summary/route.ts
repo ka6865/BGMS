@@ -56,7 +56,7 @@ import { buildSummaryCardEvidence } from "@/lib/pubg-analysis/aiSummaryCardEvide
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { createAiRouteTimer, formatAiRouteReasons } from "@/lib/pubg-analysis/aiRouteTiming";
 import { AI_GENERATION_DISABLED_ERROR_CODE, AI_GENERATION_DISABLED_MESSAGE, isAiGenerationDisabled } from "@/lib/pubg-analysis/aiGenerationSwitch";
-import { aggregateMatches, firstObservedNonNegative, isCompetitiveMatch, readObservedNonNegative } from "@/lib/pubg-analysis/matchAggregate";
+import { aggregateMatches, firstObservedNonNegative, isCompetitiveMatch, normalizedMatchMode, readObservedNonNegative } from "@/lib/pubg-analysis/matchAggregate";
 
 export const maxDuration = 60;
 
@@ -324,14 +324,6 @@ function hasCompatiblePopulationEvidence(
   // can be stale, copied, or populated by a newer ingestion layer and must
   // never bless an unmarked v73 result into the multi-match population.
   return Number(fullResult.populationEvidenceVersion) === POPULATION_EVIDENCE_VERSION;
-}
-
-function normalizedMatchMode(match: any): string {
-  const rawMode = match?.gameMode
-    ?? match?.game_mode
-    ?? match?.mode
-    ?? match?.matchInfo?.mode;
-  return String(rawMode ?? "").trim().toLowerCase();
 }
 
 function dominantRawMatchMode(matches: readonly any[], fallback: string): string {
@@ -1703,7 +1695,8 @@ export async function POST(request: Request) {
     // solo/team role gating; do not discard minority-mode weapon or stat
     // evidence from the role score itself.
     // 역할의 반응 분포는 구 지표 기준이다. 신규 사격 근거 분포가 준비되기 전에는 이 항목을 보류한다.
-    const roleStatsWithDistribution = { ...summaryStats, avgReactionLatency: "측정 불가", modeDistribution: { main: mainModeName } };
+    // 우승 배지는 선택된 전체 경기(masteryStats) 기준이라 따로 넘긴다. 판정 지표에는 쓰이지 않는다.
+    const roleStatsWithDistribution = { ...summaryStats, avgReactionLatency: "측정 불가", modeDistribution: { main: mainModeName }, totalWins: masteryStats.totalWins };
     // 기준 분포는 계산 5 경기로 산출했다(ROLE_REFERENCE_VERSION 2). 선제 타격은 더 이상 보류하지 않는다.
     const roleInfo = classifyRole(roleStatsWithDistribution, mainBench, mainUserTier, {
       pendingReferenceMetrics: ["reactionSec"],

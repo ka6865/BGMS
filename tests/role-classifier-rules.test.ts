@@ -3,6 +3,7 @@ import {
   classifyRole as classifyRoleWithTables,
   countRoleEvidenceMatches,
   extractRoleMetrics,
+  PRIMARY_MIN_PERCENTILE,
   type ClassifyRoleOptions,
 } from "@/lib/pubg-analysis/roleClassifier";
 import {
@@ -15,6 +16,7 @@ import {
   type RoleScoreKey,
 } from "@/lib/pubg-analysis/roleReference";
 
+// 팀 피해 지표는 테스트에서 공정 분담 배수(avgTeamDamageShareFair) 값으로 넣고, 표 단위는 v1 표를 그대로 쓴다.
 // 구버전 기준표(v1, p5~p95)로 판정 규칙을 고정한다. 운영 표는 재산출로 바뀌므로 규칙 테스트는 이 표를 쓰고,
 // 운영 표의 불변식은 아래 "reference percentile" 블록에서만 확인한다. 상단 꼬리는 p95에서 끝나므로 97.5에서 뭉친다.
 const LEGACY_METRIC_QUANTILES: Record<RoleMetricKey, readonly number[]> = {
@@ -31,7 +33,9 @@ const LEGACY_METRIC_QUANTILES: Record<RoleMetricKey, readonly number[]> = {
   pressure: [0.933, 1.354, 1.915, 2.408, 2.871, 3.383, 3.829, 4.349, 4.91, 5.774, 6.362],
   placement: [34.23, 41.857, 50.3, 56.894, 62.245, 67.302, 72.334, 77.778, 84.853, 93.333, 97.619],
   edgePerMatch: [0.08, 0.767, 2.5, 3.98, 5.313, 6.833, 8.667, 10.5, 13, 16.86, 20.683],
-  earlyShare: [0, 0, 2.337, 6.805, 10.36, 14.681, 19.643, 25.956, 34.934, 48.194, 60.18],
+  // v1 표에는 없던 지표다. 규칙 검증용 합성 표로 채운다(경기당 피해량, 단위 점).
+  earlyDamagePerMatch: [0, 0, 0, 20, 40, 60, 80, 100, 120, 150, 200],
+  shortDamagePerMatch: [0, 0, 20, 40, 60, 80, 100, 120, 150, 200, 300],
   baitPerMatch: [0, 0, 0.2, 0.333, 0.333, 0.5, 0.667, 0.7, 1, 1.333, 1.667],
   supportPerMatch: [0, 0, 0, 0.2, 0.3, 0.333, 0.444, 0.667, 0.796, 1, 1.333],
   utilityHitsPerMatch: [0, 0, 0, 0.2, 0.333, 0.5, 0.667, 1, 1.6, 2.667, 4],
@@ -91,7 +95,7 @@ const BASE = {
   totalSuppCount: null,
   totalUtilityHits: null,
   totalLethalThrows: null,
-  avgTeamDamageShare: null,
+  avgTeamDamageShareFair: null,
   totalFocusFireCount: null,
   killContribFinal: { solo: 0, cleanup: 0, assist: 0 },
   totalRidingShotKnocks: 0,
@@ -170,7 +174,7 @@ describe("role metric extraction", () => {
     });
     expect(metrics).toMatchObject({
       rescueRate: 50, tradeRate: 25, shortShare: 60, longShare: 20, edgePerMatch: 2,
-      utilityHitsPerMatch: 0.5, tradeSec: 12.5, earlyShare: 50, assistShare: 25,
+      utilityHitsPerMatch: 0.5, tradeSec: 12.5, earlyDamagePerMatch: 50, assistShare: 25,
     });
   });
 });
@@ -242,7 +246,7 @@ describe("role selection", () => {
       avgPressureIndex: 4.91, avgPlacementPct: 84.853, totalEdgePlay: 13,
       totalUtilityHits: 1.6, totalLethalThrows: 3.333,
       totalDistanceDamage: { short: 681.95, mid: 318.05, long: 0 },
-      avgTeamDamageShare: 46.18,
+      avgTeamDamageShareFair: 46.18,
     });
     expect(result).toMatchObject({ primaryRole: "fieldCommander", title: "육각형 플레이어", secondaryRole: null });
     expect(result.scores.fieldCommander!).toBeGreaterThan(75);
@@ -251,7 +255,7 @@ describe("role selection", () => {
   });
 
   it("does not judge team-only roles in solo mode", () => {
-    const rescues = { totalTeammateKnocks: 6, totalRevCount: 6, totalTradeKills: 3, avgTeamDamageShare: 80 };
+    const rescues = { totalTeammateKnocks: 6, totalRevCount: 6, totalTradeKills: 3, avgTeamDamageShareFair: 80 };
     expect(classify(rescues).scores).toMatchObject({ shield: 97.5, mainGun: 97.5 });
     const solo = classify({ ...rescues, modeDistribution: { main: "solo" } });
     expect(solo.scores).toMatchObject({ shield: null, avenger: null, mainGun: null, decoy: null, crossfire: null });
@@ -352,43 +356,57 @@ describe("signature weapon", () => {
 
 
 describe("role verdict explanation", () => {
-  // 초반 피해 비중(earlyShare) 하나로 정해지는 핫드랍 약탈자 점수를 원하는 원점수로 맞춘다.
-  const earlyShareForRoleScore = (target: number) => {
+  // 경기당 초반 피해량 하나로 정해지는 핫드랍 약탈자 점수를 원하는 원점수로 맞춘다.
+  const earlyDamageForRoleScore = (target: number) => {
     let low = 0;
-    let high = 100;
+    let high = 400;
     for (let step = 0; step < 80; step++) {
       const mid = (low + high) / 2;
-      if (percentileFromQuantiles(LEGACY_SCORE_QUANTILES.dropPredator, percentileFromQuantiles(LEGACY_METRIC_QUANTILES.earlyShare, mid, LEGACY_REFERENCE_TABLES.levels), LEGACY_REFERENCE_TABLES.levels) < target) low = mid;
+      const score = percentileFromQuantiles(LEGACY_SCORE_QUANTILES.dropPredator, percentileFromQuantiles(LEGACY_METRIC_QUANTILES.earlyDamagePerMatch, mid, LEGACY_REFERENCE_TABLES.levels), LEGACY_REFERENCE_TABLES.levels);
+      if (score < target) low = mid;
       else high = mid;
     }
     return (low + high) / 2;
   };
-  const withEarlyShare = (share: number) => ({ goldenTimeAvg: { early: share * 10, mid1: 1000 - share * 10, mid2: 0, late: 0 } });
+  const withEarlyDamage = (amount: number) => ({ goldenTimeAvg: { early: amount, mid1: 1000, mid2: 0, late: 0 } });
 
-  it("judges the 85 threshold before rounding and does not show the boundary as 85", () => {
-    const below = classify(withEarlyShare(earlyShareForRoleScore(84.96)));
-    // 표시용 점수는 기존처럼 소수 첫째 자리(85.0)지만 원점수 84.96은 칭호 기준에 못 미친다.
-    expect(below.scores.dropPredator).toBe(85);
+  it("judges the 83 threshold before rounding and does not show the boundary as 83", () => {
+    const threshold = PRIMARY_MIN_PERCENTILE;
+    const below = classify(withEarlyDamage(earlyDamageForRoleScore(threshold - 0.04)));
+    // 표시용 점수는 소수 첫째 자리(반올림)지만 원점수 82.96은 칭호 기준에 못 미친다.
+    expect(below.scores.dropPredator).toBe(83);
     expect(below.primaryRole).toBe("balanced");
     expect(below.verdict.kind).toBe("below_threshold");
     expect(below.verdict.topRole).toMatchObject({ role: "dropPredator" });
-    expect(below.verdict.detail).toContain("핫드랍 약탈자 84.96");
-    expect(below.verdict.detail).not.toMatch(/85\.0\b/);
+    expect(below.verdict.detail).toContain(`핫드랍 약탈자 ${(threshold - 0.04).toFixed(2)}`);
+    expect(below.verdict.detail).not.toMatch(/83\.0\b/);
 
-    const above = classify(withEarlyShare(earlyShareForRoleScore(85.01)));
+    const above = classify(withEarlyDamage(earlyDamageForRoleScore(threshold + 0.01)));
     expect(above).toMatchObject({ primaryRole: "dropPredator", title: "핫존의 포식자" });
     expect(above.verdict).toMatchObject({ kind: "confirmed", headline: "", detail: "", note: "", observations: [] });
   });
 
-  it("reproduces the 84.96 brawler boundary that main rounded up to a title", () => {
-    // Codex 재현 입력: 근거리 피해 비중 73.0557...%는 근접 난전가 원점수 84.96이다.
-    const result = classify({ mLen: 5, modeDistribution: { main: "solo" }, totalDistanceDamage: { short: 730.5577416, mid: 269.4422584, long: 0 } });
-    expect(result.scores.brawler).toBe(85);
-    expect(result.primaryRole).toBe("balanced");
-    expect(result.title).not.toBe("난전의 지배자");
-    expect(result.verdict.detail).toContain("근접 난전가 84.96");
-    // 같은 화면의 관측 성향도 반올림으로 칭호 기준(상위 15%)처럼 보이지 않는다.
-    expect(result.verdict.observations).toEqual(["근거리 피해 비중 상위 16%"]);
+  it("averages the share and the per-match amount for brawler and judges the boundary on the mean", () => {
+    // 근거리 피해 비중과 경기당 근거리 피해량의 평균 백분위가 기준 점수 경계를 넘을 때만 칭호를 준다.
+    const shortForMean = (target: number) => {
+      let low = 0;
+      let high = 300;
+      for (let step = 0; step < 80; step++) {
+        const mid = (low + high) / 2;
+        const share = percentileFromQuantiles(LEGACY_METRIC_QUANTILES.shortShare, (100 * mid) / 300, LEGACY_REFERENCE_TABLES.levels);
+        const amount = percentileFromQuantiles(LEGACY_METRIC_QUANTILES.shortDamagePerMatch, mid, LEGACY_REFERENCE_TABLES.levels);
+        const score = percentileFromQuantiles(LEGACY_SCORE_QUANTILES.brawler, (share + amount) / 2, LEGACY_REFERENCE_TABLES.levels);
+        if (score < target) low = mid;
+        else high = mid;
+      }
+      return (low + high) / 2;
+    };
+    const statsWith = (short: number) => ({ mLen: 1, totalDistanceDamage: { short, mid: 300 - short, long: 0 } });
+    const below = classify(statsWith(shortForMean(PRIMARY_MIN_PERCENTILE - 0.04)));
+    expect(below.primaryRole).toBe("balanced");
+    expect(below.verdict.topRole).toMatchObject({ role: "brawler" });
+    const above = classify(statsWith(shortForMean(PRIMARY_MIN_PERCENTILE + 0.01)));
+    expect(above).toMatchObject({ primaryRole: "brawler", title: "난전의 지배자" });
   });
 
   it("keeps confirmed titles and their text unchanged", () => {
@@ -411,7 +429,7 @@ describe("role verdict explanation", () => {
     expect(median.verdict).toMatchObject({ kind: "below_threshold", judgedRoles: 1, headline: "뚜렷한 대표 역할 없음" });
     expect(median.verdict.label).toBe("칭호 기준 미달 · 판정 역할 1/12");
     expect(median.verdict.detail).toContain("처형자 51.4");
-    expect(median.verdict.detail).toBe("점수 상위 1판에서 판정한 역할 1개도 역할별 칭호 기준 85점(기준 표본에서 역할 하나가 상위 15% 수준)에 못 미쳤습니다(최고: 처형자 51.4).");
+    expect(median.verdict.detail).toBe("점수 상위 1판에서 판정한 역할 1개도 역할별 칭호 기준 83점(기준 표본에서 역할 하나가 상위 17% 수준)에 못 미쳤습니다(최고: 처형자 51.4).");
     expect(median.verdict.note).toBe("판정에 필요한 기록이 부족하거나 없는 역할 11개는 판정하지 않았습니다.");
     // 기존 균형형 설명의 "여러 상황을 고르게 경험" 같은 근거 없는 문구를 쓰지 않는다.
     expect(`${median.verdict.detail} ${median.verdict.note}`).not.toMatch(/고르게/);
@@ -445,23 +463,23 @@ describe("role verdict explanation", () => {
   });
 
   it("counts solo-excluded team roles and does not use team metrics as solo observations", () => {
-    const solo = classify({ ...MEDIAN_EXECUTOR, avgTeamDamageShare: 80, modeDistribution: { main: "solo" } });
+    const solo = classify({ ...MEDIAN_EXECUTOR, avgTeamDamageShareFair: 80, modeDistribution: { main: "solo" } });
     expect(solo.verdict.unjudged.soloExcluded).toBe(5);
     expect(solo.verdict.note).toContain("솔로 경기 위주라 제외한 팀 역할 5개");
     expect(solo.verdict.observations.join(" ")).not.toMatch(/팀 내 피해/);
   });
 
   it("treats an observed zero as a judged record and a missing value as unjudged", () => {
-    const zero = classify({ avgTeamDamageShare: 0 });
+    const zero = classify({ avgTeamDamageShareFair: 0 });
     expect(zero.scores.mainGun).not.toBeNull();
     expect(zero.verdict).toMatchObject({ kind: "below_threshold", judgedRoles: 1 });
-    const missing = classify({ avgTeamDamageShare: null });
+    const missing = classify({ avgTeamDamageShareFair: null });
     expect(missing.scores.mainGun).toBeNull();
     expect(missing.verdict.kind).toBe("insufficient");
   });
 
   it("does not name one role when several roles tie for the top score", () => {
-    const tied = classify({ avgTeamDamageShare: 0, avgPressureIndex: 0, avgPlacementPct: 0, totalEdgePlay: 0 });
+    const tied = classify({ avgTeamDamageShareFair: 0, avgPressureIndex: 0, avgPlacementPct: 0, totalEdgePlay: 0 });
     expect(tied.scores.mainGun).toBe(tied.scores.zoneController);
     expect(tied.verdict.detail).toMatch(/최고: 2개 역할 동점 /);
   });
@@ -512,7 +530,7 @@ describe("role evidence amount", () => {
   });
 
   it("does not judge continuous metrics by event counts", () => {
-    const result = classify({ avgTeamDamageShare: 80 });
+    const result = classify({ avgTeamDamageShareFair: 80 });
     expect(result.primaryRole).toBe("mainGun");
     expect(result.evidenceAmount).toEqual({ strength: "normal", lines: [], note: "" });
   });
@@ -525,9 +543,10 @@ describe("role evidence amount", () => {
   });
 
   it("adds a fact line when the secondary role rests on a single event", () => {
-    const result = classifyRole({ ...BASE, mLen: 3, ...THIN_AVENGER, ...STRONG_EXECUTOR }, {}, "B",
-      { evidenceMatches: { tradeRate: complete(1), tradeSec: complete(1), duelWin: complete(3), reversal: complete(2) } });
-    expect(result.primaryRole).toBe("executor");
+    // 처형자·복수자 조합은 기준 표본에서 함께 상위에 드는 빈도가 높아 막혀 있으므로, 막히지 않은 팀의 주포 조합으로 확인한다.
+    const result = classifyRole({ ...BASE, mLen: 3, ...THIN_AVENGER, avgTeamDamageShareFair: 80 }, {}, "B",
+      { evidenceMatches: { tradeRate: complete(1), tradeSec: complete(1) } });
+    expect(result.primaryRole).toBe("mainGun");
     expect(result.secondaryRole).toBe("avenger");
     expect(result.evidenceAmount!.strength).toBe("normal");
     expect(result.evidenceAmount!.lines).toContain("보조 복수자: 복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인 (근거 적음)");
@@ -564,15 +583,15 @@ describe("role evidence amount", () => {
 
 describe("exact score ties", () => {
   it("settles a tie by metric mean, metric count and role key rather than definition order", () => {
-    // 근접 난전가(근거리 피해)와 핫드랍 약탈자(초반 피해)가 같은 100% 구간에서 동점이면 역할 키 사전순이 정한다.
-    // 두 역할의 조합 칭호는 순서와 무관하게 같다.
+    // 근접 난전가(근거리 피해)와 핫드랍 약탈자(초반 피해)가 같은 상단 구간에서 동점이면 역할 키 사전순이 정한다.
     const info = classify({
       mLen: 1,
       totalDistanceDamage: { short: 1000, mid: 0, long: 0 },
       goldenTimeAvg: { early: 1000, mid1: 0, mid2: 0, late: 0 },
     });
     expect(info.primaryRole).toBe("brawler");
-    expect(info.secondaryRole).toBe("dropPredator");
-    expect(info.title).toBe("핫존 난투왕");
+    // 두 역할은 기준 표본에서 동시 상위 빈도가 높아 조합으로 세지 않는다(보조 역할 없음).
+    expect(info.secondaryRole).toBeNull();
+    expect(info.title).toBe("난전의 지배자");
   });
 });
