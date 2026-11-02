@@ -1851,8 +1851,9 @@ describe("AI cache route stabilization", () => {
     expect(base.saveHash).toBe(base.lookupHash);
     expect(base.visuals.roleInfo.verdict).toMatchObject({ matchCount: 1, totalRoles: 12 });
     expect(['confirmed', 'below_threshold', 'insufficient']).toContain(base.visuals.roleInfo.verdict.kind);
-    // 반응 분포 보류 지표는 기록 부족이 아니라 비교 기준 준비 중으로 센다.
-    expect(base.visuals.roleInfo.verdict.unjudged.referencePending).toBe(1);
+    // 반응 분포 보류 지표는 이제 선봉 복합 판정에만 영향을 준다. 선제 시도 4회는 최소 5회 미만이라 기록 부족으로 센다.
+    expect(base.visuals.roleInfo.verdict.unjudged.referencePending).toBe(0);
+    expect(base.visuals.roleInfo.verdict.unjudged.notEnoughRecords).toBeGreaterThan(0);
 
     roleClassifierState.verdictDetail = '설명 문구만 바뀐 경우';
     const detailOnly = await run();
@@ -7548,9 +7549,9 @@ describe("AI 생성 차단 스위치·계측 로그·선제 지표 보류", () =
   });
 
   it.each([
-    [5, ["reactionSec", "initiative"]],
+    [5, ["reactionSec"]],
     [4, ["reactionSec"]],
-  ])("ai-summary는 칭호 판정 경기에 계산 %s가 있을 때 선제 타격 지표를 보류 목록에 넣는다", async (calculationVersion, expectedPending) => {
+  ])("ai-summary는 계산 %s 경기가 있어도 반응 시간만 보류하고 선제 타격은 칭호 판정에 쓴다", async (calculationVersion, expectedPending) => {
     mockSummaryGeminiResponse();
     const supabase = createSupabaseMock({
       player_ai_summary_cache: createQueryChain({ data: null, error: null }),
