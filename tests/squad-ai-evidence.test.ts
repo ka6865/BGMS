@@ -10,7 +10,7 @@ describe("squad partial evidence prose", () => {
   });
   it("withholds derived focus-fire evaluation even with a raw rate", () => {
     const result = applySquadEvidencePolicy({ squadGrade: "A", summary: "집중사격이 우수합니다.", coaching: "평균 백업 속도는 5.36초입니다." },
-      { avgCoverRate: 0.3, avgTradeLatency: 5360 }, null, { focusFire: null });
+      { avgCoverRate: 0.3, avgTradeLatency: 5360, totalTradeKills: 3 }, null, { focusFire: null });
     expect(result.squadGrade).toBeNull();
     expect(result.summary).toContain("보류");
     expect(result.coaching).toBe("평균 백업 속도는 5.36초입니다.");
@@ -35,7 +35,7 @@ describe("squad partial evidence prose", () => {
   });
   it("preserves observed zero and canonical grades", () => {
     const result = applySquadEvidencePolicy({ squadGrade: "S", summary: "연막 구출은 0회입니다.", coaching: "백업 속도는 0초입니다." },
-      { totalSmokeRescues: 0, avgTradeLatency: 0 }, "B");
+      { totalSmokeRescues: 0, avgTradeLatency: 0, totalTradeKills: 3 }, "B");
     expect(result.squadGrade).toBe("B");
     expect(result.summary).toBe("연막 구출은 0회입니다.");
     expect(result.coaching).toBe("백업 속도는 0초입니다.");

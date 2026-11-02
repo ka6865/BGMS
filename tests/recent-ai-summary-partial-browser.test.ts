@@ -527,4 +527,94 @@ async function clickText(page: Page, text: string) {
       await page.close();
     }
   }, 30_000);
+
+  it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("trend cards withhold mixed-calculation win rate at $width", async (viewport) => {
+    for (const name of ["withheld", "observed"] as const) {
+      const page = await browser.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(String(error)));
+      await page.setViewport(viewport);
+      await page.setRequestInterception(true);
+      page.on("request", async (request) => {
+        if (!request.url().endsWith("/api/pubg/ai-summary")) {
+          await request.continue();
+          return;
+        }
+        // 계산 기준이 섞인 창은 승률 추세를 null로 보낸다. 딜량 추세는 그대로 남는다.
+        const trends = name === "withheld"
+          ? { dmgTrend: 80, winTrend: null, status: "📈 실력 상승세", recent: { damage: 459, winRate: null }, older: { damage: 379, winRate: null } }
+          : { dmgTrend: 80, winTrend: -12.5, status: "📈 실력 상승세", recent: { damage: 459, winRate: 55 }, older: { damage: 379, winRate: 67.5 } };
+        const lines = [
+          { type: "visuals", data: { overallTier: "A", trends, reactionLatency: "측정 불가", reactionTier: "측정 불가" } },
+          { type: "cards", data: cards },
+          { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "partial", cards: finalCards, retryAfterSeconds: 300, signature: null, actionItems: null, finalVerdict: "확인된 항목만 평가했습니다." }) },
+          { type: "done", valid: true, partial: true, retryAfterSeconds: 300 },
+        ];
+        await request.respond({ status: 200, contentType: "application/x-ndjson", body: lines.map((line) => JSON.stringify(line)).join("\n") });
+      });
+      try {
+        await page.goto(baseUrl, { waitUntil: "networkidle0" });
+        await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
+        await page.waitForFunction((text) => document.body.innerText.includes(text), {}, message);
+        await clickText(page, "상세 분석 리포트 펼치기");
+        await page.waitForFunction(() => document.body.innerText.includes("딜량 트렌드"));
+        const text = await page.evaluate(() => document.body.innerText);
+        expect(text).toContain("459");
+        if (name === "withheld") {
+          expect(text).toContain("변화 보류");
+          expect(text).not.toContain("-12.5%");
+        } else {
+          expect(text).toContain("55%");
+          expect(text).toContain("-12.5%");
+          expect(text).not.toContain("변화 보류");
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+        if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) {
+          await page.evaluate(() => [...document.querySelectorAll("span")].find((entry) => entry.textContent === "딜량 트렌드")?.scrollIntoView({ block: "center" }));
+          await page.screenshot({ path: join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR, `trend-${name}-${viewport.width}.png`) });
+        }
+        expect(errors).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    }
+  }, 60_000);
+
+  it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("generation-disabled notice hides retry and fits at $width", async (viewport) => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    await page.setViewport(viewport);
+    await page.setRequestInterception(true);
+    page.on("request", async (request) => {
+      if (!request.url().endsWith("/api/pubg/ai-summary")) {
+        await request.continue();
+        return;
+      }
+      // 서버 factsOnlyResponse와 같은 순서·형식으로 생성 중지 응답을 보낸다.
+      const error = "AI 해석 생성이 잠시 중지되었습니다.";
+      const lines = [
+        { type: "visuals", data: { overallTier: "A", reactionLatency: "측정 불가", reactionTier: "측정 불가" } },
+        { type: "cards", data: cards },
+        { type: "error", error, errorCode: "PUBG_AI_GENERATION_DISABLED", retryable: false, retryAfterSeconds: 0 },
+        { type: "done", valid: false, error, errorCode: "PUBG_AI_GENERATION_DISABLED", retryable: false, retryAfterSeconds: 0 },
+      ];
+      await request.respond({ status: 200, contentType: "application/x-ndjson", body: lines.map((line) => JSON.stringify(line)).join("\n") });
+    });
+    try {
+      await page.goto(baseUrl, { waitUntil: "networkidle0" });
+      await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
+      await page.waitForFunction(() => document.body.innerText.includes("AI 해석은 잠시 중지되어 있어요."));
+      const text = await page.evaluate(() => document.body.innerText);
+      expect(text).toContain("확인된 기록은 아래에서 그대로 볼 수 있어요.");
+      expect(text).not.toContain("다시 시도");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+      if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) {
+        await page.screenshot({ path: join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR, `generation-disabled-${viewport.width}.png`) });
+      }
+      expect(errors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
 });

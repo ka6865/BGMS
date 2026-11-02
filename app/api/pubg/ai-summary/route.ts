@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { APICallError, streamText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
+import { ANALYSIS_CALCULATION_VERSION, AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { dominantTierScope, tierScopeOfMode, type TierScope } from "@/lib/pubg-analysis/tierAveraging";
 import { classifyRole, countRoleEvidenceMatches } from "@/lib/pubg-analysis/roleClassifier";
@@ -20,6 +20,7 @@ import { selectSummaryDebateTopics } from "@/lib/pubg-analysis/aiSummaryTopics";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
+import { sanitizeLegacySummaryJudgment } from "@/lib/pubg-analysis/aiSummaryJudgment";
 import {
   hasUnsupportedAiSummaryMode,
   normalizeAiSummaryDebatePayload,
@@ -43,9 +44,19 @@ import {
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
 import crypto from "crypto";
-import { buildSummaryCardComparisonText, buildSummaryCards, normalizeSummaryCardFinal, type SummaryCard } from "@/lib/pubg-analysis/aiSummaryCards";
+import {
+  applyCalculationVersionGuard,
+  buildSummaryCardComparisonText,
+  buildSummaryCards,
+  CALCULATION_5_BENCHMARK_KEYS,
+  countPriorCalculationMatches,
+  normalizeSummaryCardFinal,
+  type SummaryCard,
+} from "@/lib/pubg-analysis/aiSummaryCards";
 import { buildSummaryCardEvidence } from "@/lib/pubg-analysis/aiSummaryCardEvidence";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
+import { createAiRouteTimer, formatAiRouteReasons } from "@/lib/pubg-analysis/aiRouteTiming";
+import { AI_GENERATION_DISABLED_ERROR_CODE, AI_GENERATION_DISABLED_MESSAGE, isAiGenerationDisabled } from "@/lib/pubg-analysis/aiGenerationSwitch";
 
 export const maxDuration = 60;
 
@@ -515,6 +526,23 @@ function sumCompleteObservations(values: unknown[]): number | null {
   const observed = values.map(readObservedNonNegative);
   if (observed.length === 0 || observed.some((value) => value === null)) return null;
   return (observed as number[]).reduce((total, value) => total + value, 0);
+}
+
+/**
+ * 이전 계산 경기가 섞인 입력에서 계산 5 비교 지표의 비교 평균을 뺀 사본을 돌려준다.
+ * 비교 평균은 계산 5 행만 쓰므로 개인 값이 계산 5 경기만으로 집계되지 않으면 비교할 수 없다.
+ */
+function withoutCalculation5Benchmark(bench: ObservedBenchmark | null, priorCalculationMatchCount: number): ObservedBenchmark | null {
+  if (!bench || priorCalculationMatchCount <= 0) return bench;
+  const gated: Record<string, any> = { ...bench };
+  for (const key of CALCULATION_5_BENCHMARK_KEYS) delete gated[key];
+  for (const field of ["metricSampleCounts", "rawMetricValues"] as const) {
+    if (!gated[field]) continue;
+    const kept: Record<string, unknown> = { ...gated[field] };
+    for (const key of CALCULATION_5_BENCHMARK_KEYS) delete kept[key];
+    gated[field] = kept;
+  }
+  return gated as ObservedBenchmark;
 }
 
 function aggregateMatches(matches: any[]) {
@@ -996,6 +1024,7 @@ function aggregateMatches(matches: any[]) {
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   const startedAt = Date.now();
+  const timing = createAiRouteTimer({ route: "summary", requestId, startedAt });
   const routeDeadlineAt = startedAt + AI_SUMMARY_ROUTE_TIMEOUT_MS;
   // A Response body can be cancelled independently from request.signal.
   // Bridge that consumer lifecycle into the same route-wide abort graph so
@@ -1049,9 +1078,25 @@ export async function POST(request: Request) {
   let selectedModelName = "";
   let providerUsage: { inputTokens?: number; outputTokens?: number } = {};
   let providerUsageTask: Promise<void> | undefined;
-  const recordOutcome = (outcome: { status?: "success" | "partial" | "cancelled"; error?: unknown; errorCode?: string; errorMessage?: string; modelName?: string }) => {
+  const recordOutcome = (outcome: {
+    status?: "success" | "partial" | "cancelled";
+    error?: unknown;
+    errorCode?: string;
+    errorMessage?: string;
+    modelName?: string;
+    // 계측 로그의 최종 결과 코드. 생략하면 status, 캐시 적중, errorCode 순으로 정한다.
+    timingOutcome?: string;
+    reasons?: readonly string[];
+    actionDrops?: readonly string[];
+  }) => {
     if (outcomeRecorded) return;
     outcomeRecorded = true;
+    timing.emit({
+      outcome: outcome.timingOutcome
+        ?? (outcome.modelName === "gemini-cache" ? "cache_hit" : outcome.status ?? outcome.errorCode ?? "error"),
+      reasons: outcome.reasons,
+      actionDrops: outcome.actionDrops,
+    });
     const context = {
       durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform,
       errorCode: outcome.errorCode, errorMessage: outcome.errorMessage,
@@ -1088,7 +1133,9 @@ export async function POST(request: Request) {
     if (isRouteAborted()) return abortResponse();
 
     // 🔒 [보안] JWT 인증 가드 — 로그인된 사용자만 AI 요약 실행 허용 (Gemini API 비용 방어)
+    const authStartedAt = Date.now();
     const auth = await awaitWithAbort(withAuthGuard(), routeSignal.signal);
+    timing.stage("auth", Date.now() - authStartedAt);
     if (auth.error) return auth.error;
     if (isRouteAborted()) return abortResponse();
     const { supabaseAdmin: supabase } = auth;
@@ -1108,7 +1155,9 @@ export async function POST(request: Request) {
       recordOutcome({ error: "Missing nickname", errorCode: "invalid_input" });
       return NextResponse.json({ error: "Missing nickname" }, { status: 400 });
     }
+    const privateGuardStartedAt = Date.now();
     const privateResponse = await blockPrivatePlayer(cachePlatform, nickname, undefined, { lookupUpstream: true });
+    timing.stage("privateGuard", Date.now() - privateGuardStartedAt);
     if (privateResponse) return privateResponse;
 
     // [V45.3] 10개의 유효한 분석 데이터를 확보하기 위해 조회 범위를 25개로 확장 (이벤트/아케이드 필터링 대비)
@@ -1128,6 +1177,7 @@ export async function POST(request: Request) {
 
     let cachedMatches: any[] = [];
     let processedDependencyFailure: SummaryDependencyFailure | null = null;
+    const processedStartedAt = Date.now();
     try {
       const processedResult = await awaitWithAbort(supabase.from("processed_match_telemetry")
         .select("match_id, player_id, platform, data")
@@ -1145,6 +1195,7 @@ export async function POST(request: Request) {
       processedDependencyFailure = classifySummaryDependencyFailure(dbErr);
       console.warn("[AI-SUMMARY] Processed match lookup failed:", dbErr);
     }
+    timing.stage("processedLookup", Date.now() - processedStartedAt);
 
     if (isRouteAborted()) return abortResponse();
 
@@ -1298,6 +1349,7 @@ export async function POST(request: Request) {
       .filter(([canonicalId]) => !cachedMap.has(canonicalId) && !calculationPendingIds.has(canonicalId))
       .map(([canonicalId]) => canonicalId);
     const newResultsMap = new Map();
+    const fallbackStats = { calls: 0, ok: 0 };
     let fallbackTimedOut = false;
     let fallbackFetchTimedOut = false;
     let expiredFallbackDetected = false;
@@ -1365,6 +1417,7 @@ export async function POST(request: Request) {
         const remainingMs = fallbackDeadlineAt - Date.now();
         if (remainingMs <= 0 || fallbackSignal.signal.aborted) return;
 
+        fallbackStats.calls += 1;
         const fetchTimeoutController = new AbortController();
         const fetchTimeout = setTimeout(
           () => fetchTimeoutController.abort(),
@@ -1467,6 +1520,7 @@ export async function POST(request: Request) {
           }
           if (requestSignal.signal.aborted) return;
           newResultsMap.set(requestedCanonicalId, normalizedData);
+          fallbackStats.ok += 1;
         } catch (e) {
           if (fetchTimeoutController.signal.aborted) fallbackFetchTimedOut = true;
           if (!(e instanceof Error && e.name === "AbortError")) {
@@ -1509,6 +1563,11 @@ export async function POST(request: Request) {
         clearTimeout(fallbackDeadlineTimer);
         fallbackSignal.cleanup();
       }
+      timing.setStage("canonicalFallback", {
+        ms: Date.now() - fallbackStartedAt,
+        calls: fallbackStats.calls,
+        ok: fallbackStats.ok,
+      });
     }
 
     // Parent cancellation and the route deadline are terminal even when a
@@ -1827,7 +1886,9 @@ export async function POST(request: Request) {
       const olderStats = aggregateMatches(olderMatches);
       if (recentStats && olderStats) {
         const dmgTrend = Math.round(recentStats.avgDamage - olderStats.avgDamage);
-        const winTrend = recentStats.avgDuelWinRate !== null && olderStats.avgDuelWinRate !== null
+        // 1:1 교전 승률은 계산 5에서 정의가 바뀌었다. 두 창 중 한쪽이라도 이전 계산 경기가 섞이면 창 간 승률 변화는 비교 근거가 아니다.
+        const winRateMixed = countPriorCalculationMatches(recentMatches) > 0 || countPriorCalculationMatches(olderMatches) > 0;
+        const winTrend = !winRateMixed && recentStats.avgDuelWinRate !== null && olderStats.avgDuelWinRate !== null
           ? Number((recentStats.avgDuelWinRate - olderStats.avgDuelWinRate).toFixed(1))
           : null;
         const status = dmgTrend > 50 ? '📈 실력 상승세' : dmgTrend < -50 ? '📉 컨디션 하락세' : '➡️ 안정권 유지';
@@ -1836,18 +1897,22 @@ export async function POST(request: Request) {
           dmgTrend,
           winTrend,
           status,
-          recent: { damage: Math.floor(recentStats.avgDamage), winRate: recentStats.avgDuelWinRate },
-          older: { damage: Math.floor(olderStats.avgDamage), winRate: olderStats.avgDuelWinRate }
+          recent: { damage: Math.floor(recentStats.avgDamage), winRate: winRateMixed ? null : recentStats.avgDuelWinRate },
+          older: { damage: Math.floor(olderStats.avgDamage), winRate: winRateMixed ? null : olderStats.avgDuelWinRate }
         };
 
         userPrompt += `\n### [최근 트렌드 (최근 5판 vs 이전 5판)]\n`;
         userPrompt += `- 딜량 변화: ${Math.floor(olderStats.avgDamage)} → ${Math.floor(recentStats.avgDamage)} (${dmgTrend >= 0 ? '+' : ''}${dmgTrend})\n`;
-        const recentWinRateText = formatObservedPercent(recentStats.avgDuelWinRate);
-        const olderWinRateText = formatObservedPercent(olderStats.avgDuelWinRate);
-        const winTrendText = winTrend === null
-          ? "변화 측정 불가"
-          : `${winTrend >= 0 ? '+' : ''}${winTrend}%`;
-        userPrompt += `- 교전 승률: ${olderWinRateText} → ${recentWinRateText} (${winTrendText})\n`;
+        if (winRateMixed) {
+          userPrompt += `- 교전 승률: 계산 기준이 달라 창 간 변화 비교 보류\n`;
+        } else {
+          const recentWinRateText = formatObservedPercent(recentStats.avgDuelWinRate);
+          const olderWinRateText = formatObservedPercent(olderStats.avgDuelWinRate);
+          const winTrendText = winTrend === null
+            ? "변화 측정 불가"
+            : `${winTrend >= 0 ? '+' : ''}${winTrend}%`;
+          userPrompt += `- 교전 승률: ${olderWinRateText} → ${recentWinRateText} (${winTrendText})\n`;
+        }
         userPrompt += `- 종합 추세: ${status}\n`;
       }
     }
@@ -1862,6 +1927,7 @@ export async function POST(request: Request) {
     let mainTierMatchCount = 0;
     const overallGroupScores: any[] = [];
 
+    let benchmarkMs = 0;
     for (const [mode, gMatches] of Object.entries(groups)) {
       if (gMatches.length === 0) continue;
       if (isRouteAborted()) return abortResponse();
@@ -1894,17 +1960,22 @@ export async function POST(request: Request) {
       const benchmarkGameMode = dominantRawMatchMode(gMatches, mode);
 
       const userTier = estimateUserTier(avgScore);
+      const benchmarkFetchStartedAt = Date.now();
       const rawTierStats = await awaitWithAbort(fetchTierBenchmarkStats(supabase, {
         gameMode: benchmarkGameMode,
         matchType: dominantMatchType,
         tier: userTier,
         signal: routeSignal.signal,
       }), routeSignal.signal);
+      benchmarkMs += Date.now() - benchmarkFetchStartedAt;
       if (isRouteAborted()) return abortResponse();
 
       // Expose a benchmark to this route's comparison prompt/visuals only
       // when the row passed the observed sample-count and NULL-metric checks.
-      const bench = adaptObservedBenchmark(rawTierStats);
+      const tierBench = adaptObservedBenchmark(rawTierStats);
+      // 이 모드 경기에 이전 계산 경기가 있으면 계산 5 비교 지표는 비교 평균을 붙이지 않는다. 개인 값은 그대로 쓴다.
+      const groupPriorCount = countPriorCalculationMatches(gMatches);
+      const bench = withoutCalculation5Benchmark(tierBench, groupPriorCount);
       const benchmarkContext = {
         gameMode: benchmarkGameMode,
         matchType: dominantMatchType,
@@ -1920,7 +1991,7 @@ export async function POST(request: Request) {
 
       if (gMatches.length > maxMatches) {
         maxMatches = gMatches.length;
-        mainBench = bench;
+        mainBench = tierBench;
         mainBenchContext = benchmarkContext;
       }
 
@@ -1931,6 +2002,9 @@ export async function POST(request: Request) {
       userPrompt += `### [${mode.toUpperCase()} 모드 분석] (최근 유효 ${selectedMatches.length}판 중 상위 ${bestMatches.length}판 분석; 상위 ${bestMatches.length}판 중 ${gMatches.length}판)\n`;
       userPrompt += `- 유저 티어: ${userTier}\n`;
       userPrompt += `- 비교 표본 출처: ${benchmarkProvenance}\n`;
+      if (groupPriorCount > 0) {
+        userPrompt += `- [계산 기록] 이전 계산 경기 ${groupPriorCount}판 포함: 계산 5에서 의미가 바뀐 지표(선제 타격, 압박, 1:1 승률, 복수·백업, 반격, 연막 구출, 솔로 킬 비중)는 비교 평균을 붙이지 않았습니다. 해당 지표는 개인 값만 설명하고 비교하지 마세요.\n`;
+      }
       userPrompt += `- 평균 화력: ${gStats.avgDamage}${bench?.avgDamage !== undefined ? ` (${metricBenchmarkProvenance("avgDamage")}: 평균 화력 ${bench.avgDamage})` : ""}, 평균 ${gStats.avgKills}킬\n`;
       userPrompt += `- [선제 공격] 선제 타격 성공률: ${formatObservedPercent(gStats.userInitiativeRate)}${bench?.avgInitiativeRate !== undefined ? ` (${metricBenchmarkProvenance("avgInitiativeRate")}: 선제 타격 성공률 ${bench.avgInitiativeRate}%)` : ""}\n`;
       userPrompt += `- [교전 결정력] 1:1 교전 승률: ${formatObservedPercent(gStats.avgDuelWinRate)}${bench?.avgDuelWinRate !== undefined ? ` (${metricBenchmarkProvenance("avgDuelWinRate")}: 1:1 교전 승률 ${bench.avgDuelWinRate}%)` : ""}, 승리: ${gStats.totalDuelWins}회, 패배: ${gStats.totalDuelLosses}회, 역전승: ${gStats.totalReversalWins}회\n`;
@@ -1971,6 +2045,8 @@ export async function POST(request: Request) {
       userPrompt = userPrompt.replace(utilityLine, `- [유틸리티] 총 투척 ${formatObservedCount(gStats.totalUtilityThrows)} (연막 ${gStats.totalSmokes}회, 피해형 ${formatObservedCount(gStats.totalLethalThrows)}, 피해 적중 ${formatObservedCount(gStats.totalUtilityHits)}), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}`);
     }
 
+    timing.stage("benchmark", benchmarkMs);
+    const promptStartedAt = Date.now();
     // The UI labels this card as the potential tier of the top five matches.
     // Average the best-five benchmark scores/breakdowns across modes that share
     // a scoring formula. 솔로와 팀은 배점이 달라 경기가 많은 범위만 평균한다.
@@ -2011,7 +2087,14 @@ export async function POST(request: Request) {
     const sameComparisonContext = Boolean(mainBenchContext) && cardMatches.every(inBenchContext);
     const cardBenchmark = sameComparisonContext ? mainBench : null;
     const cardStats = cardMatches === mainModeMatches ? mainModeStats : aggregateMatches(cardMatches);
-    const autoTopics = selectDebateTopics(useIdCards ? cardStats : mainModeStats, useIdCards ? cardBenchmark : mainBench);
+    // 이전 계산 경기가 섞인 계산 5 비교 지표는 비교 평균을 보류한다. 주제 순위도 같은 기준을 써서
+    // 계산 정의가 다른 값의 차이로 비교 주제를 고르지 않게 한다.
+    const cardPriorCount = countPriorCalculationMatches(cardMatches);
+    const mainModePriorCount = countPriorCalculationMatches(mainModeMatches);
+    const topicBench = useIdCards
+      ? withoutCalculation5Benchmark(cardBenchmark, cardPriorCount)
+      : withoutCalculation5Benchmark(mainBench, mainModePriorCount);
+    const autoTopics = selectDebateTopics(useIdCards ? cardStats : mainModeStats, topicBench);
     userPrompt += `\n### [분석 집중 영역 (Debate Issues)]\n반드시 아래 3개 주제를 순서대로 다루어 주십시오:\n${autoTopics.map((t, i) => `${i + 1}. ${t}`).join(', ')}\n`;
 
     const canonicalDebateEvidence: Record<string, { user: { label: string; value: string }; benchmark: { label: string; value: string } }> = {};
@@ -2034,35 +2117,36 @@ export async function POST(request: Request) {
       };
     };
     const canonicalStats = useIdCards ? cardStats : mainModeStats;
+    const canonicalBench = withoutCalculation5Benchmark(mainBench, useIdCards ? cardPriorCount : mainModePriorCount);
     const mainTradeRate = calculateBoundedRate(canonicalStats.totalTradeKills, canonicalStats.totalTeammateKnocks);
     const mainSmokeOpportunityRate = calculateBoundedRate(canonicalStats.totalSmokeRescues, canonicalStats.totalTeammateKnocks);
-    addCanonicalEvidence("damage_average", "평균 화력", canonicalStats.avgDamage, "동일 티어 평균 화력", mainBench?.avgDamage);
+    addCanonicalEvidence("damage_average", "평균 화력", canonicalStats.avgDamage, "동일 티어 평균 화력", canonicalBench?.avgDamage);
     if (typeof canonicalStats.userInitiativeRate === "number" && Number.isFinite(canonicalStats.userInitiativeRate)) {
-      addCanonicalEvidence("initiative_rate", "선제 타격 성공률", `${canonicalStats.userInitiativeRate}%`, "동일 티어 평균 선제 타격 성공률", mainBench?.avgInitiativeRate === undefined ? undefined : `${mainBench.avgInitiativeRate}%`);
+      addCanonicalEvidence("initiative_rate", "선제 타격 성공률", `${canonicalStats.userInitiativeRate}%`, "동일 티어 평균 선제 타격 성공률", canonicalBench?.avgInitiativeRate === undefined ? undefined : `${canonicalBench.avgInitiativeRate}%`);
     }
     if (typeof canonicalStats.avgDuelWinRate === "number" && Number.isFinite(canonicalStats.avgDuelWinRate)) {
-      addCanonicalEvidence("duel_win_rate", "1:1 교전 승률", `${canonicalStats.avgDuelWinRate}%`, "동일 티어 평균 1:1 교전 승률", mainBench?.avgDuelWinRate === undefined ? undefined : `${mainBench.avgDuelWinRate}%`);
+      addCanonicalEvidence("duel_win_rate", "1:1 교전 승률", `${canonicalStats.avgDuelWinRate}%`, "동일 티어 평균 1:1 교전 승률", canonicalBench?.avgDuelWinRate === undefined ? undefined : `${canonicalBench.avgDuelWinRate}%`);
     }
     if (typeof canonicalStats.avgPressureIndex === "number" && Number.isFinite(canonicalStats.avgPressureIndex)) {
-      addCanonicalEvidence("pressure_index", "평균 압박 지수", canonicalStats.avgPressureIndex, "동일 티어 평균 압박 지수", mainBench?.avgPressureIndex);
+      addCanonicalEvidence("pressure_index", "평균 압박 지수", canonicalStats.avgPressureIndex, "동일 티어 평균 압박 지수", canonicalBench?.avgPressureIndex);
     }
     if (mainTradeRate !== null) {
-      addCanonicalEvidence("trade_success_rate", "복수 성공률", `${mainTradeRate}%`, "동일 티어 평균 복수 성공률", mainBench?.avgTradeRate === undefined ? undefined : `${mainBench.avgTradeRate}%`);
+      addCanonicalEvidence("trade_success_rate", "복수 성공률", `${mainTradeRate}%`, "동일 티어 평균 복수 성공률", canonicalBench?.avgTradeRate === undefined ? undefined : `${canonicalBench.avgTradeRate}%`);
     }
     if (mainSmokeOpportunityRate !== null) {
-      addCanonicalEvidence("smoke_opportunity_rate", "아군 기절 대비 연막 구출률", `${mainSmokeOpportunityRate}%`, "동일 티어 기회 대비 평균 연막 구출률", mainBench?.avgSmokeRate === undefined ? undefined : `${mainBench.avgSmokeRate}%`);
+      addCanonicalEvidence("smoke_opportunity_rate", "아군 기절 대비 연막 구출률", `${mainSmokeOpportunityRate}%`, "동일 티어 기회 대비 평균 연막 구출률", canonicalBench?.avgSmokeRate === undefined ? undefined : `${canonicalBench.avgSmokeRate}%`);
     }
     if (canonicalStats.avgMeasuredReactionLatency !== "측정 불가") {
-      addCanonicalEvidence("reaction_latency", "반격 소요 시간", canonicalStats.avgMeasuredReactionLatency, "동일 티어 평균 반격 소요 시간", mainBench?.avgFirstReplyLatency === undefined ? undefined : `${mainBench.avgFirstReplyLatency}s`);
+      addCanonicalEvidence("reaction_latency", "반격 소요 시간", canonicalStats.avgMeasuredReactionLatency, "동일 티어 평균 반격 소요 시간", canonicalBench?.avgFirstReplyLatency === undefined ? undefined : `${canonicalBench.avgFirstReplyLatency}s`);
     }
     if (canonicalStats.avgBackupLatency !== "측정 불가") {
-      addCanonicalEvidence("backup_latency", "백업 속도", canonicalStats.avgBackupLatency, "동일 티어 평균 백업 속도", mainBench?.avgTradeLatency === undefined ? undefined : `${mainBench.avgTradeLatency}s`);
+      addCanonicalEvidence("backup_latency", "백업 속도", canonicalStats.avgBackupLatency, "동일 티어 평균 백업 속도", canonicalBench?.avgTradeLatency === undefined ? undefined : `${canonicalBench.avgTradeLatency}s`);
     }
     if (typeof canonicalStats.soloKillRate === "number" && Number.isFinite(canonicalStats.soloKillRate)) {
-      addCanonicalEvidence("solo_kill_share", "솔로 킬 비중", `${canonicalStats.soloKillRate}%`, "동일 티어 평균 솔로 킬 비중", mainBench?.avgSoloKillRate === undefined ? undefined : `${mainBench.avgSoloKillRate}%`);
+      addCanonicalEvidence("solo_kill_share", "솔로 킬 비중", `${canonicalStats.soloKillRate}%`, "동일 티어 평균 솔로 킬 비중", canonicalBench?.avgSoloKillRate === undefined ? undefined : `${canonicalBench.avgSoloKillRate}%`);
     }
     if (typeof canonicalStats.avgDeathPhase === "number" && Number.isFinite(canonicalStats.avgDeathPhase)) {
-      addCanonicalEvidence("death_phase", "평균 사망 페이즈", canonicalStats.avgDeathPhase, "동일 티어 평균 사망 페이즈", mainBench?.avgDeathPhase);
+      addCanonicalEvidence("death_phase", "평균 사망 페이즈", canonicalStats.avgDeathPhase, "동일 티어 평균 사망 페이즈", canonicalBench?.avgDeathPhase);
     }
     const canonicalEvidence: CanonicalDebateEvidenceMap = canonicalDebateEvidence;
     let serverCards: SummaryCard[] = [];
@@ -2073,7 +2157,7 @@ export async function POST(request: Request) {
       const observedDamage = cardMatches
         .map((match) => firstObservedNonNegative(match.stats?.processedDamageDealt, match.stats?.damageDealt))
         .filter((damage): damage is number => damage !== null);
-      const evidence = buildSummaryCardEvidence({
+      const evidence = applyCalculationVersionGuard(buildSummaryCardEvidence({
         ...cardStats,
         totalSmokeRescues: cardStats.totalObservedSmokeRescues,
         totalTeammateKnocks: cardStats.totalObservedTeammateKnocks,
@@ -2081,7 +2165,7 @@ export async function POST(request: Request) {
         avgDamage: observedDamage.length > 0
           ? observedDamage.reduce((sum, damage) => sum + damage, 0) / observedDamage.length
           : null,
-      }, cardBenchmark);
+      }, cardBenchmark), cardPriorCount);
       const rawModes = Array.from(new Set(cardMatches.map(normalizedMatchMode))).sort();
       const matchTypes = Array.from(new Set(cardMatches.map((match) => isCompetitiveMatch(match) ? "competitive" : "official"))).sort();
       const contextInput = {
@@ -2148,14 +2232,15 @@ export async function POST(request: Request) {
       errorCode = "PUBG_AI_PROVIDER_ERROR",
       error = AI_SUMMARY_PROVIDER_ERROR_MESSAGE,
       retryAfterSeconds = AI_SUMMARY_RETRY_AFTER_SECONDS,
-      tracked: { error?: string; errorCode?: string } = {},
+      tracked: { error?: string; errorCode?: string; timingOutcome?: string } = {},
+      retryable = true,
     ) => {
-      recordOutcome({ error: tracked.error ?? error, errorCode: tracked.errorCode ?? errorCode });
+      recordOutcome({ error: tracked.error ?? error, errorCode: tracked.errorCode ?? errorCode, timingOutcome: tracked.timingOutcome });
       const records = [
         { type: "visuals", data: precomputedVisuals },
         { type: "cards", data: unavailableCards() },
-        { type: "error", error, errorCode, retryable: true, retryAfterSeconds },
-        { type: "done", valid: false, error, errorCode, retryable: true, retryAfterSeconds },
+        { type: "error", error, errorCode, retryable, retryAfterSeconds },
+        { type: "done", valid: false, error, errorCode, retryable, retryAfterSeconds },
       ];
       return new Response(records.map((record) => JSON.stringify(record)).join("\n") + "\n", { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
     };
@@ -2180,8 +2265,10 @@ export async function POST(request: Request) {
     // evidence from the role score itself.
     // 역할의 반응 분포는 구 지표 기준이다. 신규 사격 근거 분포가 준비되기 전에는 이 항목을 보류한다.
     const roleStatsWithDistribution = { ...summaryStats, avgReactionLatency: "측정 불가", modeDistribution: { main: mainModeName } };
+    // 계산 5는 선제 타격 성공률의 정의가 바뀌었고 기준 분포는 계산 2·3에서 산출했다. 판정 경기에 계산 5가 있으면 선제 지표를 보류한다.
+    const roleHasCalculation5Match = bestMatches.some((match: any) => match?.calculationVersion === ANALYSIS_CALCULATION_VERSION);
     const roleInfo = classifyRole(roleStatsWithDistribution, mainBench, mainUserTier, {
-      pendingReferenceMetrics: ["reactionSec"],
+      pendingReferenceMetrics: roleHasCalculation5Match ? ["reactionSec", "initiative"] : ["reactionSec"],
       // 칭호 판정과 같은 점수 상위 경기에서 횟수형 근거가 있었던 경기 수와 기록 완전성
       evidenceMatches: countRoleEvidenceMatches(bestMatches),
     });
@@ -2202,6 +2289,8 @@ export async function POST(request: Request) {
     }
 
     const reactionTier = (lat: string) => lat === "측정 불가" ? "측정 불가" : "평가 보류";
+    // 시각화의 백업 판정과 비교 표본 수도 카드·프롬프트와 같은 기준을 쓴다. 개인 값은 최근 10판(selectedMatches) 기준이다.
+    const visualBench = withoutCalculation5Benchmark(mainBench, countPriorCalculationMatches(selectedMatches));
     const backupContextForVisuals = buildBackupCoachingContext({
       avgBackupLatency,
       totalTradeKills,
@@ -2209,7 +2298,7 @@ export async function POST(request: Request) {
       totalSmokeRescues,
       totalTeamWipes: masteryStats.totalTeamWipes,
       totalTeammateKnocks,
-      benchmarkTradeLatency: mainBench?.avgTradeLatency,
+      benchmarkTradeLatency: visualBench?.avgTradeLatency,
     });
 
     const isolationVisual = (
@@ -2241,15 +2330,15 @@ export async function POST(request: Request) {
         teammateCount: Math.round(totalTeammateCountFinal / teammateCountFinal),
       } : {}),
       userTier: mainUserTier,
-      ...(mainBench?.avgIsolationIndex !== undefined ? { benchmarkIsolationIndex: mainBench.avgIsolationIndex } : {}),
-      ...(mainBench?.avgMinDist !== undefined ? { benchmarkMinDist: mainBench.avgMinDist } : {}),
-      ...(mainBench && mainBenchContext ? {
+      ...(visualBench?.avgIsolationIndex !== undefined ? { benchmarkIsolationIndex: visualBench.avgIsolationIndex } : {}),
+      ...(visualBench?.avgMinDist !== undefined ? { benchmarkMinDist: visualBench.avgMinDist } : {}),
+      ...(visualBench && mainBenchContext ? {
         benchmarkScope: {
           gameMode: mainBenchContext.gameMode,
           matchType: mainBenchContext.matchType,
           tier: mainBenchContext.tier,
-          sampleCount: mainBench.sampleCount,
-          ...(mainBench.metricSampleCounts ? { metricSampleCounts: mainBench.metricSampleCounts } : {}),
+          sampleCount: visualBench.sampleCount,
+          ...(visualBench.metricSampleCounts ? { metricSampleCounts: visualBench.metricSampleCounts } : {}),
         },
       } : {}),
     } : null;
@@ -2263,13 +2352,13 @@ export async function POST(request: Request) {
       latestMatchTime, latestMatchCount: selectedMatches.length, bestMatchCount: bestMatches.length,
       counterLatency: avgBackupLatency, reactionLatency: avgMeasuredReactionLatency,
       reactionTier: reactionTier(avgMeasuredReactionLatency), backupTier: backupContextForVisuals.tier, overallTier: mainUserTier, tierScope: mainTierScope, tierMatchCount: mainTierMatchCount, roleInfo,
-      ...(mainBench && mainBenchContext ? {
+      ...(visualBench && mainBenchContext ? {
         benchmarkScope: {
           gameMode: mainBenchContext.gameMode,
           matchType: mainBenchContext.matchType,
           tier: mainBenchContext.tier,
-          sampleCount: mainBench.sampleCount,
-          ...(mainBench.metricSampleCounts ? { metricSampleCounts: mainBench.metricSampleCounts } : {}),
+          sampleCount: visualBench.sampleCount,
+          ...(visualBench.metricSampleCounts ? { metricSampleCounts: visualBench.metricSampleCounts } : {}),
         },
       } : {}),
       tierBreakdown: finalTierBreakdown,
@@ -2429,9 +2518,12 @@ export async function POST(request: Request) {
         canonicalEvidence,
       });
       if (!normalized) return null;
-      return JSON.stringify(sanitizeSummaryPayload(normalized));
+      // 이 함수는 새 응답 저장과 캐시 읽기에 모두 쓰이므로 판단 문자열 정책도 여기서 함께 적용한다.
+      return JSON.stringify(sanitizeLegacySummaryJudgment(sanitizeSummaryPayload(normalized)));
     };
 
+    timing.stage("promptBuild", Date.now() - promptStartedAt);
+    const cacheStartedAt = Date.now();
     // Cache lookup must happen after every effective prompt/visual/benchmark
     // input is computed, but before requiring a Gemini key or constructing a
     // model. This keeps cache hits usable during key outages.
@@ -2459,6 +2551,7 @@ export async function POST(request: Request) {
             ? cachedIdResult?.cacheable ? JSON.stringify(cachedIdResult.final) : null
             : typeof cachedFinalCandidate === "string" ? canonicalizeFinalJson(cachedFinalCandidate) : null;
           if (canonicalCachedFinal) {
+            timing.setStage("cacheLookup", { ms: Date.now() - cacheStartedAt, result: "hit" });
             recordOutcome({ modelName: "gemini-cache" });
             const encoder = new TextEncoder();
             const stream = new ReadableStream({
@@ -2485,7 +2578,21 @@ export async function POST(request: Request) {
       }
     }
 
+    timing.setStage("cacheLookup", force
+      ? { ms: 0, result: "skipped" }
+      : { ms: Date.now() - cacheStartedAt, result: "miss" });
     if (isRouteAborted()) return abortResponse();
+    // 차단 스위치는 캐시 적중 뒤에 둔다. 적중한 요약은 계속 돌려주고, 새 생성만 막는다.
+    if (isAiGenerationDisabled()) {
+      if (useIdCards) {
+        return factsOnlyResponse(AI_GENERATION_DISABLED_ERROR_CODE, AI_GENERATION_DISABLED_MESSAGE, 0, {
+          error: AI_GENERATION_DISABLED_ERROR_CODE,
+          timingOutcome: "generation_disabled",
+        }, false);
+      }
+      recordOutcome({ error: AI_GENERATION_DISABLED_ERROR_CODE, errorCode: AI_GENERATION_DISABLED_ERROR_CODE, timingOutcome: "generation_disabled" });
+      return NextResponse.json({ error: AI_GENERATION_DISABLED_MESSAGE, errorCode: AI_GENERATION_DISABLED_ERROR_CODE, retryable: false }, { status: 503 });
+    }
     const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!geminiApiKey) {
       if (useIdCards) return factsOnlyResponse(undefined, undefined, undefined, { error: "No API Key", errorCode: "configuration" });
@@ -2545,6 +2652,7 @@ export async function POST(request: Request) {
         break;
       }
 
+      const modelAttemptStartedAt = Date.now();
       const modelAttemptController = new AbortController();
       const modelAttemptBudgetMs = Math.min(AI_SUMMARY_MODEL_TIMEOUT_MS, remainingGenerationMs);
       let modelAttemptTimedOut = false;
@@ -2614,6 +2722,7 @@ export async function POST(request: Request) {
         fullStreamIterator = iterator;
         prefixText = startedText;
         selectedModelName = modelName;
+        timing.attempt({ model: modelName, outcome: "ok", ms: Date.now() - modelAttemptStartedAt });
         preserveModelAttemptSignal = true;
         selectedModelAttemptSignalCleanup = modelAttemptSignal.cleanup;
         providerUsageTask = Promise.resolve(aiSdkResult.usage).then((usage) => { providerUsage = usage; }).catch(() => undefined);
@@ -2625,6 +2734,15 @@ export async function POST(request: Request) {
           || /timeout|timed out/i.test(errorMessage);
         const providerAborted = err?.name === "AbortError"
           || /request aborted/i.test(errorMessage);
+        if (!overallSignal.aborted && !request.signal.aborted) {
+          timing.attempt({
+            model: modelName,
+            outcome: modelAttemptTimedOut || providerTimedOut || providerAborted
+              ? "first_part_timeout"
+              : isProviderRateLimited(err) ? "rate_limited" : "provider_error",
+            ms: Date.now() - modelAttemptStartedAt,
+          });
+        }
         if (overallSignal.aborted || request.signal.aborted) {
           generationTimedOut = true;
           streamResult = null;
@@ -2650,9 +2768,14 @@ export async function POST(request: Request) {
       }
     }
 
+    timing.stage("geminiFirstPart", Date.now() - generationStartedAt);
     if (generationTimedOut || isRouteAborted() || (modelTimeoutObserved && !streamResult)) {
       cleanupGeneration();
-      if (useIdCards && !isRouteAborted()) return factsOnlyResponse("PUBG_AI_ROUTE_TIMEOUT", "AI 요약 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
+      // 첫 파트 전에 실패한 경로다. 사유에 모델별 결과를 남겨 스트림 도중 실패와 구분한다.
+      if (useIdCards && !isRouteAborted()) return factsOnlyResponse("PUBG_AI_ROUTE_TIMEOUT", "AI 요약 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.", undefined, {
+        error: `first_part: ${timing.describeAttempts() || "no_attempt"}`,
+        timingOutcome: "first_part_timeout",
+      });
       return abortResponse();
     }
     if (!streamResult && providerRateLimited && useIdCards) {
@@ -2670,6 +2793,7 @@ export async function POST(request: Request) {
         let aiResponseText = "";
         let finishReason: string | null = null;
         let validationFailed = false;
+        let validationReasons: string[] = [];
         let diagnosticCode: string | undefined;
         let diagnosticReason: string | undefined;
         try {
@@ -2722,6 +2846,7 @@ export async function POST(request: Request) {
                 }
               }
             } finally {
+              timing.stage("geminiTotal", Date.now() - generationStartedAt);
               if (generationSignal.signal.aborted || isRouteAborted()) {
                 try {
                   const returnPromise = iterator.return?.();
@@ -2743,6 +2868,7 @@ export async function POST(request: Request) {
             if (streamResult) { diagnosticCode = code; diagnosticReason = reason; }
           }) : null;
           const validJsonString = useIdCards ? idResult ? JSON.stringify(idResult.final) : null : canonicalizeFinalJson(finalResult);
+          validationReasons = idResult?.rejectReasons ?? [];
 
           if (validJsonString) {
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
@@ -2755,7 +2881,7 @@ export async function POST(request: Request) {
             // 검증된 카드만 부분 완료로 제공하며, 해석이 하나도 없으면 실패한다.
             if (useIdCards && !idResult?.usable) {
               validationFailed = true;
-              throw new Error(`AI card interpretation did not pass validation: ${idResult?.rejectReasons.join(",") || "malformed"}`);
+              throw new Error(`AI card interpretation did not pass validation: ${formatAiRouteReasons(validationReasons) || "malformed"}`);
             }
             const partial = useIdCards && !idResult?.cacheable;
             if (partial) console.warn("[AI-SUMMARY] Partial interpretation:", idResult?.rejectReasons.join(","));
@@ -2763,6 +2889,8 @@ export async function POST(request: Request) {
             // 3. Write to DB Cache
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
             const persistenceSignal = streamResult ? generationSignal.signal : routeSignal.signal;
+            const persistStartedAt = Date.now();
+            let persistStatus: "ok" | "failed" | "skipped" = partial ? "skipped" : "ok";
             // 부분 완료는 같은 키의 완성본 캐시를 덮어쓰지 않도록 저장하지 않는다.
             if (!partial) try {
               const savePromise = supabase
@@ -2792,8 +2920,10 @@ export async function POST(request: Request) {
               if (saveErr) throw saveErr;
             } catch (saveErr: any) {
               if (isRouteAborted() || persistenceSignal.aborted) throw new Error("AI summary request was aborted");
-              console.warn("[AI-SUMMARY] Failed to write cache to DB:", saveErr.message || saveErr);
+              persistStatus = "failed";
+              console.error("[AI-SUMMARY] Failed to write cache to DB:", saveErr.message || saveErr);
             }
+            timing.setStage("persist", { ms: Date.now() - persistStartedAt, status: persistStatus });
 
             // 3. 완료 신호
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
@@ -2801,7 +2931,12 @@ export async function POST(request: Request) {
               ...(partial ? { partial: true, retryAfterSeconds: AI_SUMMARY_PARTIAL_RETRY_AFTER_SECONDS } : {}),
             }) + "\n"));
             recordOutcome({ status: partial ? "partial" : "success",
-              ...(partial ? { errorCode: "validation", errorMessage: idResult?.rejectReasons.join(",") } : {}),
+              actionDrops: idResult?.actionDropReasons,
+              ...(partial ? {
+                errorCode: "validation",
+                errorMessage: formatAiRouteReasons(idResult?.rejectReasons ?? []),
+                reasons: idResult?.rejectReasons,
+              } : {}),
             });
           } else {
             validationFailed = useIdCards && Boolean(streamResult);
@@ -2835,7 +2970,16 @@ export async function POST(request: Request) {
               : "AI summary request timed out"
             : validationFailed ? "AI 해석의 근거를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."
               : isRateLimited ? "AI 요청이 잠시 몰렸습니다. 1분 후 다시 시도해 주세요." : AI_SUMMARY_PROVIDER_ERROR_MESSAGE;
-          recordOutcome({ error: e, errorCode: diagnosticCode || (validationFailed ? "validation" : errorCode) });
+          if (selectedModelName) {
+            if (isAbortFailure) timing.settleLastAttempt("stream_deadline");
+            else if (!validationFailed) timing.settleLastAttempt(isRateLimited ? "rate_limited" : "provider_error");
+          }
+          // 스트림 도중 데드라인은 같은 PUBG_AI_ROUTE_TIMEOUT 코드라도 사유 접두로 첫 파트 전 실패와 구분한다.
+          if (isAbortFailure && !request.signal.aborted) {
+            recordOutcome({ error: `stream_deadline: ${selectedModelName || "unselected"}`, errorCode, timingOutcome: "stream_deadline" });
+          } else {
+            recordOutcome({ error: e, errorCode: diagnosticCode || (validationFailed ? "validation" : errorCode), reasons: validationFailed ? validationReasons : undefined });
+          }
 
           const errorRecord = {
             type: "error",

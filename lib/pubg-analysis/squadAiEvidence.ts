@@ -1,4 +1,6 @@
 import { requiresRescueOpportunityEvidence } from './aiCoachingQuality';
+import { isSquadWithheldCopy, squadMetricWithheldCopy, squadWithheldCopy } from './squadAiPolicy';
+import { isSquadTradeLatencyEvaluable } from './squadEvidenceSamples';
 
 // Keep absent observations out of coaching, including results read from cache.
 const metrics = [
@@ -19,32 +21,43 @@ export function hasSquadObservations(stats: Record<string, unknown>): boolean {
   return metrics.some(({ key }) => isObserved(stats, key));
 }
 
-export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unknown>, grade: string | null, scores?: Record<string, unknown>, roleProfiles: Array<{ name: string; shares?: Record<string, number | null> }> = []): T {
+export interface SquadEvidencePolicyOptions {
+  // "spicy"만 넘김 문장으로 바꾼다. 그 밖의 값은 기존 보류 문구를 쓴다.
+  coachingStyle?: string;
+}
+
+export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unknown>, grade: string | null, scores?: Record<string, unknown>, roleProfiles: Array<{ name: string; shares?: Record<string, number | null> }> = [], options: SquadEvidencePolicyOptions = {}): T {
   if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("Invalid squad coaching result");
+  const coachingStyle = options.coachingStyle;
+  // 백업 속도는 복수 표본이 기준 미만이면 관측되지 않은 것으로 보고, 해당 문장을 보류한다.
+  const tradeLatencyEvaluable = isSquadTradeLatencyEvaluable(stats);
   const missing = metrics.filter(({ key }) => !isObserved(stats, key)
+    || (key === "avgTradeLatency" && !tradeLatencyEvaluable)
     || (key === "avgCoverRate" && scores !== undefined && !isObserved(scores, "focusFire")));
   const clean = (text: unknown): unknown => {
     if (typeof text !== "string") return text;
     // Split at sentence ends, not decimal points (e.g. 5.36 seconds).
     const sentences = text.split(/(?<=[.!?。])\s+|\n+/);
     return [...new Set(sentences.map((sentence) => {
+      // 이미 보류 문구인 문장은 다시 판정하지 않아 캐시를 여러 번 읽어도 결과가 같다.
+      if (isSquadWithheldCopy(sentence)) return sentence;
       if (requiresRescueOpportunityEvidence(sentence)
         && (!isObserved(stats, "totalTeammateKnocks") || stats.totalTeammateKnocks === 0 || !isObserved(stats, "totalSmokeRescues"))) {
         return stats.totalTeammateKnocks === 0
-          ? "연막 구출 기회가 관측되지 않아 해당 평가는 보류합니다."
-          : "연막 구출 기록이 부족해 해당 평가는 보류합니다.";
+          ? squadWithheldCopy(coachingStyle, "rescueNoOpportunity")
+          : squadWithheldCopy(coachingStyle, "rescueLow");
       }
       if (/연막.{0,35}(?:아껴|아꼈|안\s*쓰|쓰지\s*않|국\s*끓)/.test(sentence)) return "연막 구출 성공 횟수만으로 연막 사용 여부나 구출 의도를 판단할 수 없습니다.";
       const unavailable = missing.find(({ pattern }) => pattern.test(sentence));
-      if (unavailable) return `${unavailable.label} 평가는 근거가 부족해 보류합니다.`;
+      if (unavailable) return squadMetricWithheldCopy(coachingStyle, unavailable.label);
       // Observed counts remain useful even when the knock denominator/score
       // is missing. Withhold rates and ability judgments, not the real totals.
       if (scores !== undefined && !isObserved(scores, "survivalCare")
         && /생존\s*케어|(?:소생|부활|연막|구출|복구).{0,20}(?:성공률|확률|비율|률|퍼센트|%|능력|우수|부족|잘하|못하|훌륭|평균\s*대비)/i.test(sentence)) {
-        return "생존 케어 평가는 근거가 부족해 보류합니다.";
+        return squadMetricWithheldCopy(coachingStyle, "생존 케어");
       }
       if (!grade && /(?:종합|스쿼드|협동|전체|시너지)\s*(?:등급|평가|점수)|총점|[SABCD][+-]?\s*(?:등급|Grade|급)|\b[SABCD][+-]?(?:입니다|라고\s*평가)/i.test(sentence)) {
-        return "미측정 지표가 있어 종합 등급은 보류합니다.";
+        return squadWithheldCopy(coachingStyle, "grade");
       }
       return sentence;
     }))].join(" ");
@@ -62,7 +75,7 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
       const cleaned = clean(text);
       if (typeof cleaned !== "string") return cleaned;
       if (/고립|대열|이탈|백업|엄호|커버|연막|소생|부활|후방|위치\s*선정|소극|적극|몸\s*사리|숨어|(?:연계|협공|시너지).{0,20}(?:부족|아쉬|떨어)|혼자\s*앞서|킬을?\s*주워/.test(cleaned)) {
-        return "개인 행동을 단정할 근거가 부족해 해당 평가는 보류합니다.";
+        return squadWithheldCopy(coachingStyle, "member", cleaned);
       }
       return cleaned;
     };

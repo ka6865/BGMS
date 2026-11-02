@@ -137,12 +137,13 @@ interface DebateData {
       worstMap: { mapName: string; displayName: string; matchCount: number; avgDamage: number; avgKills: number; avgDeathPhase: number };
     } | null;
     weaknessDiagnostic?: string;
+    // 교전 승률 추세는 계산 기준이 섞이면 null(보류)로 온다. 딜량 추세는 항상 남는다.
     trends?: {
       dmgTrend: number;
-      winTrend: number;
+      winTrend: number | null;
       status: string;
-      recent: { damage: number; winRate: number };
-      older: { damage: number; winRate: number };
+      recent: { damage: number; winRate: number | null };
+      older: { damage: number; winRate: number | null };
     } | null;
 
     tactical?: {
@@ -452,6 +453,7 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
   if (trends && typeof trends === "object" && !Array.isArray(trends)) {
     const trendSource = trends as Record<string, unknown>;
     const dmgTrend = finiteVisualNumber(trendSource.dmgTrend, -Number.MAX_SAFE_INTEGER);
+    // 보류된 승률 추세(null)는 숫자가 없는 값으로 남기고, 딜량 추세만으로도 카드를 보인다.
     const winTrend = finiteVisualNumber(trendSource.winTrend, -Number.MAX_SAFE_INTEGER);
     const status = safeVisualText(trendSource.status);
     const recent = trendSource.recent;
@@ -461,11 +463,11 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
       const record = point as Record<string, unknown>;
       const damage = finiteVisualNumber(record.damage, 0);
       const winRate = finiteVisualNumber(record.winRate, 0, 100);
-      return damage === null || winRate === null ? null : { damage, winRate };
+      return damage === null ? null : { damage, winRate };
     };
     const normalizedRecent = normalizeTrendPoint(recent);
     const normalizedOlder = normalizeTrendPoint(older);
-    if (dmgTrend !== null && winTrend !== null && status !== null && normalizedRecent && normalizedOlder) {
+    if (dmgTrend !== null && status !== null && normalizedRecent && normalizedOlder) {
       normalized.trends = { dmgTrend, winTrend, status, recent: normalizedRecent, older: normalizedOlder };
     }
   }
@@ -1592,17 +1594,25 @@ export const RecentAISummary = ({
               <p className="text-gray-500 text-xs mb-4">{CALCULATION_UPGRADE_DETAIL}</p>
             </>
           ) : (
-            <>
-              <p className="text-gray-300 text-sm mb-1">AI 해석을 표시할 수 없습니다.</p>
-              <p className="text-gray-500 text-xs mb-4">{error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 확인된 기록은 아래에 표시되며 잠시 후 다시 시도할 수 있어요." : "확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요."}</p>
-              <button
-                onClick={retrySummary}
-                disabled={retryDisabled}
-                className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {retryLabel}
-              </button>
-            </>
+            error.errorCode === "PUBG_AI_GENERATION_DISABLED" ? (
+              // 생성 차단 중에는 다시 시도해도 같은 결과라 재시도 버튼을 두지 않는다.
+              <>
+                <p className="text-gray-300 text-sm mb-1">AI 해석은 잠시 중지되어 있어요.</p>
+                <p className="text-gray-500 text-xs">확인된 기록은 아래에서 그대로 볼 수 있어요.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-300 text-sm mb-1">AI 해석을 표시할 수 없습니다.</p>
+                <p className="text-gray-500 text-xs mb-4">{error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 확인된 기록은 아래에 표시되며 잠시 후 다시 시도할 수 있어요." : "확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요."}</p>
+                <button
+                  onClick={retrySummary}
+                  disabled={retryDisabled}
+                  className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {retryLabel}
+                </button>
+              </>
+            )
           )}
         </div>
       )}
@@ -1778,27 +1788,31 @@ export const RecentAISummary = ({
             {[
               { label: "딜량 트렌드", current: debateData.visuals.trends.recent.damage, diff: debateData.visuals.trends.dmgTrend, unit: "", icon: Flame },
               { label: "교전 승률", current: debateData.visuals.trends.recent.winRate, diff: debateData.visuals.trends.winTrend, unit: "%", icon: Zap },
-            ].map((item, idx) => (
-              <div key={idx} className="bg-white/5 border border-white/10 rounded-2xl p-5 flex flex-col gap-3 relative overflow-hidden group">
-                <div className="flex justify-between items-start">
-                  <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">{item.label}</span>
-                  <item.icon size={16} className="text-white/20 group-hover:text-indigo-400 transition-colors" />
-                </div>
-                <div className="flex items-end justify-between">
-                  <div className="text-2xl font-black text-white">{item.current}{item.unit}</div>
-                  <div className={`flex items-center gap-1 text-[11px] font-black ${item.diff > 0 ? 'text-emerald-400' : item.diff < 0 ? 'text-red-400' : 'text-gray-500'}`}>
-                    {item.diff > 0 ? <TrendingUp size={12} /> : item.diff < 0 ? <TrendingDown size={12} /> : <Minus size={12} />}
-                    {item.diff > 0 ? '+' : ''}{item.diff}{item.unit}
+            ].map((item, idx) => {
+              // 보류된 추세(null)는 숫자 대신 "보류"로 보여 주고, 창 간 비교처럼 읽히는 변화량 표시를 하지 않는다.
+              const diff = item.diff;
+              return (
+                <div key={idx} className="bg-white/5 border border-white/10 rounded-2xl p-5 flex flex-col gap-3 relative overflow-hidden group">
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">{item.label}</span>
+                    <item.icon size={16} className="text-white/20 group-hover:text-indigo-400 transition-colors" />
+                  </div>
+                  <div className="flex items-end justify-between">
+                    <div className="text-2xl font-black text-white">{item.current === null ? "보류" : `${item.current}${item.unit}`}</div>
+                    <div className={`flex items-center gap-1 text-[11px] font-black ${diff === null ? 'text-gray-500' : diff > 0 ? 'text-emerald-400' : diff < 0 ? 'text-red-400' : 'text-gray-500'}`}>
+                      {diff === null ? <Minus size={12} /> : diff > 0 ? <TrendingUp size={12} /> : diff < 0 ? <TrendingDown size={12} /> : <Minus size={12} />}
+                      {diff === null ? '변화 보류' : `${diff > 0 ? '+' : ''}${diff}${item.unit}`}
+                    </div>
+                  </div>
+                  <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-1000 ${diff === null ? 'bg-gray-500' : diff > 0 ? 'bg-emerald-500' : diff < 0 ? 'bg-red-500' : 'bg-gray-500'}`}
+                      style={{ width: `${diff === null ? 50 : Math.min(100, 50 + (diff / (item.current || 1)) * 100)}%` }}
+                    />
                   </div>
                 </div>
-                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full transition-all duration-1000 ${item.diff > 0 ? 'bg-emerald-500' : item.diff < 0 ? 'bg-red-500' : 'bg-gray-500'}`}
-                    style={{ width: `${Math.min(100, 50 + (item.diff / (item.current || 1)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
             <div className="md:col-span-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl px-4 py-2 flex items-center justify-between">
               <span className="text-[11px] text-indigo-300 font-bold">최근 5판 vs 이전 5판 성장 추세 분석 결과</span>
               <span className="text-[11px] text-white font-black">{debateData.visuals.trends.status}</span>

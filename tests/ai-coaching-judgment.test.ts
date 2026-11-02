@@ -302,3 +302,205 @@ it('removes an unmeasured composure adjective while preserving observed firepowe
   const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({signature:'침착한 화력 지원가'}), {stats:{processedDamageDealt:106}}));
   expect(result.signature).toBe('화력 지원가');
 });
+
+describe('small-sample throw action items and idempotent policy passes', () => {
+  const oneThrow = { combatPressure: { utilityStats: { throwCount: 1, lethalThrowCount: 0, hitCount: 0 } } };
+  const fourThrows = { combatPressure: { utilityStats: { throwCount: 4, lethalThrowCount: 2, hitCount: 0 } } };
+  const threeThrows = { combatPressure: { utilityStats: { throwCount: 3, lethalThrowCount: 0, hitCount: 0 } } };
+  const checkPoint = '다음 경기에서는 투척을 쓸 수 있었던 교전이 있었는지 확인해 보세요.';
+
+  it('turns a usage-increase directive into a check question when only one throw was observed', () => {
+    const input = { finalVerdict: '투척 활용이 부족합니다.', actionItems: [{ title: '투척 활용', desc: '수류탄 사용 빈도를 늘리세요.' }] };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), oneThrow));
+    expect(result.finalVerdict).toBe('투척은 총 1회라 활용 능력을 평가하기에는 표본이 적습니다.');
+    expect(result.actionItems).toEqual([{ title: '투척 기회 확인', desc: checkPoint }]);
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), oneThrow))).toEqual(result);
+  });
+
+  it.each([
+    '투척물 명중률을 높이세요.',
+    '투척을 더 많이 던지세요.',
+  ])('withholds throw-increase advice from a small sample without deleting the item: %s', desc => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ actionItems: [{ title: '투척 연습', desc }] }), oneThrow));
+    expect(result.actionItems).toHaveLength(1);
+    expect(result.actionItems[0].desc).toBe(checkPoint);
+  });
+
+  it('keeps the throw-increase advice when at least three throws were observed', () => {
+    const input = { actionItems: [{ title: '투척 활용', desc: '수류탄 사용 빈도를 늘리세요.' }] };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), threeThrows))).toEqual(input);
+  });
+
+  it('does not treat a negated throw-increase remark as a directive', () => {
+    const input = { actionItems: [{ desc: '투척을 늘릴 필요는 없습니다.' }] };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), oneThrow))).toEqual(input);
+  });
+
+  it('does not repeat the lethal-throw check sentence on a cached second pass', () => {
+    const input = { actionItems: [{ title: '투척 정확도', desc: '투척물 명중률을 높이세요.' }] };
+    const once = applyMatchAiEvidencePolicy(JSON.stringify(input), fourThrows);
+    const checkCount = (JSON.parse(once).actionItems[0].desc.match(/확인해 보세요\./g) ?? []).length;
+    expect(JSON.parse(once).actionItems[0].desc).toBe('피해형 투척은 2회라 명중률을 판단하기 어렵습니다. 다음 경기에서는 투척 후 피해가 들어갔는지 확인해 보세요.');
+    expect(checkCount).toBe(1);
+    expect(applyMatchAiEvidencePolicy(once, fourThrows)).toBe(once);
+  });
+
+  it('drops a judgment-bearing prefix from a withheld utility sentence instead of keeping it', () => {
+    const input = { briefFeedback: ['유틸리티 활용이 부족했으나 피해형 투척 2회 중 적중 0회입니다.'] };
+    const once = applyMatchAiEvidencePolicy(JSON.stringify(input), fourThrows);
+    expect(JSON.parse(once).briefFeedback[0]).toBe('피해형 투척은 2회로 표본이 적어 전반적인 활용 능력 평가는 보류합니다.');
+    expect(applyMatchAiEvidencePolicy(once, fourThrows)).toBe(once);
+  });
+
+  it('keeps a factual prefix from a withheld utility sentence', () => {
+    const input = { briefFeedback: ['선제 공격 성공률 75%를 기록했으나 피해형 투척 2회 중 피해 적중은 0회로 유틸리티 활용에서의 정밀도 보완이 필요합니다.'] };
+    const once = applyMatchAiEvidencePolicy(JSON.stringify(input), fourThrows);
+    expect(JSON.parse(once).briefFeedback[0]).toBe('선제 공격 성공률 75%를 기록했습니다. 피해형 투척은 2회로 표본이 적어 전반적인 활용 능력 평가는 보류합니다.');
+    expect(applyMatchAiEvidencePolicy(once, fourThrows)).toBe(once);
+  });
+
+  const representative = [
+    { briefFeedback: ['반격 소요 시간이 빨라 뛰어난 반사신경을 보여줍니다.'] },
+    { briefFeedback: ['대응 사격 속도가 상위권 기준에 비해 크게 처졌습니다.'] },
+    { briefFeedback: ['유효 딜량 596을 기록했습니다. 대응 사격 속도는 동일 티어 평균보다 느립니다.'] },
+    { briefFeedback: ['유틸리티 활용이 부족했으나 피해형 투척 1회 중 적중 0회입니다.'] },
+    { briefFeedback: ['투척이 저조했으나 화력은 좋았습니다.'] },
+    { finalVerdict: '피해형 투척 2회 중 적중 0회로 투척 정확도를 높여야 합니다.' },
+    { signature: '대응 사격 속도가 3.00초로 비교 대상 평균인 0.57초보다 크게 느려 교전 반응 속도 개선이 시급합니다.' },
+    { actionItems: [{ title: '투척 정확도', desc: '수류탄 사용 빈도를 늘리세요.' }, { desc: '투척물 명중률을 높이세요.' }] },
+    { actionItems: [{ desc: '대응 피해가 3초 내 미관측되었으므로 교전 시 피격 즉시 반격하는 반응 속도 훈련에 집중하십시오.' }] },
+    { actionItems: [{ desc: '다음 교전에서 상대의 움직임에 집중해 보세요.' }] },
+    { briefFeedback: ['백업 속도는 10.97초이며 소생은 1회입니다.'], actionItems: [{ desc: '성공적인 복구였지만 다음 교전 후에는 소생 소요 시간을 조금 더 줄여보세요.' }] },
+  ];
+  const matches = [{}, oneThrow, threeThrows, fourThrows,
+    { combatPressure: { utilityStats: { throwCount: 2, lethalThrowCount: 2, hitCount: 0 } } },
+    { tradeStats: { reactionLatencyMs: 3000 }, duelStats: { reversalAttempts: 3 } },
+    { tradeStats: { teammateKnocks: 3, smokeRescues: 0 }, duelStats: { totalDuels: 1, wins: 0 } }];
+
+  it('applies the policy idempotently across representative inputs and match states', () => {
+    const failures: string[] = [];
+    for (const input of representative) for (const match of matches) {
+      const once = applyMatchAiEvidencePolicy(JSON.stringify(input), match);
+      const twice = applyMatchAiEvidencePolicy(once, match);
+      if (once !== twice) failures.push(`${JSON.stringify(input)} => ${once} => ${twice}`);
+    }
+    expect(failures).toEqual([]);
+  });
+});
+
+describe('2026-11-02 real gemini follow-ups: throw title sync and listed concentration', () => {
+  const oneThrow = { combatPressure: { utilityStats: { throwCount: 1, lethalThrowCount: 0, hitCount: 0 } } };
+  const fourThrows = { combatPressure: { utilityStats: { throwCount: 4, lethalThrowCount: 2, hitCount: 0 } } };
+  const checkPoint = '다음 경기에서는 투척을 쓸 수 있었던 교전이 있었는지 확인해 보세요.';
+
+  it('makes the title of a withheld small-sample throw item neutral using the real provider text', () => {
+    const input = { actionItems: [{ title: '투척물 활용 보완', desc: '총 투척 1회에 그친 유틸리티 사용량을 늘려 교전 압박력을 보완하십시오.' }] };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), oneThrow));
+    expect(result).toEqual({ actionItems: [{ title: '투척 기회 확인', desc: checkPoint }] });
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), oneThrow))).toEqual(result);
+  });
+
+  it('keeps the provider title when the throw sample is sufficient', () => {
+    const input = { actionItems: [{ title: '투척물 활용 보완', desc: '총 투척 4회 중 피해형 투척 2회의 사용량을 늘려 교전 압박력을 보완하십시오.' }] };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), fourThrows))).toEqual(input);
+  });
+
+  it('aligns the title with a lethal-throw accuracy check sentence and stays idempotent', () => {
+    const lethalOne = { combatPressure: { utilityStats: { throwCount: 2, lethalThrowCount: 1, hitCount: 0 } } };
+    const once = applyMatchAiEvidencePolicy(JSON.stringify({ actionItems: [{ title: '투척물 활용 보완', desc: '피해형 투척 명중률을 높이세요.' }] }), lethalOne);
+    const result = JSON.parse(once);
+    expect(result.actionItems[0].title).toBe('투척 결과 확인');
+    expect(result.actionItems[0].desc).toContain('명중률을 판단하기 어렵습니다');
+    expect(applyMatchAiEvidencePolicy(once, lethalOne)).toBe(once);
+  });
+
+  it.each([
+    '다음 경기에서도 현재의 교전 집중력과 화력 분담 비율을 유지하십시오.',
+    '다음 경기에서도 현재의 교전 집중력 및 화력 분담 비율을 유지하십시오.',
+  ])('removes only the unmeasured concentration from a listed directive: %s', desc => {
+    const input = { actionItems: [{ desc }] };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}));
+    expect(result).toEqual({ actionItems: [{ desc: '다음 경기에서도 현재의 화력 분담 비율을 유지하십시오.' }] });
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), {}))).toEqual(result);
+  });
+
+  it('still drops an action item whose only claim is concentration', () => {
+    const input = { actionItems: [{ desc: '다음 경기에서도 교전 집중력을 유지하십시오.' }] };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}))).toEqual({ actionItems: [] });
+  });
+});
+
+describe('2026-11-02 follow-up: throw usage directives, negation scope and concentration limitations', () => {
+  const oneThrow = { combatPressure: { utilityStats: { throwCount: 1, lethalThrowCount: 0, hitCount: 0 } } };
+  const threeThrows = { combatPressure: { utilityStats: { throwCount: 3, lethalThrowCount: 0, hitCount: 0 } } };
+  const checkPoint = '다음 경기에서는 투척을 쓸 수 있었던 교전이 있었는지 확인해 보세요.';
+  const pendingSentence = '투척은 총 1회라 사용량 증감을 판단하기에는 표본이 적습니다.';
+
+  it.each([
+    '투척을 더 많이 던지되 무리하지 않으세요.',
+    '수류탄을 더 자주 쓰세요.',
+    '유틸리티 사용 횟수를 늘리세요.',
+    '투척 명중률을 높이세요.',
+  ])('turns a small-sample usage directive in a desc into a check question: %s', desc => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ actionItems: [{ title: '투척 활용', desc }] }), oneThrow));
+    expect(result.actionItems).toEqual([{ title: '투척 기회 확인', desc: checkPoint }]);
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), oneThrow))).toEqual(result);
+  });
+
+  it.each([
+    '투척을 던지지 마세요.',
+    '투척을 많이 사용하지 않으세요.',
+    '투척을 늘릴 필요는 없습니다.',
+  ])('keeps a negated or unnecessary throw remark in a desc: %s', desc => {
+    const input = { actionItems: [{ title: '투척 활용', desc }] };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), oneThrow))).toEqual(input);
+  });
+
+  it.each(['briefFeedback', 'finalVerdict', 'signatureSub'])('withholds a small-sample throw-usage directive in %s as a pending sentence', key => {
+    const input = { [key]: '피해형 투척 사용 횟수를 늘리는 것이 필요합니다.' };
+    const once = applyMatchAiEvidencePolicy(JSON.stringify(input), oneThrow);
+    expect(JSON.parse(once)[key]).toBe(pendingSentence);
+    expect(applyMatchAiEvidencePolicy(once, oneThrow)).toBe(once);
+  });
+
+  it('keeps the same throw-usage directive when at least three throws were observed in a non-desc field', () => {
+    const input = { briefFeedback: '피해형 투척 사용 횟수를 늘리는 것이 필요합니다.' };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), threeThrows))).toEqual(input);
+  });
+
+  it('keeps a measured-limitation sentence that mentions concentration', () => {
+    const input = { briefFeedback: '집중력은 측정할 수 없습니다.' };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}))).toEqual(input);
+  });
+
+  it('does not leave an unsupported superlative behind after removing a concentration list', () => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ briefFeedback: '교전 집중력과 화력이 모두 높습니다.' }), {}));
+    expect(result.briefFeedback).not.toContain('모두 높습니다');
+    expect(result.briefFeedback).not.toContain('집중력');
+  });
+
+  it('replaces a listed superlative with observed contributions when the match has them', () => {
+    const match = { stats: { kills: 2 } };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ briefFeedback: '교전 집중력과 화력이 모두 높습니다.' }), match));
+    expect(result.briefFeedback).toBe('이번 경기에서 처치 2회를 기록했습니다.');
+  });
+
+  it('does not put a fact sentence into a short signature after removing a concentration list', () => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ signature: '교전 집중력과 화력이 모두 높은 전사' }), {}));
+    expect(result.signature).toBe('경기 기록 점검');
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), {}))).toEqual(result);
+  });
+
+  it('stays idempotent for the follow-up inputs', () => {
+    const inputs = [
+      { actionItems: [{ title: '투척 활용', desc: '투척을 더 많이 던지되 무리하지 않으세요.' }] },
+      { actionItems: [{ title: '투척 활용', desc: '수류탄을 더 자주 쓰세요.' }] },
+      { briefFeedback: '피해형 투척 사용 횟수를 늘리는 것이 필요합니다.', finalVerdict: '투척을 더 많이 던지되 무리하지 않으세요.' },
+      { briefFeedback: '교전 집중력과 화력이 모두 높습니다. 집중력은 측정할 수 없습니다.' },
+    ];
+    for (const input of inputs) for (const match of [oneThrow, threeThrows, {}]) {
+      const once = applyMatchAiEvidencePolicy(JSON.stringify(input), match);
+      expect(applyMatchAiEvidencePolicy(once, match)).toBe(once);
+    }
+  });
+});

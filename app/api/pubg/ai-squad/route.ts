@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI, SchemaType, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import { jsonSchema, Output, streamText, type Schema } from "ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { jsonrepair } from "jsonrepair";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
@@ -11,9 +12,85 @@ import { getSquadAnalysisData } from "@/lib/pubg-analysis/squadAnalysis";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
 import { sanitizeAiCoachingLanguage } from "@/lib/pubg-analysis/aiCoachingQuality";
+import { sanitizeSquadAbilityClaims } from "@/lib/pubg-analysis/squadAiPolicy";
+import {
+  SQUAD_AI_FACTS_ONLY_ERROR_CODE,
+  SQUAD_AI_MIN_MATCH_COUNT,
+  SQUAD_AI_TOO_FEW_MATCHES_ERROR_CODE,
+} from "@/lib/pubg-analysis/squadAiContract";
 
 import { applySquadEvidencePolicy, hasSquadObservations } from "@/lib/pubg-analysis/squadAiEvidence";
 import { expiredMatchDetailResponse, isMatchDetailExpired } from "@/lib/pubg-analysis/matchRetention.server";
+
+// 응답 기준 전체 예산(요약 route의 50초 route deadline과 같은 여유를 둔다).
+export const maxDuration = 60;
+
+const AI_SQUAD_ROUTE_TIMEOUT_MS = 50_000;
+// 모든 모델의 생성 전체 예산. 스트림으로 바뀌어 응답 본문이 길어도 끝까지 받을 수 있게 둔다.
+const AI_SQUAD_TOTAL_TIMEOUT_MS = 30_000;
+// 모델별 제한은 응답 시작(첫 파트)까지만 적용한다. 시작 뒤에는 전체 예산이 관리한다.
+const AI_SQUAD_MODEL_TIMEOUT_MS = 8_000;
+const AI_SQUAD_FACTS_ONLY_MESSAGE = "AI 해석을 완료하지 못했습니다. 계산된 팀 지표는 그대로 확인할 수 있습니다. 잠시 후 다시 시도해 주세요.";
+
+const SQUAD_SAFETY_SETTINGS: Array<{ category: string; threshold: string }> = [
+  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+];
+
+class SquadRequestAbortedError extends Error {
+  constructor() {
+    super("Squad AI request was aborted");
+    this.name = "SquadRequestAbortedError";
+  }
+}
+
+type SquadAiRawOutput = {
+  squadGrade: string | null;
+  summary: string;
+  strength: string;
+  weakness: string;
+  coaching: string;
+  memberFeedbacks: Array<{ name: string; praise: string; fault: string; advice: string }>;
+  overallOpinion: string;
+};
+
+type SquadFailureReason = "timeout" | "provider" | "aborted";
+type SquadTokenUsage = { inputTokens?: number; outputTokens?: number };
+type SquadAttempt = { model: string; outcome: "selected" | "timeout" | "error" | "aborted"; ms: number };
+type SquadGeneration =
+  | {
+    ok: true;
+    text: string;
+    modelName: string;
+    usage: SquadTokenUsage | null;
+    firstPartMs: number;
+    totalMs: number;
+    attempts: SquadAttempt[];
+  }
+  | {
+    ok: false;
+    reason: SquadFailureReason;
+    firstPartMs: number | null;
+    totalMs: number;
+    attempts: SquadAttempt[];
+  };
+
+type SquadRouteTiming = {
+  requestId: string;
+  outcome?: "blocked" | "cache_hit" | "generated" | "facts_only" | "aborted" | "error";
+  stages: {
+    auth: number | null;
+    dataLoad: number | null;
+    cacheLookup: number | null;
+    geminiFirstPart: number | null;
+    geminiTotal: number | null;
+    persist: number | null;
+    total: number | null;
+  };
+  attempts: SquadAttempt[];
+};
 
 function extractValidJson(text: string): string {
   try {
@@ -51,23 +128,6 @@ function hashParts(parts: unknown[]): string {
     .digest("hex");
 }
 
-const AI_SQUAD_TOTAL_TIMEOUT_MS = 22000;
-const AI_SQUAD_MODEL_TIMEOUT_MS = 8000;
-
-class SquadModelTimeoutError extends Error {
-  constructor() {
-    super("Squad Gemini model timed out");
-    this.name = "SquadModelTimeoutError";
-  }
-}
-
-class SquadRequestAbortedError extends Error {
-  constructor() {
-    super("Squad AI request was aborted");
-    this.name = "SquadRequestAbortedError";
-  }
-}
-
 function createAbortError(): Error {
   const error = new Error("The operation was aborted.");
   error.name = "AbortError";
@@ -93,6 +153,38 @@ function awaitWithSignal<T>(promise: PromiseLike<T>, signal: AbortSignal): Promi
   });
 }
 
+const SQUAD_USAGE_SETTLE_MS = 1_000;
+
+async function settleSquadUsage(usage: PromiseLike<SquadTokenUsage | undefined>): Promise<SquadTokenUsage | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const settled = await Promise.race([
+      Promise.resolve(usage).catch(() => null),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), SQUAD_USAGE_SETTLE_MS);
+      }),
+    ]);
+    return settled ?? null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function closeStreamIterator(iterator: AsyncIterator<unknown> | null) {
+  try {
+    const pending = iterator?.return?.();
+    if (pending && typeof (pending as Promise<unknown>).catch === "function") {
+      (pending as Promise<unknown>).catch(() => undefined);
+    }
+  } catch {
+    // 스트림 정리는 best effort다. 실패해도 응답 결정에는 영향을 주지 않는다.
+  }
+}
+
 function canonicalSquadIdentity(data: any): unknown {
   return {
     groupKey: data.groupKey,
@@ -110,10 +202,201 @@ function canonicalSquadIdentity(data: any): unknown {
   };
 }
 
-export async function POST(request: Request) {
-  let body: any = {};
-  const requestId = crypto.randomUUID();
+// 등급은 계산된 값만 허용한다. 관측이 부족하면 null로 보류하고 모델이 임의 등급을 만들지 못하게 한다.
+function buildSquadOutputSchema(canonicalGrade: string | null): Schema<SquadAiRawOutput> {
+  return jsonSchema<SquadAiRawOutput>({
+    type: "object",
+    properties: {
+      squadGrade: {
+        type: ["string", "null"],
+        description: canonicalGrade ? `Must be exactly "${canonicalGrade}"` : "Must be null: overall grade is withheld for missing observations",
+      },
+      summary: { type: "string", description: "One-line tactical summary of this squad" },
+      strength: { type: "string", description: "Key strength of squad collaboration" },
+      weakness: { type: "string", description: "Major vulnerability/weakness of the squad" },
+      coaching: { type: "string", description: "Practical coaching advice to improve squad synergy" },
+      memberFeedbacks: {
+        type: "array",
+        description: "Individual tactical feedback for each and every squad member in roleProfiles",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Nickname of the squad member" },
+            praise: { type: "string", description: "Detailed positive actions, strengths or what they did well (칭찬할 점)" },
+            fault: { type: "string", description: "Detailed vulnerabilities, mistakes, or what they did poorly (못한 점)" },
+            advice: { type: "string", description: "Detailed improvement points and tactical advice (피드백)" },
+          },
+          required: ["name", "praise", "fault", "advice"],
+        },
+      },
+      overallOpinion: { type: "string", description: "Overall coaching review and warning/encouragement addressed to the entire team (팀원 모두에게 한마디씩 총평)" },
+    },
+    required: ["squadGrade", "summary", "strength", "weakness", "coaching", "memberFeedbacks", "overallOpinion"],
+  });
+}
+
+/**
+ * 모델을 순서대로 시도한다. 응답 시작(첫 파트) 전의 오류·시간 초과만 다음 모델로 넘긴다.
+ * 시작 뒤에는 그 모델로 확정해 끝까지 읽고, 중간 오류는 실패로 돌려준다.
+ */
+async function generateSquadCoaching(input: {
+  provider: ReturnType<typeof createGoogleGenerativeAI>;
+  system: string;
+  prompt: string;
+  schema: Schema<SquadAiRawOutput>;
+  requestSignal: AbortSignal;
+  budgetMs: number;
+}): Promise<SquadGeneration> {
   const startedAt = Date.now();
+  const deadlineController = new AbortController();
+  const deadlineTimer = setTimeout(() => deadlineController.abort(), input.budgetMs);
+  const overallSignal = AbortSignal.any([input.requestSignal, deadlineController.signal]);
+  const attempts: SquadAttempt[] = [];
+  let firstPartMs: number | null = null;
+  let timeoutObserved = false;
+  try {
+    for (const modelName of GEMINI_MODELS_TO_TRY) {
+      if (overallSignal.aborted) break;
+      const remainingMs = input.budgetMs - (Date.now() - startedAt);
+      if (remainingMs <= 0) {
+        timeoutObserved = true;
+        break;
+      }
+
+      const attemptStartedAt = Date.now();
+      const attemptController = new AbortController();
+      let attemptTimedOut = false;
+      const firstPartTimer = setTimeout(() => {
+        attemptTimedOut = true;
+        attemptController.abort();
+      }, Math.min(AI_SQUAD_MODEL_TIMEOUT_MS, remainingMs));
+      const attemptSignal = AbortSignal.any([overallSignal, attemptController.signal]);
+      let committed = false;
+      let iterator: AsyncIterator<any> | null = null;
+      try {
+        const aiResult = streamText({
+          model: input.provider(modelName),
+          system: input.system,
+          prompt: input.prompt,
+          output: Output.object({ schema: input.schema }),
+          // 실패 시 같은 모델을 재시도하지 않고 바로 다음 모델로 넘긴다.
+          maxRetries: 0,
+          abortSignal: attemptSignal,
+          providerOptions: { google: { safetySettings: SQUAD_SAFETY_SETTINGS } },
+        });
+        iterator = aiResult.fullStream[Symbol.asyncIterator]();
+
+        let text = "";
+        while (true) {
+          const next = await awaitWithSignal(iterator.next(), attemptSignal);
+          if (next.done) throw new Error("AI SDK stream ended before a response");
+          const part = next.value;
+          if (part?.type === "error") throw part.error ?? new Error("Squad provider stream failed");
+          if (part?.type === "start-step" || part?.type === "text-delta") {
+            if (part.type === "text-delta") text += String(part.text ?? "");
+            break;
+          }
+        }
+        clearTimeout(firstPartTimer);
+        committed = true;
+        firstPartMs = Date.now() - startedAt;
+
+        while (true) {
+          const next = await awaitWithSignal(iterator.next(), overallSignal);
+          if (next.done) break;
+          const part = next.value;
+          if (part?.type === "error") throw part.error ?? new Error("Squad provider stream failed");
+          if (part?.type === "text-delta" && typeof part.text === "string") text += part.text;
+        }
+        // 사용량은 summary route와 같은 usage 정산 값을 쓴다. 정산이 늦어도 응답을 붙잡지 않는다.
+        const usage = await settleSquadUsage(aiResult.usage);
+        attempts.push({ model: modelName, outcome: "selected", ms: Date.now() - attemptStartedAt });
+        return {
+          ok: true,
+          text,
+          modelName,
+          usage,
+          firstPartMs,
+          totalMs: Date.now() - startedAt,
+          attempts,
+        };
+      } catch (error) {
+        clearTimeout(firstPartTimer);
+        closeStreamIterator(iterator);
+        const ms = Date.now() - attemptStartedAt;
+        if (input.requestSignal.aborted) {
+          attempts.push({ model: modelName, outcome: "aborted", ms });
+          return { ok: false, reason: "aborted", firstPartMs, totalMs: Date.now() - startedAt, attempts };
+        }
+        if (deadlineController.signal.aborted) {
+          attempts.push({ model: modelName, outcome: "timeout", ms });
+          timeoutObserved = true;
+          break;
+        }
+        if (committed) {
+          attempts.push({ model: modelName, outcome: "error", ms });
+          console.warn(`[AI-SQUAD] Model ${modelName} failed after the response started: ${errorMessageOf(error)}`);
+          return { ok: false, reason: "provider", firstPartMs, totalMs: Date.now() - startedAt, attempts };
+        }
+        if (attemptTimedOut) {
+          attempts.push({ model: modelName, outcome: "timeout", ms });
+          timeoutObserved = true;
+          console.warn(`[AI-SQUAD] Model ${modelName} timed out before its response started; trying next...`);
+          continue;
+        }
+        attempts.push({ model: modelName, outcome: "error", ms });
+        console.warn(`[AI-SQUAD] Model ${modelName} failed before its response started (${errorMessageOf(error)}), trying next...`);
+      } finally {
+        clearTimeout(firstPartTimer);
+      }
+    }
+    if (input.requestSignal.aborted) {
+      return { ok: false, reason: "aborted", firstPartMs, totalMs: Date.now() - startedAt, attempts };
+    }
+    return {
+      ok: false,
+      reason: timeoutObserved || deadlineController.signal.aborted ? "timeout" : "provider",
+      firstPartMs,
+      totalMs: Date.now() - startedAt,
+      attempts,
+    };
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
+}
+
+function logSquadRouteTiming(timing: SquadRouteTiming) {
+  // 식별자·닉네임·원문은 남기지 않는다. 요청 ID와 단계 시간, 모델 시도 결과만 남긴다.
+  console.info(JSON.stringify({
+    kind: "ai-route-timing",
+    route: "squad",
+    requestId: timing.requestId,
+    stages: timing.stages,
+    attempts: timing.attempts,
+    outcome: timing.outcome ?? "error",
+  }));
+}
+
+export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
+  const timing: SquadRouteTiming = {
+    requestId,
+    stages: { auth: null, dataLoad: null, cacheLookup: null, geminiFirstPart: null, geminiTotal: null, persist: null, total: null },
+    attempts: [],
+  };
+  const startedAt = Date.now();
+  let response: Response;
+  try {
+    response = await runSquadRoute(request, requestId, startedAt, timing);
+  } finally {
+    timing.stages.total = Date.now() - startedAt;
+    logSquadRouteTiming(timing);
+  }
+  return response;
+}
+
+async function runSquadRoute(request: Request, requestId: string, startedAt: number, timing: SquadRouteTiming): Promise<Response> {
+  let body: any = {};
   let authenticatedUserId: string | undefined;
   let requestedPlatform = "steam";
   try {
@@ -121,6 +404,7 @@ export async function POST(request: Request) {
 
     // 🔒 [Security] JWT Authentication Guard - Only logged-in users can call AI coaching
     const auth = await withAuthGuard();
+    timing.stages.auth = Date.now() - startedAt;
     if (auth.error) return auth.error;
     const { supabaseAdmin: supabase } = auth;
     authenticatedUserId = auth.user?.id;
@@ -148,7 +432,9 @@ export async function POST(request: Request) {
     // All numeric evidence is recomputed server-side.  The request contributes
     // only identity/control fields; forged stats/scores/roles/benchmarks are
     // intentionally ignored rather than compared or merged.
+    const dataLoadStartedAt = Date.now();
     const squadData = await getSquadAnalysisData(nickname, cachePlatform, groupKey);
+    timing.stages.dataLoad = Date.now() - dataLoadStartedAt;
     if (request.signal.aborted) throw new SquadRequestAbortedError();
     // AI 호출 전에 막는 경우도 원인을 사용 기록에 남긴다. 기록이 없으면 운영에서 실패 이유를 찾을 수 없다.
     const trackBlocked = (reason: string, errorCode: string) => trackAiFailure(authenticatedUserId, "squad", reason, {
@@ -182,6 +468,17 @@ export async function POST(request: Request) {
         retryable: false,
       }, { status: 409 });
     }
+    // 경기 수가 적으면 한두 판의 우연을 팀 특성처럼 말하게 되므로 모델을 호출하지 않는다.
+    if (squadData.matchCount < SQUAD_AI_MIN_MATCH_COUNT) {
+      trackBlocked("squad matches below the AI minimum", "too_few_matches");
+      return NextResponse.json({
+        error: `${SQUAD_AI_MIN_MATCH_COUNT}경기 이상 함께 플레이하면 AI 코칭을 이용할 수 있습니다.`,
+        errorCode: SQUAD_AI_TOO_FEW_MATCHES_ERROR_CODE,
+        retryable: false,
+        minMatchCount: SQUAD_AI_MIN_MATCH_COUNT,
+        matchCount: squadData.matchCount,
+      }, { status: 409 });
+    }
     const canonical = canonicalSquadIdentity(squadData);
     const matchIdsHash = hashParts(["canonical-squad", playerId, cachePlatform, canonical]);
     const canonicalStats = squadData.stats;
@@ -192,9 +489,36 @@ export async function POST(request: Request) {
       && typeof squadData.squadGrade === "string" && squadData.squadGrade.trim() ? squadData.squadGrade : null;
     const canonicalBenchmarkStats = squadData.benchmarkStats;
     const canonicalMatchCount = squadData.matchCount;
+    const canonicalMatchesSummary = squadData.matchesSummary;
+    // 보류 문구 치환 스타일. 프롬프트와 같이 "mild"만 다정한맛으로 보고 나머지는 매운맛으로 본다.
+    const policyCoachingStyle = coachingStyle === "mild" ? "mild" : "spicy";
+
+    // 계산된 팀 지표만 담은 사실 응답. AI 해석이 없음을 명시하고 캐시에는 저장하지 않는다.
+    const factsOnlyResponse = (reason: "timeout" | "provider" | "disabled") => {
+      timing.outcome = "facts_only";
+      return NextResponse.json({
+        mode: "facts_only",
+        aiInterpretation: false,
+        errorCode: SQUAD_AI_FACTS_ONLY_ERROR_CODE,
+        reason,
+        message: AI_SQUAD_FACTS_ONLY_MESSAGE,
+        retryable: true,
+        squadGrade: canonicalGrade,
+        facts: {
+          groupKey: squadData.groupKey,
+          teamMode: squadData.teamMode,
+          matchCount: canonicalMatchCount,
+          squadGrade: canonicalGrade,
+          stats: canonicalStats,
+          scores: canonicalScores,
+          benchmarkStats: canonicalBenchmarkStats,
+        },
+      }, { headers: { "Cache-Control": "no-store" } });
+    };
 
     // 2. Perform DB Cache Lookup
     if (request.signal.aborted) throw new SquadRequestAbortedError();
+    const cacheLookupStartedAt = Date.now();
     try {
       const { data: cached, error: cacheErr } = await supabase
         .from("squad_ai_coaching_cache")
@@ -211,19 +535,37 @@ export async function POST(request: Request) {
       if (request.signal.aborted) throw new SquadRequestAbortedError();
 
       if (!cacheErr && cached && cached.ai_result) {
+        timing.stages.cacheLookup = Date.now() - cacheLookupStartedAt;
         trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "squad", {
           durationMs: Date.now() - startedAt,
           requestId,
           platform: requestedPlatform,
         });
-        return NextResponse.json(applySquadEvidencePolicy(sanitizeAiCoachingLanguage(cached.ai_result), canonicalStats, canonicalGrade, canonicalScores, canonicalRoleProfiles));
+        timing.outcome = "cache_hit";
+        return NextResponse.json(applySquadEvidencePolicy(
+          sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(cached.ai_result), policyCoachingStyle),
+          canonicalStats,
+          canonicalGrade,
+          canonicalScores,
+          canonicalRoleProfiles,
+          { coachingStyle: policyCoachingStyle },
+        ));
       }
     } catch (dbErr) {
       if (request.signal.aborted) throw new SquadRequestAbortedError();
       console.warn("[AI-SQUAD] Cache lookup failed:", dbErr);
     }
+    timing.stages.cacheLookup = Date.now() - cacheLookupStartedAt;
 
     if (request.signal.aborted) throw new SquadRequestAbortedError();
+
+    // 운영 차단 스위치. 캐시 적중은 위에서 이미 반환했고, 여기서는 모델 호출만 막는다.
+    if (process.env.PUBG_AI_GENERATION_DISABLED === "true") {
+      trackAiFailure(authenticatedUserId, "squad", "AI generation is disabled by operator switch", {
+        errorCode: "generation_disabled", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform,
+      });
+      return factsOnlyResponse("disabled");
+    }
 
     const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!apiKey) {
@@ -241,148 +583,73 @@ export async function POST(request: Request) {
       squadGrade: canonicalGrade,
       benchmarkStats: canonicalBenchmarkStats,
       matchCount: canonicalMatchCount,
+      matchesSummary: canonicalMatchesSummary,
       teamMode: squadData.teamMode,
     });
 
-    // 3. Try multiple Gemini models sequentially
+    // 3. Try multiple Gemini models in order (first-part failures move to the next model)
     if (request.signal.aborted) throw new SquadRequestAbortedError();
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const modelsToTry = GEMINI_MODELS_TO_TRY;
+    const generation = await generateSquadCoaching({
+      // 기본 provider는 GOOGLE_GENERATIVE_AI_API_KEY를 읽으므로 이 route의 키를 명시적으로 넘긴다.
+      provider: createGoogleGenerativeAI({ apiKey }),
+      system: systemInstruction,
+      prompt,
+      schema: buildSquadOutputSchema(canonicalGrade),
+      requestSignal: request.signal,
+      // 라우트 전체 예산(POST 시작 기준)을 넘지 않도록 생성 예산을 남은 시간으로 자른다.
+      budgetMs: Math.min(AI_SQUAD_TOTAL_TIMEOUT_MS, Math.max(0, AI_SQUAD_ROUTE_TIMEOUT_MS - (Date.now() - startedAt))),
+    });
+    timing.attempts = generation.attempts;
+    timing.stages.geminiFirstPart = generation.firstPartMs;
+    timing.stages.geminiTotal = generation.totalMs;
 
-    const safetySettings = [
-      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-      { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-      { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
-    ];
-
-    let responseText = "";
-    let selectedModelName = "";
-    let usageMetadata: any = null;
-
-    const generationStartedAt = Date.now();
-    const routeGenerationController = new AbortController();
-    const routeGenerationTimer = setTimeout(() => routeGenerationController.abort(), AI_SQUAD_TOTAL_TIMEOUT_MS);
-    const routeGenerationSignal = routeGenerationController.signal;
-    let requestAborted = false;
-    const onRequestAbort = () => {
-      requestAborted = true;
-      routeGenerationController.abort();
-    };
-    if (request.signal.aborted) {
-      onRequestAbort();
-    } else {
-      request.signal.addEventListener("abort", onRequestAbort, { once: true });
-      // Abort can race listener registration; re-check immediately so an
-      // already-aborted request cannot enter model selection.
-      if (request.signal.aborted) onRequestAbort();
+    if (!generation.ok) {
+      if (generation.reason === "aborted") throw new SquadRequestAbortedError();
+      const timedOut = generation.reason === "timeout";
+      trackAiFailure(authenticatedUserId, "squad", timedOut ? "Squad Gemini models timed out" : "All Gemini models failed to respond", {
+        errorCode: timedOut ? "timeout" : "model",
+        modelName: generation.attempts.find(attempt => attempt.outcome === "error" || attempt.outcome === "timeout")?.model,
+        durationMs: Date.now() - startedAt,
+        requestId,
+        platform: requestedPlatform,
+      });
+      return factsOnlyResponse(timedOut ? "timeout" : "provider");
     }
-    let timedOut = false;
-    let modelTimeoutObserved = false;
-    const overallSignal = routeGenerationSignal;
-    const timeoutTimers = new Set<ReturnType<typeof setTimeout>>();
+
+    if (generation.usage) {
+      trackAiUsage(
+        authenticatedUserId,
+        generation.modelName,
+        generation.usage.inputTokens ?? 0,
+        generation.usage.outputTokens ?? 0,
+        "squad",
+        { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
+      );
+    }
+
+    let resultJson: unknown;
     try {
-      for (const modelName of modelsToTry) {
-        if (requestAborted || overallSignal.aborted) break;
-        const attemptController = new AbortController();
-        let attemptTimedOut = false;
-        try {
-          const remainingMs = AI_SQUAD_TOTAL_TIMEOUT_MS - (Date.now() - generationStartedAt);
-          if (remainingMs <= 0) break;
-
-          if (requestAborted || overallSignal.aborted) break;
-          const model = genAI.getGenerativeModel({
-          model: modelName,
-          systemInstruction: systemInstruction,
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: SchemaType.OBJECT,
-              properties: {
-                squadGrade: { type: SchemaType.STRING, nullable: true, description: canonicalGrade ? `Must be exactly "${canonicalGrade}"` : "Must be null: overall grade is withheld for missing observations" },
-                summary: { type: SchemaType.STRING, description: "One-line tactical summary of this squad" },
-                strength: { type: SchemaType.STRING, description: "Key strength of squad collaboration" },
-                weakness: { type: SchemaType.STRING, description: "Major vulnerability/weakness of the squad" },
-                coaching: { type: SchemaType.STRING, description: "Practical coaching advice to improve squad synergy" },
-                memberFeedbacks: {
-                  type: SchemaType.ARRAY,
-                  description: "Individual tactical feedback for each and every squad member in roleProfiles",
-                  items: {
-                    type: SchemaType.OBJECT,
-                    properties: {
-                      name: { type: SchemaType.STRING, description: "Nickname of the squad member" },
-                      praise: { type: SchemaType.STRING, description: "Detailed positive actions, strengths or what they did well (칭찬할 점)" },
-                      fault: { type: SchemaType.STRING, description: "Detailed vulnerabilities, mistakes, or what they did poorly (못한 점)" },
-                      advice: { type: SchemaType.STRING, description: "Detailed improvement points and tactical advice (피드백)" }
-                    },
-                    required: ["name", "praise", "fault", "advice"]
-                  }
-                },
-                overallOpinion: { type: SchemaType.STRING, description: "Overall coaching review and warning/encouragement addressed to the entire team (팀원 모두에게 한마디씩 총평)" }
-              },
-              required: ["squadGrade", "summary", "strength", "weakness", "coaching", "memberFeedbacks", "overallOpinion"]
-            }
-          },
-          safetySettings
-        });
-
-          const abortAttempt = () => attemptController.abort();
-          routeGenerationSignal.addEventListener("abort", abortAttempt, { once: true });
-          const attemptSignal = attemptController.signal;
-          const timer = setTimeout(() => {
-            attemptTimedOut = true;
-            modelTimeoutObserved = true;
-            attemptController.abort();
-          }, Math.min(AI_SQUAD_MODEL_TIMEOUT_MS, remainingMs));
-          timeoutTimers.add(timer);
-          let response: any;
-          try {
-            response = await awaitWithSignal(model.generateContent({
-              contents: [{ role: "user", parts: [{ text: prompt }] }]
-            }, { signal: attemptSignal, timeout: Math.min(AI_SQUAD_MODEL_TIMEOUT_MS, remainingMs) }), attemptSignal);
-            if (overallSignal.aborted || request.signal.aborted) break;
-            if (attemptTimedOut) continue;
-          } finally {
-            clearTimeout(timer);
-            timeoutTimers.delete(timer);
-            routeGenerationSignal.removeEventListener("abort", abortAttempt);
-          }
-
-          if (response && response.response) {
-            responseText = response.response.text();
-            selectedModelName = modelName;
-            usageMetadata = response.response.usageMetadata;
-            break;
-          }
-        } catch (err: any) {
-          if (requestAborted || overallSignal.aborted || request.signal.aborted) {
-            if (!requestAborted && !request.signal.aborted) timedOut = true;
-            break;
-          }
-          if (attemptTimedOut) {
-            console.warn(`[AI-SQUAD] Model ${modelName} timed out; trying next...`);
-            continue;
-          }
-          console.warn(`[AI-SQUAD] Model ${modelName} failed (${err.message || err}), trying next...`);
-        }
-      }
-    } finally {
-      clearTimeout(routeGenerationTimer);
-      request.signal.removeEventListener("abort", onRequestAbort);
-      timeoutTimers.forEach(clearTimeout);
+      const validJsonString = extractValidJson(generation.text);
+      resultJson = applySquadEvidencePolicy(
+        sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), policyCoachingStyle),
+        canonicalStats,
+        canonicalGrade,
+        canonicalScores,
+        canonicalRoleProfiles,
+        { coachingStyle: policyCoachingStyle },
+      );
+    } catch {
+      // 파싱 오류 문구에는 모델 원문 일부가 들어갈 수 있어 길이만 남긴다.
+      console.warn(`[AI-SQUAD] Generated response could not be parsed (length=${generation.text.length})`);
+      trackAiFailure(authenticatedUserId, "squad", "Squad AI response JSON invalid", {
+        errorCode: "parse", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform,
+      });
+      return factsOnlyResponse("provider");
     }
-
-    if (requestAborted) throw new SquadRequestAbortedError();
-    if (timedOut || (modelTimeoutObserved && !responseText)) throw new SquadModelTimeoutError();
-    if (!responseText) {
-      throw new Error("All Gemini models failed to respond or timed out.");
-    }
-
-    const validJsonString = extractValidJson(responseText);
-    const resultJson = applySquadEvidencePolicy(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), canonicalStats, canonicalGrade, canonicalScores, canonicalRoleProfiles);
 
     // 3. Write to DB Cache
     if (request.signal.aborted) throw new SquadRequestAbortedError();
+    const persistStartedAt = Date.now();
     try {
       const { error: saveErr } = await supabase
         .from("squad_ai_coaching_cache")
@@ -400,26 +667,9 @@ export async function POST(request: Request) {
     } catch (saveErr: any) {
       console.warn("[AI-SQUAD] Failed to write cache to DB:", saveErr.message || saveErr);
     }
+    timing.stages.persist = Date.now() - persistStartedAt;
 
-    // Track usage stats
-    if (selectedModelName && usageMetadata) {
-      try {
-        const promptTokens = usageMetadata.promptTokenCount || 0;
-        const completionTokens = (usageMetadata.candidatesTokenCount || 0) + (usageMetadata.thoughtsTokenCount || 0);
-
-        trackAiUsage(
-          auth.user.id,
-          selectedModelName,
-          promptTokens,
-          completionTokens,
-          "squad",
-          { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
-        );
-      } catch (e) {
-        console.warn("AI Usage tracking failed:", e);
-      }
-    }
-
+    timing.outcome = "generated";
     return NextResponse.json(resultJson);
 
   } catch (error) {
@@ -430,19 +680,15 @@ export async function POST(request: Request) {
       platform: requestedPlatform,
     });
     const requestAborted = request.signal.aborted || error instanceof SquadRequestAbortedError;
-    const status = error instanceof SquadModelTimeoutError && !requestAborted ? 504 : 503;
-    const errorCode = error instanceof SquadModelTimeoutError && !requestAborted
-      ? "PUBG_AI_SQUAD_TIMEOUT"
-      : requestAborted
-        ? "PUBG_AI_SQUAD_ABORTED"
-        : "PUBG_AI_SQUAD_PROVIDER_ERROR";
+    timing.outcome = requestAborted ? "aborted" : "error";
+    const errorCode = requestAborted ? "PUBG_AI_SQUAD_ABORTED" : "PUBG_AI_SQUAD_PROVIDER_ERROR";
     return NextResponse.json(
       {
         error: "스쿼드 AI 분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.",
         errorCode,
         retryable: true,
       },
-      { status },
+      { status: 503 },
     );
   }
 }

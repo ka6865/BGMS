@@ -1,3 +1,11 @@
+import { formatSquadPunchlineBlock, selectSquadMemberPunchlines, selectSquadPunchlines } from "./squadPunchlines";
+import {
+  isSquadReviveRateEvaluable,
+  isSquadTradeLatencyEvaluable,
+  SQUAD_MIN_KNOCKS,
+  SQUAD_MIN_TRADE_KILLS,
+} from "./squadEvidenceSamples";
+
 export interface SquadAiPromptInput {
   groupKey: string;
   stats: any;
@@ -9,6 +17,8 @@ export interface SquadAiPromptInput {
   benchmarkStats?: any;
   matchCount?: number;
   teamMode?: "duo" | "squad";
+  // 경기별 순위 요약. 우승·최고 순위 재료를 만드는 데만 쓴다.
+  matchesSummary?: any[];
 }
 
 export interface SquadAiPromptResult {
@@ -31,6 +41,7 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
     benchmarkStats,
     matchCount = 1,
     teamMode = "squad",
+    matchesSummary = [],
   } = input;
   const isMild = coachingStyle === "mild";
   const finiteNumber = (value: unknown): number | null => {
@@ -63,8 +74,19 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
   const isolationValue = finiteNonNegative(stats?.avgIsolation);
   const tradeLatencyValue = finiteNonNegative(stats?.avgTradeLatency);
   const benchmarkTradeLatencyValue = finiteNonNegative(benchmarkStats?.avgTradeLatency);
-  const myTradeLatencySec = tradeLatencyValue !== null && tradeLatencyValue >= 0
-    ? `${(tradeLatencyValue / 1000).toFixed(2)}초`
+  // 표본이 기준보다 적은 백업 속도는 수치를 리포트에 넣지 않는다. 재료 선정과 같은 기준을 쓴다.
+  const tradeEvaluable = isSquadTradeLatencyEvaluable(stats);
+  const reviveEvaluable = isSquadReviveRateEvaluable(stats);
+  const tradeKillCount = finiteNonNegative(stats?.totalTradeKills);
+  const knockCount = finiteNonNegative(stats?.totalTeammateKnocks);
+  const reviveCount = finiteNonNegative(stats?.totalRevives);
+  const myTradeLatencySec = !tradeEvaluable
+    ? `표본 부족으로 백업 속도는 평가하지 않음 (복수 ${tradeKillCount === null ? "측정 불가" : `${tradeKillCount}건`}, ${SQUAD_MIN_TRADE_KILLS}건 이상 필요)`
+    : tradeLatencyValue !== null && tradeLatencyValue >= 0
+      ? `${(tradeLatencyValue / 1000).toFixed(2)}초`
+      : "측정 불가";
+  const teamReviveRateText = reviveEvaluable && knockCount !== null && knockCount > 0 && reviveCount !== null
+    ? `${Math.round((reviveCount / knockCount) * 1000) / 10}%`
     : "측정 불가";
   const benchmarkTradeLatencySec = benchmarkTradeLatencyValue !== null && benchmarkTradeLatencyValue >= 0
     ? `${(benchmarkTradeLatencyValue / 1000).toFixed(2)}초`
@@ -89,9 +111,13 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
   const benchmarkContext = benchmarkStats ? `
 [Global Benchmark Context (${benchmarkStats.scope === "team_population" && Number.isFinite(benchmarkStats.sampleCount) ? `전체 ${teamMode === "duo" ? "듀오" : "스쿼드"} 팀 ${benchmarkStats.sampleCount}경기 평균. 티어 구분 없음` : `Tier: ${typeof benchmarkStats.tier === "string" && benchmarkStats.tier.trim() ? benchmarkStats.tier : "측정 불가"}`})]
 - Global Avg Isolation Index (대열 이탈 고립도): ${formatObserved(benchmarkStats.avgIsolation)} (Our Squad Avg: ${formatObserved(isolationValue)})
-- Global Avg Backup Speed (백업 반응 속도): ${benchmarkTradeLatencySec} (Our Squad Avg: ${myTradeLatencySec})
-- Global Avg Revive Success Rate (부활 성공률): ${formatPercent(benchmarkStats.avgReviveRate)}
-- Global Avg Smoke Rescue Rate (연막탄 구출 성공률): ${formatPercent(benchmarkStats.avgSmokeRate)}
+${tradeEvaluable
+  ? `- Global Avg Backup Speed (백업 반응 속도): ${benchmarkTradeLatencySec} (Our Squad Avg: ${myTradeLatencySec})`
+  : "- Global Avg Backup Speed (백업 반응 속도): 표본 부족으로 비교하지 않음"}
+${reviveEvaluable
+  ? `- Global Avg Revive Success Rate (부활 성공률): ${formatPercent(benchmarkStats.avgReviveRate)} (Our Squad Revive Rate: ${teamReviveRateText}, 아군 기절 ${knockCount}회 중 ${reviveCount}회 부활)`
+  : `- Global Avg Revive Success Rate (부활 성공률): 표본 부족으로 비교하지 않음 (아군 기절 ${knockCount === null ? "측정 불가" : `${knockCount}회`}, ${SQUAD_MIN_KNOCKS}회 이상 필요)`}
+- Global Avg Smoke Rescue Rate (연막탄 구출 성공률): 팀 연막 구출률은 산출하지 않으므로 비교하지 않음 (연막 구출 횟수만 측정)
 - Global Avg Squad Team Wipes (경기당 적 전멸 기여): ${formatObserved(benchmarkStats.avgTeamWipes, "회")} (Our Squad Avg: ${formatAverageObserved(stats?.totalTeamWipes, matchCount, "회")})
 
 [Assigned Fixed Squad Grade]
@@ -122,7 +148,7 @@ ${benchmarkContext}
 
 [Synergy Balance Scores (Scale 10 - 100)]
 - Formation & Cohesion (대열 유지): ${formatScore(scores?.formation)}
-- Backup Trade Speed (백업 속도): ${formatScore(scores?.backupSpeed)}
+- Backup Trade Speed (백업 속도): ${tradeEvaluable ? formatScore(scores?.backupSpeed) : "표본 부족으로 평가하지 않음"}
 - Survival Care & Rescue (생존 케어): ${formatScore(scores?.survivalCare)}
 - Focus Fire Co-op (화력 집중): ${formatScore(scores?.focusFire)}
 - Team Decisive Wipe (전멸 기여): ${formatScore(scores?.teamWipe)}
@@ -141,6 +167,16 @@ ${benchmarkContext}
       ? "You may discuss firepower concentration, but do not infer teammate intent or blame."
       : "It is below 50%, so do NOT call the squad a one-man show or say the team collapses without one player.";
 
+  // 재료는 측정값과 표본 기준으로만 고른다. 측정이 없는 지표는 재료에서 빠진다.
+  const punchlineBlock = formatSquadPunchlineBlock(
+    selectSquadPunchlines({ stats, scores, squadGrade, benchmarkStats, matchesSummary, roleProfiles }),
+    selectSquadMemberPunchlines({ roleProfiles }),
+  );
+  // 매운맛은 보류 문장도 넘김 말투로 쓰게 하고, 다정한맛은 기존 보류 문장을 유지한다.
+  const noWeaknessCopy = isMild
+    ? '"현재 기록만으로 개인의 약점을 단정하기 어렵습니다."'
+    : "a short in-character pass line from rule 18";
+
   const systemInstruction = isMild ? `
 You are "KIND COACH", a warm, encouraging, and tactical PUBG coach.
 Analyze the provided squad synergy report and write a report.
@@ -155,6 +191,7 @@ Analyze the provided squad synergy report and write a report.
 - Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Describe the observed damage share only. Do not replace blame with an unsupported "화력 분담 보완" judgment. Separate conditional practice advice from observed facts.
 - Do NOT claim teammates are used as bait unless the data explicitly contains bait counts or bait death evidence.
 - Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
+- PUNCHLINE FACTS are for praise and practice advice only. Do not tease, mock or exaggerate with them.
 - CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
       `.trim() : `
 You are "SPICY BOMBER", a brutal, fact-based, and highly sarcastic PUBG tactical analyst.
@@ -162,10 +199,9 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
 
 [Rules for roasting & tone]:
 1. NEVER use explicit vulgar swear words (e.g. "병신", "개새끼", "시발") directly, to prevent safety filters from blocking the response.
-2. Maximize mental damage using PUBG community terms and sarcastic metaphors:
-   - "킬로그 배달부" (Killfeed delivery), "걸어다니는 파밍 상자/보급 상자" (Walking lootbox)
-   - "뇌 빼고 배그함?" (Brainless play), "손가락 압수 마렵다" (Confiscating fingers)
-   - "에임 실화냐?" (Terrible aim), "어휴 그저 샷발 원툴" (All aim no brain)
+2. Maximize sarcasm with PUBG community terms, but tie every jab to a measured metric condition. Never mock a skill, ability, or intent that is not measured:
+   - If a member's measured damage share is low (below 20%) while their kill or assist share is high, you may call them "킬로그 배달부" (Killfeed delivery) and cite only those measured shares.
+   - You may tease a measured number itself (e.g. a damage share of X%) as a bookkeeping joke, without adding any cause or motive.
    - "대열 이탈이 커서 합류 타이밍이 흔들림" (Roast only if isolation index is high, e.g. > 3.0)
 3. Highlight metrics aggressively using clear, human-readable units (e.g. "X.X초", "X회", "X%"):
    - NEVER output raw millisecond values in the response. Always divide by 1000 and round to convert them to seconds like "23.0초" or "12.0초".
@@ -182,10 +218,20 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
 12. Do NOT claim teammates are used as bait unless the data explicitly contains bait counts or bait death evidence.
 13. Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 뇌", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
 14. CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
+15. [PUNCHLINE FACTS] are the only material for jokes, exaggeration, metaphors and nicknames. Copy every number from the facts exactly. Do NOT round, convert, subtract, average, or derive any new number, even one that looks obvious (for example, a difference between two figures). Name each share with its exact label (딜 비중 = damage, 킬 비중 = kill, 어시스트 비중 = assist, 녹다운 비중 = knockouts) and never swap or rename them.
+16. Give the report some bite. Use short, punchy sentences and PUBG community slang such as 장부, 킬로그, 캐리, 치킨. Spread the facts across fields: each of summary, strength, weakness and overallOpinion should carry one comedic line built from a different fact, and do not repeat the same fact in several fields.
+17. Style examples with placeholders (X, Y, N are measured values from the facts, never invented):
+    - hype: a damage share of X% becomes "화력 장부의 X%를 혼자 떠안은 캐리" (over-the-top praise of the bookkeeping only).
+    - roast: N matches with 0 wins becomes "N경기 동안 우승 0회, 트로피 진열장이 아직 비어 있습니다." (a sarcastic remark about the record only).
+    Do NOT tease aim, brain, fingers, focus, judgment, mentality or any ability, and do NOT attribute intent or unrecorded actions.
+    Use the term 킬로그 배달부 only for a member whose fact id is member_kill_log, because that fact is the only measured condition for it.
+18. When a point has no measured fact or its metric is unavailable, write a short in-character pass line instead of a dry verdict such as "판단을 보류합니다". Examples: "이건 기록이 없어서 오늘은 봐드립니다." or "증거 불충분, 이번 판은 무죄 방면." Vary the wording across fields instead of reusing one example in several fields. Pass lines contain no numbers and no ability claims.
       `.trim();
 
   const prompt = `
 ${squadReportSummary}
+
+${punchlineBlock}
 
 Based on the above performance data, write a tactical coaching report according to your designated persona.
 Use measured statistics and available benchmarks to provide concrete, quantitative facts (e.g. "평균 대비 X초 빠름") in your feedback.
@@ -193,12 +239,15 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 
   const evidenceRules = `
 [Missing observation policy — overrides persona and grade instructions above]
+- Do NOT evaluate, mock, or assign training tasks for abilities that are not measured in this report, such as 집중력, 판단력, 멘탈, 에임, 명중률, 반응속도. Only the measured metrics above may support a judgment.
 - Unavailable metrics are NOT zero or poor play. Never praise, blame, compare, or infer performance from them.
 - If cover rate or focus-fire score is unavailable, do not evaluate cover, covering teammates, simultaneous engagement, or focus-fire ability anywhere, including member feedback. There is no implemented cover collection yet; this does not mean a lack of cover opportunities.
 - Zero smoke rescues counts successful recorded rescues, NOT smoke attempts, unused smoke, or a refusal to save. Do not say 연막을 아꼈다/국 끓인다 or blame recovery skill from a success count alone.
-- Personal shares describe distribution only. Do not infer 소극적, 적극적, 후방 지원, 위치 선정, 연계 부족, 협공 능력, or intent from shares. If no personal weakness is measured, use "현재 기록만으로 개인의 약점을 단정하기 어렵습니다." in fault and offer a future practice action in advice.
+- Personal shares describe distribution only. Do not infer 소극적, 적극적, 후방 지원, 위치 선정, 연계 부족, 협공 능력, or intent from shares. If no personal weakness is measured, use ${noWeaknessCopy} in fault and offer a future practice action in advice.
 - These are team-scope observations across the selected matches, not the target player alone. Individual isolation/wipe/cover values cannot replace missing team metrics.
 - Only discuss measured metrics. If no supported weakness is evident, state that further observation is needed instead of inventing a fault.
+${tradeEvaluable ? "" : `- Backup speed is NOT evaluable for this squad (fewer than ${SQUAD_MIN_TRADE_KILLS} measured trade kills). Do NOT state any backup speed value or backup timing, do NOT compare it with the global average, and do NOT praise, blame or advise on backup timing.`}
+${reviveEvaluable ? "" : `- Revive rate is NOT evaluable for this squad (fewer than ${SQUAD_MIN_KNOCKS} measured knocks). Do NOT state any revive rate, and do NOT compare revive counts with the global revive rate.`}
 - Do not infer player intent, communication, safety, or actions from absent evidence.
 - Squad isolation, backup and recovery metrics describe the entire team. roleProfiles contain NO individual position, isolation, backup, smoke or revive evidence. Never blame an individual for a team metric, infer front/back positioning, or infer kill-stealing intent from kill/assist shares.
 - ${teamMode === "duo" ? 'This is a DUO team of exactly two players. Call it 듀오, never 스쿼드 or 4인. Do not mention third or fourth members, and do not compare against squad-sized teams.' : 'This is a SQUAD team.'}

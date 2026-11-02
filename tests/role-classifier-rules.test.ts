@@ -353,6 +353,20 @@ describe("role verdict explanation", () => {
     expect(classify({ ...STRONG_POINT_MAN, ...MEDIAN_EXECUTOR, avgReactionLatency: "측정 불가" }).verdict.unjudged.referencePending).toBe(0);
   });
 
+  it("holds the initiative observation out of the verdict without changing the title once calculation 5 is pending", () => {
+    // ai-summary는 반응 시간을 항상 보류하므로 선봉 칭호는 선제 지표만으로 판정되지 않는다. 계산 5에서는 선제 지표를 함께 보류한다.
+    const input = { ...BASE, ...STRONG_POINT_MAN, ...MEDIAN_EXECUTOR };
+    const legacy = classifyRole(input, {}, "B", { pendingReferenceMetrics: ["reactionSec"] });
+    const held = classifyRole(input, {}, "B", { pendingReferenceMetrics: ["reactionSec", "initiative"] });
+    expect(held.primaryRole).toBe(legacy.primaryRole);
+    expect(held.title).toBe(legacy.title);
+    expect(held.scores.pointMan).toBeNull();
+    expect(legacy.verdict.observations.join(" ")).toContain("선제 타격");
+    expect(held.verdict.observations.join(" ")).not.toContain("선제 타격");
+    expect(held.verdict.unjudged).toEqual(legacy.verdict.unjudged);
+    expect(held.evidence).not.toEqual(expect.arrayContaining([expect.stringContaining("선제 타격")]));
+  });
+
   it("counts solo-excluded team roles and does not use team metrics as solo observations", () => {
     const solo = classify({ ...MEDIAN_EXECUTOR, avgTeamDamageShare: 80, modeDistribution: { main: "solo" } });
     expect(solo.verdict.unjudged.soloExcluded).toBe(5);
