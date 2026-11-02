@@ -5,6 +5,7 @@ import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
 import { ANALYSIS_CALCULATION_VERSION, AI_SQUAD_CACHE_VERSION, AI_MATCH_PROMPT_VERSION, AI_SUMMARY_CACHE_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
 import { fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
+import { SQUAD_SPICY_PASS_LINES } from "../lib/pubg-analysis/squadAiPolicy";
 import {
   buildBestMatchSelectionKey,
   buildMatchSelectionKey,
@@ -12,6 +13,11 @@ import {
 } from "../lib/pubg-analysis/recentMatchSelection";
 import { AI_CACHE_RETENTION_DAYS, AI_CACHE_TABLES, cleanupExpiredCache } from "../scripts/cleanup_ai_cache";
 import crypto from "node:crypto";
+
+// 스쿼드 기본 매운맛은 보류 문장을 넘김 문장으로 바꾼다. 다정한맛의 보류 문장과 함께 확인한다.
+const squadWithheldWording = new RegExp(["보류", "오늘은 봐드립니다.", ...SQUAD_SPICY_PASS_LINES]
+  .map((text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|"));
 
 const roleReferenceState = vi.hoisted(() => ({ version: 1 }));
 vi.mock('../lib/pubg-analysis/roleReference', async (importOriginal) => {
@@ -375,6 +381,7 @@ const canonicalSquadAnalysis = {
   stats: {
     avgIsolation: 1.5,
     avgTradeLatency: 8000,
+    totalTradeKills: 4,
     totalSmokeRescues: 2,
     totalRevives: 3,
     avgCoverRate: 0.45,
@@ -6632,7 +6639,7 @@ describe("AI cache route stabilization", () => {
     expect(json.squadGrade).toBeNull();
     expect(json.summary).toBe(generated.summary);
     expect(JSON.stringify(json)).not.toMatch(/엄호가 부족|집중사격이 우수|엄호율 0%|커버 능력이 부족|전체 평가는 A|스쿼드 점수는 80|종합 등급은 S/);
-    expect(json.weakness).toContain("보류");
+    expect(json.weakness).toMatch(squadWithheldWording);
     if (cached) expect(mockGenerateContentStream).not.toHaveBeenCalled();
     else expect(squadCache.upsert).toHaveBeenCalledWith(expect.objectContaining({ ai_result: expect.objectContaining({ squadGrade: null }) }), expect.anything());
   });
@@ -6655,12 +6662,12 @@ describe("AI cache route stabilization", () => {
     const json = await response.json();
     expect(json.summary).toBe(generated.summary);
     expect(json.memberFeedbacks[0].praise).toBe(generated.memberFeedbacks[0].praise);
-    expect(json.memberFeedbacks[0].fault).toContain("보류");
-    expect(json.memberFeedbacks[0].advice).toContain("보류");
-    expect(json.memberFeedbacks[1].praise).toContain("보류");
-    expect(json.memberFeedbacks[1].fault).toContain("보류");
+    expect(json.memberFeedbacks[0].fault).toMatch(squadWithheldWording);
+    expect(json.memberFeedbacks[0].advice).toMatch(squadWithheldWording);
+    expect(json.memberFeedbacks[1].praise).toMatch(squadWithheldWording);
+    expect(json.memberFeedbacks[1].fault).toMatch(squadWithheldWording);
     // 측정하지 않은 명중률 평가는 원문 그대로 두지 않고 보류 문장으로 바꾼다.
-    expect(json.memberFeedbacks[1].advice).toContain("보류");
+    expect(json.memberFeedbacks[1].advice).toMatch(squadWithheldWording);
     expect(JSON.stringify(json)).not.toContain("명중률");
     if (cached) expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
@@ -6914,7 +6921,7 @@ describe("AI cache route stabilization", () => {
     const text = JSON.stringify(json);
 
     expect(text).not.toContain("다른 팀원들의 화력 지원 보완이 필요");
-    expect(text).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(text).toMatch(squadWithheldWording);
     expect(text).not.toContain("팀 교전 안정성이 흔들릴 수 있으니");
     expect(text).not.toContain("전무");
     expect(text).not.toContain("존재감이 희미");
@@ -6973,11 +6980,12 @@ describe("AI cache route stabilization", () => {
     const upsertPayload = squadCache.upsert.mock.calls[0]?.[0];
 
     expect(text).not.toContain("다른 팀원들의 화력 지원 보완이 필요");
-    expect(text).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(text).toMatch(squadWithheldWording);
     expect(text).not.toContain("전무");
     expect(text).not.toContain("존재감이 희미");
     expect(text).not.toContain("혼자 다 해먹");
-    expect(upsertPayload.ai_result.summary).toBe("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(upsertPayload.ai_result.summary).toMatch(squadWithheldWording);
+    expect(upsertPayload.ai_result.summary).not.toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
     expect(JSON.stringify(upsertPayload.ai_result)).not.toContain("혼자 다 해먹");
   });
   it("ai-summary v2 excludes incomplete rate pairs and reports each metric's actual match count", async () => {

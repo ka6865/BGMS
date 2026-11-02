@@ -489,6 +489,9 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
       && typeof squadData.squadGrade === "string" && squadData.squadGrade.trim() ? squadData.squadGrade : null;
     const canonicalBenchmarkStats = squadData.benchmarkStats;
     const canonicalMatchCount = squadData.matchCount;
+    const canonicalMatchesSummary = squadData.matchesSummary;
+    // 보류 문구 치환 스타일. 프롬프트와 같이 "mild"만 다정한맛으로 보고 나머지는 매운맛으로 본다.
+    const policyCoachingStyle = coachingStyle === "mild" ? "mild" : "spicy";
 
     // 계산된 팀 지표만 담은 사실 응답. AI 해석이 없음을 명시하고 캐시에는 저장하지 않는다.
     const factsOnlyResponse = (reason: "timeout" | "provider" | "disabled") => {
@@ -540,11 +543,12 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
         });
         timing.outcome = "cache_hit";
         return NextResponse.json(applySquadEvidencePolicy(
-          sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(cached.ai_result)),
+          sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(cached.ai_result), policyCoachingStyle),
           canonicalStats,
           canonicalGrade,
           canonicalScores,
           canonicalRoleProfiles,
+          { coachingStyle: policyCoachingStyle },
         ));
       }
     } catch (dbErr) {
@@ -579,6 +583,7 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
       squadGrade: canonicalGrade,
       benchmarkStats: canonicalBenchmarkStats,
       matchCount: canonicalMatchCount,
+      matchesSummary: canonicalMatchesSummary,
       teamMode: squadData.teamMode,
     });
 
@@ -626,11 +631,12 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     try {
       const validJsonString = extractValidJson(generation.text);
       resultJson = applySquadEvidencePolicy(
-        sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(JSON.parse(validJsonString))),
+        sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), policyCoachingStyle),
         canonicalStats,
         canonicalGrade,
         canonicalScores,
         canonicalRoleProfiles,
+        { coachingStyle: policyCoachingStyle },
       );
     } catch {
       // 파싱 오류 문구에는 모델 원문 일부가 들어갈 수 있어 길이만 남긴다.
