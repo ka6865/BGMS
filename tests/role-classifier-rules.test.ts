@@ -1,6 +1,67 @@
 import { describe, expect, it } from "vitest";
-import { classifyRole, countRoleEvidenceMatches, extractRoleMetrics } from "@/lib/pubg-analysis/roleClassifier";
-import { referencePercentile, roleScorePercentile } from "@/lib/pubg-analysis/roleReference";
+import {
+  classifyRole as classifyRoleWithTables,
+  countRoleEvidenceMatches,
+  extractRoleMetrics,
+  type ClassifyRoleOptions,
+} from "@/lib/pubg-analysis/roleClassifier";
+import {
+  percentileFromQuantiles,
+  ROLE_REFERENCE_PERCENTILES,
+  ROLE_REFERENCE_QUANTILES,
+  ROLE_SCORE_QUANTILES,
+  type RoleMetricKey,
+  type RoleReferenceTables,
+  type RoleScoreKey,
+} from "@/lib/pubg-analysis/roleReference";
+
+// 구버전 기준표(v1, p5~p95)로 판정 규칙을 고정한다. 운영 표는 재산출로 바뀌므로 규칙 테스트는 이 표를 쓰고,
+// 운영 표의 불변식은 아래 "reference percentile" 블록에서만 확인한다. 상단 꼬리는 p95에서 끝나므로 97.5에서 뭉친다.
+const LEGACY_METRIC_QUANTILES: Record<RoleMetricKey, readonly number[]> = {
+  initiative: [22.581, 28.571, 36.364, 41.667, 45.455, 50, 54, 58.333, 62.5, 68.836, 75],
+  reactionSec: [1.043, 1.245, 1.611, 1.911, 2.061, 2.196, 2.364, 2.543, 2.803, 3, 3],
+  duelWin: [33.333, 43.478, 53.846, 60.87, 65.517, 70, 73.684, 78.374, 82.353, 87.5, 91.667],
+  reversal: [0, 0, 0, 4.348, 9.091, 12.5, 15.385, 20, 25, 33.333, 40],
+  longShare: [0, 0, 1.692, 4.754, 7.516, 10.315, 13.388, 16.805, 21.52, 27.939, 33.912],
+  shortShare: [18.633, 24.045, 31.85, 37.317, 43.254, 48.952, 54.19, 59.825, 68.195, 77.985, 85.509],
+  maxHitDist: [73.6, 132.4, 206.2, 254.8, 293.4, 330, 366, 407, 452, 516, 572.4],
+  rescueRate: [0, 0, 7.143, 11.538, 15.628, 20, 23.529, 28.571, 33.333, 44.444, 53.846],
+  tradeRate: [0, 0, 0, 0, 4.167, 6.667, 9.091, 11.765, 14.286, 20, 25],
+  tradeSec: [3.641, 5.186, 7.433, 8.943, 10.825, 12.168, 13.472, 14.725, 16.96, 19.812, 23.213],
+  pressure: [0.933, 1.354, 1.915, 2.408, 2.871, 3.383, 3.829, 4.349, 4.91, 5.774, 6.362],
+  placement: [34.23, 41.857, 50.3, 56.894, 62.245, 67.302, 72.334, 77.778, 84.853, 93.333, 97.619],
+  edgePerMatch: [0.08, 0.767, 2.5, 3.98, 5.313, 6.833, 8.667, 10.5, 13, 16.86, 20.683],
+  earlyShare: [0, 0, 2.337, 6.805, 10.36, 14.681, 19.643, 25.956, 34.934, 48.194, 60.18],
+  baitPerMatch: [0, 0, 0.2, 0.333, 0.333, 0.5, 0.667, 0.7, 1, 1.333, 1.667],
+  supportPerMatch: [0, 0, 0, 0.2, 0.3, 0.333, 0.444, 0.667, 0.796, 1, 1.333],
+  utilityHitsPerMatch: [0, 0, 0, 0.2, 0.333, 0.5, 0.667, 1, 1.6, 2.667, 4],
+  lethalPerMatch: [0.167, 0.333, 0.7, 1, 1.4, 1.75, 2.187, 2.667, 3.333, 4.333, 5.533],
+  teamDamageShare: [12.337, 15.888, 21.333, 25.333, 29.333, 32.4, 36, 40.735, 46.18, 56.27, 69.333],
+  focusFirePerMatch: [0, 0.167, 0.667, 1.333, 2, 2.778, 3.667, 4.667, 6.218, 8.667, 10.833],
+  assistShare: [0, 8.333, 16.667, 22.195, 26.667, 31.25, 36.364, 41.408, 50, 60, 66.667],
+};
+const LEGACY_SCORE_QUANTILES: Record<RoleScoreKey, readonly number[]> = {
+  pointMan: [12.13, 19.37, 29.11, 36.41, 42.8, 49.65, 56.32, 63.41, 71.18, 80.07, 85.95],
+  phantomOverwatch: [6.74, 9.33, 20.04, 33.76, 43.1, 51.59, 58.92, 67.38, 75.88, 83.99, 89.79],
+  executor: [10.71, 14.94, 25.91, 34.28, 42.42, 48.98, 56.27, 64.35, 75.36, 85.88, 92.07],
+  shield: [7.77, 7.77, 19.94, 30.08, 40.09, 51.53, 60.06, 70.46, 78.01, 90, 94.89],
+  avenger: [17.84, 17.84, 17.84, 17.84, 31.05, 45.19, 54.24, 62.11, 68.49, 76.05, 82.28],
+  zoneController: [11.53, 17.95, 26.96, 35.26, 42.3, 50.26, 58.1, 65.55, 73.04, 81.04, 86.31],
+  dropPredator: [8.76, 8.76, 20.03, 30.02, 40.02, 50.02, 60.01, 70.01, 80.01, 90, 95],
+  decoy: [9.24, 15.9, 26.25, 36.85, 41.46, 50.45, 56.03, 66.4, 74.81, 83.94, 89.01],
+  grenadier: [7.83, 11.66, 23.94, 31.47, 40, 48.96, 58.49, 68.14, 77.96, 87.48, 93.1],
+  brawler: [5.03, 10.03, 20.03, 30.02, 40.02, 50.02, 60.01, 70.01, 80.01, 90, 95],
+  mainGun: [5.06, 10.19, 19.98, 29.94, 39.99, 50, 59.77, 70.01, 80.03, 90.03, 95.01],
+  crossfire: [4.71, 13.03, 24.56, 34.02, 42.46, 50.32, 57.3, 64.56, 73.06, 82.88, 88.68],
+};
+const LEGACY_REFERENCE_TABLES: RoleReferenceTables = {
+  levels: [5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95],
+  metrics: LEGACY_METRIC_QUANTILES,
+  scores: LEGACY_SCORE_QUANTILES,
+};
+const classifyRole = (stats: any, bench: any, tier: string, options: ClassifyRoleOptions = {}) =>
+  classifyRoleWithTables(stats, bench, tier, { referenceTables: LEGACY_REFERENCE_TABLES, ...options });
+
 
 // ai-summary route의 aggregateMatches 결과 형식을 따른다(측정 불가 값은 "측정 불가" 문자열 또는 null).
 // 기본 입력은 아무 지표도 판정할 수 없는 상태다.
@@ -51,20 +112,36 @@ const STRONG_POINT_MAN = { userInitiativeRate: 80, totalInitiativeAttempts: 10, 
 const MEDIAN_EXECUTOR = { avgDuelWinRate: 70, totalDuelWins: 7, totalDuelLosses: 3, userReversalRate: 12.5, totalReversalAttempts: 8 };
 
 describe("reference percentile", () => {
-  it("interpolates between quantiles and clamps outside the observed range", () => {
-    expect(referencePercentile("duelWin", 70)).toBe(50);
-    expect(referencePercentile("duelWin", 72)).toBeCloseTo(50 + (2 / 3.684) * 10, 5);
-    expect(referencePercentile("duelWin", 10)).toBe(2.5);
-    expect(referencePercentile("duelWin", 99)).toBe(97.5);
+  // 합성 표로 보간·꼬리·동점 규칙을 고정한다. 운영 표 값은 재산출에 따라 바뀌므로 여기서 쓰지 않는다.
+  const levels = [5, 25, 50, 75, 95, 99, 100];
+
+  it("interpolates between quantile levels and clamps below the observed minimum", () => {
+    const quantiles = [0, 10, 20, 30, 40, 50, 60];
+    expect(percentileFromQuantiles(quantiles, 20, levels)).toBe(50);
+    expect(percentileFromQuantiles(quantiles, 15, levels)).toBeCloseTo(37.5, 10);
+    expect(percentileFromQuantiles(quantiles, -1, levels)).toBe(2.5);
+  });
+
+  it("separates values above the old p95 ceiling instead of pinning them to 97.5", () => {
+    const quantiles = [0, 10, 20, 30, 40, 50, 60];
+    // p95(40)~p99(50)~p100(60) 구간은 서로 다른 백분위로 구분된다.
+    expect(percentileFromQuantiles(quantiles, 45, levels)).toBeCloseTo(97, 10);
+    expect(percentileFromQuantiles(quantiles, 55, levels)).toBeCloseTo(99.5, 10);
+    expect(percentileFromQuantiles(quantiles, 45, levels)).not.toBe(97.5);
+    // 기준 최댓값을 넘는 값은 최상위다.
+    expect(percentileFromQuantiles(quantiles, 61, levels)).toBe(100);
   });
 
   it("uses the middle of a tied block such as many zero values", () => {
-    // reversal 0은 5·10·20백분위에 걸쳐 있다.
-    expect(referencePercentile("reversal", 0)).toBe(10);
-    // reactionSec 3초는 90·95백분위에 걸쳐 있다(측정 상한).
-    expect(referencePercentile("reactionSec", 3)).toBe(95);
-    // 복수자 역할 점수 17.84는 5~30백분위에 걸쳐 있다.
-    expect(roleScorePercentile("avenger", 17.84)).toBe(15);
+    const zeros = [0, 0, 0, 4, 9, 12, 20];
+    expect(percentileFromQuantiles(zeros, 0, levels)).toBe(25);
+  });
+
+  it("keeps the operating tables aligned with their percentile levels", () => {
+    for (const table of [...Object.values(ROLE_REFERENCE_QUANTILES), ...Object.values(ROLE_SCORE_QUANTILES)]) {
+      expect(table).toHaveLength(ROLE_REFERENCE_PERCENTILES.length);
+      for (let index = 1; index < table.length; index++) expect(table[index]).toBeGreaterThanOrEqual(table[index - 1]);
+    }
   });
 });
 
@@ -281,7 +358,7 @@ describe("role verdict explanation", () => {
     let high = 100;
     for (let step = 0; step < 80; step++) {
       const mid = (low + high) / 2;
-      if (roleScorePercentile("dropPredator", referencePercentile("earlyShare", mid)) < target) low = mid;
+      if (percentileFromQuantiles(LEGACY_SCORE_QUANTILES.dropPredator, percentileFromQuantiles(LEGACY_METRIC_QUANTILES.earlyShare, mid, LEGACY_REFERENCE_TABLES.levels), LEGACY_REFERENCE_TABLES.levels) < target) low = mid;
       else high = mid;
     }
     return (low + high) / 2;
@@ -334,7 +411,7 @@ describe("role verdict explanation", () => {
     expect(median.verdict).toMatchObject({ kind: "below_threshold", judgedRoles: 1, headline: "뚜렷한 대표 역할 없음" });
     expect(median.verdict.label).toBe("칭호 기준 미달 · 판정 역할 1/12");
     expect(median.verdict.detail).toContain("처형자 51.4");
-    expect(median.verdict.detail).toBe("점수 상위 1판에서 판정한 역할 1개도 칭호 기준 85점(상위 15%)에 못 미쳤습니다(최고: 처형자 51.4).");
+    expect(median.verdict.detail).toBe("점수 상위 1판에서 판정한 역할 1개도 역할별 칭호 기준 85점(기준 표본에서 역할 하나가 상위 15% 수준)에 못 미쳤습니다(최고: 처형자 51.4).");
     expect(median.verdict.note).toBe("판정에 필요한 기록이 부족하거나 없는 역할 11개는 판정하지 않았습니다.");
     // 기존 균형형 설명의 "여러 상황을 고르게 경험" 같은 근거 없는 문구를 쓰지 않는다.
     expect(`${median.verdict.detail} ${median.verdict.note}`).not.toMatch(/고르게/);
@@ -482,5 +559,20 @@ describe("role evidence amount", () => {
     // 역전 시도 수가 없거나 음수 누락 표시면 분모가 관측값이 아니므로 기록 불완전이다.
     expect(countRoleEvidenceMatches([{ duelStats: { wins: 1, losses: 0, reversals: 2 } }]).reversal).toEqual({ matches: 0, complete: false });
     expect(countRoleEvidenceMatches([{ tradeStats: { tradeKills: -1, teammateKnocks: 3 } }]).tradeRate).toEqual({ matches: 0, complete: false });
+  });
+});
+
+describe("exact score ties", () => {
+  it("settles a tie by metric mean, metric count and role key rather than definition order", () => {
+    // 근접 난전가(근거리 피해)와 핫드랍 약탈자(초반 피해)가 같은 100% 구간에서 동점이면 역할 키 사전순이 정한다.
+    // 두 역할의 조합 칭호는 순서와 무관하게 같다.
+    const info = classify({
+      mLen: 1,
+      totalDistanceDamage: { short: 1000, mid: 0, long: 0 },
+      goldenTimeAvg: { early: 1000, mid1: 0, mid2: 0, late: 0 },
+    });
+    expect(info.primaryRole).toBe("brawler");
+    expect(info.secondaryRole).toBe("dropPredator");
+    expect(info.title).toBe("핫존 난투왕");
   });
 });

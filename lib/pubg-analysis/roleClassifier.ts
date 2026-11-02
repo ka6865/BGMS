@@ -1,5 +1,10 @@
 import { WEAPON_NAMES, IGNORE_WEAPONS } from "./constants";
-import { referencePercentile, roleScorePercentile, type RoleMetricKey } from "./roleReference";
+import {
+  DEFAULT_ROLE_REFERENCE_TABLES,
+  percentileFromQuantiles,
+  type RoleMetricKey,
+  type RoleReferenceTables,
+} from "./roleReference";
 
 /**
  * PUBG 전술 직업군 분류기 (Role Classifier)
@@ -71,6 +76,8 @@ export interface ClassifyRoleOptions {
   pendingReferenceMetrics?: readonly RoleMetricKey[];
   // 판정 경기 중 횟수형 지표의 사건이 있었던 경기 수와 기록 완전성(countRoleEvidenceMatches 결과)
   evidenceMatches?: Partial<Record<RoleMetricKey, RoleEvidenceMatchCount>>;
+  // 기본값은 roleReference의 운영 기준표다. 재산출 스크립트와 회귀 비교가 다른 표로 같은 경로를 돌릴 때만 넣는다.
+  referenceTables?: RoleReferenceTables;
 }
 
 interface RoleDefinition {
@@ -174,7 +181,8 @@ const METRIC_LABELS: Record<RoleMetricKey, string> = {
 // 값이 낮을수록 좋은 지표(초 단위 지연)는 백분위를 뒤집는다.
 const LOWER_IS_BETTER = new Set<RoleMetricKey>(["reactionSec", "tradeSec"]);
 
-// 역할 백분위 기준. 운영 표본(2026-10-17)에서 역할별 3~9%, 지휘관 약 2%, 균형형 약 25%가 되도록 정했다.
+// 역할 점수 기준(85점). 2026-11-03 재산출 표본에서 확정 비율이 구 기준과 ±3%p 안에 들도록 유지했다(임계는 조정하지 않음).
+// 85점은 역할별로 기준 분포의 상위 15% 수준이고, 12개 역할 중 하나라도 닿으면 확정되므로 희귀 칭호 기준이 아니다.
 const PRIMARY_MIN_PERCENTILE = 85;
 const SECONDARY_MIN_PERCENTILE = 85;
 const COMMANDER_ROLE_PERCENTILE = 75;
@@ -182,6 +190,8 @@ const COMMANDER_MIN_ROLES = 6;
 const COMMANDER_MAX_TOP = 95;
 const WEAKNESS_MAX_PERCENTILE = 20;
 const MIN_DISTANCE_DAMAGE = 300;
+// 선제 타격 성공률은 시도가 적으면 0%나 100%가 쉽게 나오므로 최소 시도 수 이상일 때만 쓴다. 기준 분포 산출과 같은 값이다.
+const MIN_INITIATIVE_ATTEMPTS = 5;
 const TEAM_ONLY_METRICS = new Set<RoleMetricKey>(
   Object.values(ROLE_DEFINITIONS).filter((definition) => definition.teamOnly).flatMap((definition) => definition.metrics),
 );
@@ -286,7 +296,7 @@ export function extractRoleMetrics(stats: any): Record<RoleMetricKey, number | n
   const killTotal = assist + Math.max(0, finiteOrNull(contrib.solo) ?? 0) + Math.max(0, finiteOrNull(contrib.cleanup) ?? 0);
 
   return {
-    initiative: (finiteOrNull(stats?.totalInitiativeAttempts) ?? 0) >= 3 ? finiteOrNull(stats?.userInitiativeRate) : null,
+    initiative: (finiteOrNull(stats?.totalInitiativeAttempts) ?? 0) >= MIN_INITIATIVE_ATTEMPTS ? finiteOrNull(stats?.userInitiativeRate) : null,
     reactionSec: finiteOrNull(stats?.avgReactionLatency),
     duelWin: duels >= 3 ? finiteOrNull(stats?.avgDuelWinRate) : null,
     reversal: (finiteOrNull(stats?.totalReversalAttempts) ?? 0) >= 2 ? finiteOrNull(stats?.userReversalRate) : null,
@@ -312,10 +322,45 @@ export function extractRoleMetrics(stats: any): Record<RoleMetricKey, number | n
   };
 }
 
-function metricPercentile(key: RoleMetricKey, value: number | null): number | null {
+function metricPercentile(key: RoleMetricKey, value: number | null, tables: RoleReferenceTables): number | null {
   if (value === null) return null;
-  const percentile = referencePercentile(key, value);
+  const percentile = percentileFromQuantiles(tables.metrics[key], value, tables.levels);
   return LOWER_IS_BETTER.has(key) ? 100 - percentile : percentile;
+}
+
+/**
+ * 지표 값을 기준 분포의 백분위(0~100)로 바꾼다. 값이 null이면 null이다(측정 불가·기회 부족·보류).
+ * 재산출 스크립트가 같은 표로 역할 점수 분포를 만들 때도 이 함수를 쓴다.
+ */
+export function metricPercentilesFor(
+  stats: any,
+  pendingReferenceMetrics: readonly RoleMetricKey[] = [],
+  tables: RoleReferenceTables = DEFAULT_ROLE_REFERENCE_TABLES,
+): Record<RoleMetricKey, number | null> {
+  const pending = new Set<RoleMetricKey>(pendingReferenceMetrics);
+  const metrics = extractRoleMetrics(stats);
+  return Object.fromEntries(
+    (Object.keys(metrics) as RoleMetricKey[]).map((key) => [key, pending.has(key) ? null : metricPercentile(key, metrics[key], tables)]),
+  ) as Record<RoleMetricKey, number | null>;
+}
+
+/**
+ * 역할별 지표 백분위의 평균(역할 점수 분포의 입력). 판정에 필요한 지표가 부족하면 null이다.
+ * 솔로 제외 같은 모드 규칙은 호출부가 적용한다.
+ */
+export function roleMeanPercentiles(
+  metricPercentiles: Record<RoleMetricKey, number | null>,
+): Record<Exclude<RoleKey, "fieldCommander">, number | null> {
+  const result = {} as Record<Exclude<RoleKey, "fieldCommander">, number | null>;
+  for (const [role, definition] of Object.entries(ROLE_DEFINITIONS) as Array<[Exclude<RoleKey, "fieldCommander">, RoleDefinition]>) {
+    const observed = definition.metrics.map((key) => metricPercentiles[key]).filter((value): value is number => value !== null);
+    // 선봉 복합 분포는 선제 성공률과 반격 시간이 함께 있을 때만 쓴다.
+    const required = role === "pointMan" ? definition.metrics.length : Math.ceil(definition.metrics.length / 2);
+    result[role] = observed.length < required
+      ? null
+      : observed.reduce((sum, value) => sum + value, 0) / observed.length;
+  }
+  return result;
 }
 
 function formatTopShare(percentile: number): string {
@@ -333,38 +378,47 @@ function comboTitle(first: RoleKey, second: RoleKey): string | null {
 export function classifyRole(stats: any, _bench: any, overallTier: string, options: ClassifyRoleOptions = {}): RoleInfo {
   const isSoloMode = String(stats?.modeDistribution?.main ?? "").includes("solo");
   const pendingReference = new Set<RoleMetricKey>(options.pendingReferenceMetrics ?? []);
-  const metrics = extractRoleMetrics(stats);
-  const metricPercentiles = Object.fromEntries(
-    (Object.keys(metrics) as RoleMetricKey[]).map((key) => [key, pendingReference.has(key) ? null : metricPercentile(key, metrics[key])]),
-  ) as Record<RoleMetricKey, number | null>;
+  const tables = options.referenceTables ?? DEFAULT_ROLE_REFERENCE_TABLES;
+  const metricPercentiles = metricPercentilesFor(stats, options.pendingReferenceMetrics ?? [], tables);
 
   // 판정은 반올림 전 점수로 한다. scores에는 기존처럼 소수 첫째 자리까지 담는다.
   const rawScores = {} as Record<Exclude<RoleKey, "fieldCommander">, number | null>;
+  // 동점 정렬용 원점수: 지표 백분위 평균(역할 점수 분포로 바꾸기 전)과 관측 지표 수
+  const rawMeans = {} as Record<Exclude<RoleKey, "fieldCommander">, number | null>;
+  const observedCounts = {} as Record<Exclude<RoleKey, "fieldCommander">, number>;
   const unjudged = { notEnoughRecords: 0, referencePending: 0, soloExcluded: 0 };
   const scores = { fieldCommander: null } as RoleScore;
+  const means = roleMeanPercentiles(metricPercentiles);
   for (const [role, definition] of Object.entries(ROLE_DEFINITIONS) as Array<[Exclude<RoleKey, "fieldCommander">, RoleDefinition]>) {
     const observed = definition.metrics.map((key) => metricPercentiles[key]).filter((value): value is number => value !== null);
-    // 선봉 복합 분포는 선제 성공률과 반격 시간이 함께 있을 때만 쓴다.
-    const required = role === "pointMan" ? definition.metrics.length : Math.ceil(definition.metrics.length / 2);
-    const enough = observed.length >= required;
+    observedCounts[role] = observed.length;
+    // 선봉 복합 분포는 선제 성공률과 반격 시간이 함께 있을 때만 쓴다(roleMeanPercentiles가 기회 수로 거른다).
+    const enough = means[role] !== null;
     const soloExcluded = Boolean(definition.teamOnly && isSoloMode);
     // 지표 백분위의 평균을 다시 역할 점수 분포의 백분위로 바꾼다.
-    rawScores[role] = soloExcluded || !enough
+    rawMeans[role] = soloExcluded ? null : means[role];
+    rawScores[role] = rawMeans[role] === null
       ? null
-      : roleScorePercentile(role, observed.reduce((sum, value) => sum + value, 0) / observed.length);
+      : percentileFromQuantiles(tables.scores[role], rawMeans[role]!, tables.levels);
     scores[role] = rawScores[role] === null ? null : Number(rawScores[role]!.toFixed(1));
     if (soloExcluded) unjudged.soloExcluded++;
     else if (!enough) {
       // 비교 기준이 준비되지 않은 지표만 빠져서 판정하지 못한 경우와, 다른 기록도 부족한 경우를 나눈다.
+      const required = role === "pointMan" ? definition.metrics.length : Math.ceil(definition.metrics.length / 2);
       const pendingCount = definition.metrics.filter((key) => pendingReference.has(key)).length;
       if (pendingCount > 0 && observed.length + pendingCount >= required) unjudged.referencePending++;
       else unjudged.notEnoughRecords++;
     }
   }
 
+  // 동점은 정의 순서가 아니라 원점수로 깬다: 역할 점수 → 지표 백분위 평균 → 관측 지표 수 → 역할 키(사전순).
+  // 완전히 같은 경우에도 결과가 항상 같고 정의 순서에 기대지 않는다.
   const ranked = (Object.entries(rawScores) as Array<[Exclude<RoleKey, "fieldCommander">, number | null]>)
     .filter((entry): entry is [Exclude<RoleKey, "fieldCommander">, number] => entry[1] !== null)
-    .sort((a, b) => b[1] - a[1]);
+    .sort((a, b) => (b[1] - a[1])
+      || ((rawMeans[b[0]] ?? 0) - (rawMeans[a[0]] ?? 0))
+      || (observedCounts[b[0]] - observedCounts[a[0]])
+      || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   const strongRoles = ranked.filter(([, value]) => value >= COMMANDER_ROLE_PERCENTILE);
   if (strongRoles.length >= COMMANDER_MIN_ROLES && ranked[0][1] < COMMANDER_MAX_TOP) {
     // 지휘관 판정은 원점수로 하고, 표시 점수는 기존처럼 표시용 역할 점수의 평균이다.
@@ -417,7 +471,7 @@ export function classifyRole(stats: any, _bench: any, overallTier: string, optio
   if (weapon.isSpecial && weapon.stats.isReliable) badges.push(weapon.name);
   else if (weapon.stats.isReliable) badges.push(`${weapon.name} 주력`);
 
-  const verdict = buildVerdict({ primaryRole, ranked, unjudged, metricPercentiles, isSoloMode, matchCount: mLen });
+  const verdict = buildVerdict({ primaryRole, ranked, unjudged, metricPercentiles, isSoloMode, matchCount: mLen, rawMeans });
   const evidenceAmount = primaryRole in ROLE_DEFINITIONS
     ? buildEvidenceAmount(primaryRole as Exclude<RoleKey, "fieldCommander">, secondaryRole as Exclude<RoleKey, "fieldCommander"> | null, stats, metricPercentiles, options.evidenceMatches ?? {})
     : null;
@@ -595,8 +649,9 @@ function buildVerdict(input: {
   metricPercentiles: Record<RoleMetricKey, number | null>;
   isSoloMode: boolean;
   matchCount: number;
+  rawMeans: Record<Exclude<RoleKey, "fieldCommander">, number | null>;
 }): RoleVerdict {
-  const { primaryRole, ranked, unjudged, metricPercentiles, isSoloMode, matchCount } = input;
+  const { primaryRole, ranked, unjudged, metricPercentiles, isSoloMode, matchCount, rawMeans } = input;
   const scope = `점수 상위 ${matchCount}판`;
   const base = { matchCount, judgedRoles: ranked.length, totalRoles: TOTAL_ROLES, unjudged };
   const unjudgedText = unjudgedSentence(unjudged, isSoloMode);
@@ -629,7 +684,8 @@ function buildVerdict(input: {
   }
 
   const [topRole, topScore] = ranked[0];
-  const tiedTop = ranked.filter(([, value]) => value === topScore).length;
+  // 동점은 원점수(역할 점수·지표 평균)까지 같은 경우만 센다. 정렬 규칙으로 깨진 동점은 세지 않는다.
+  const tiedTop = ranked.filter(([role, value]) => value === topScore && rawMeans[role] === rawMeans[topRole]).length;
   const topText = tiedTop > 1
     ? `${tiedTop}개 역할 동점 ${formatRoleScore(topScore, PRIMARY_MIN_PERCENTILE)}`
     : `${shortRoleLabel(topRole)} ${formatRoleScore(topScore, PRIMARY_MIN_PERCENTILE)}`;
@@ -647,7 +703,7 @@ function buildVerdict(input: {
     topRole: { role: topRole, score: Number(topScore.toFixed(2)) },
     headline: "뚜렷한 대표 역할 없음",
     label: `칭호 기준 미달 · 판정 역할 ${ranked.length}/${TOTAL_ROLES}`,
-    detail: `${scope}에서 ${ranked.length === 1 ? "판정한 역할 1개도" : `판정한 역할 ${ranked.length}개 모두`} 칭호 기준 ${PRIMARY_MIN_PERCENTILE}점(상위 15%)에 못 미쳤습니다(최고: ${topText}).`,
+    detail: `${scope}에서 ${ranked.length === 1 ? "판정한 역할 1개도" : `판정한 역할 ${ranked.length}개 모두`} 역할별 칭호 기준 ${PRIMARY_MIN_PERCENTILE}점(기준 표본에서 역할 하나가 상위 ${100 - PRIMARY_MIN_PERCENTILE}% 수준)에 못 미쳤습니다(최고: ${topText}).`,
     note: unjudgedText,
     observations,
   };
