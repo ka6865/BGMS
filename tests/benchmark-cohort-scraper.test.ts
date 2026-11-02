@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   COHORT_RETIRE_AFTER_DAYS,
+  createSupabaseStore,
+  PARTICIPANT_SAMPLE_SEASON_ID,
   MATCH_API_INTERVAL_MS,
   PUBG_PLAYER_BATCH_SIZE,
   PUBG_RATE_LIMITED_INTERVAL_MS,
@@ -273,5 +275,41 @@ describe("벤치마커 수집 실행", () => {
     expect(deps.pubgGet).not.toHaveBeenCalled();
     expect(result.counters.failed).toBe(1);
     expect(result.attentionRequired).toBe(true);
+  });
+});
+
+describe("supabase cohort store listActive", () => {
+  // 쿼리 체인을 기록하고, 조건에 맞는 결과를 돌려주는 최소 가짜 클라이언트.
+  function fakeSupabase(rows: { ranked: unknown[]; samples: unknown[] }) {
+    const calls: Array<Array<[string, unknown[]]>> = [];
+    const from = () => {
+      const steps: Array<[string, unknown[]]> = [];
+      calls.push(steps);
+      const chain: any = {};
+      for (const name of ["select", "eq", "is", "or", "order"]) chain[name] = (...args: unknown[]) => { steps.push([name, args]); return chain; };
+      chain.limit = (...args: unknown[]) => {
+        steps.push(["limit", args]);
+        const isSample = steps.some(([name, a]) => name === "eq" && a[0] === "source_season_id");
+        return Promise.resolve({ data: isSample ? rows.samples : rows.ranked, error: null });
+      };
+      return chain;
+    };
+    return { client: { from } as any, calls };
+  }
+  const member = (id: string) => ({ account_id: id, nickname: id, collected_player_ids: [], last_ranked_at: null, last_collected_at: null, retired_at: null });
+
+  it("leaderboard members fill the limit before participant samples", async () => {
+    const { client, calls } = fakeSupabase({ ranked: [member("e1"), member("e2")], samples: [member("s1")] });
+    const result = await createSupabaseStore(client).listActive(3);
+    expect(result.map((m) => m.account_id)).toEqual(["e1", "e2", "s1"]);
+    expect(calls[0].find(([name]) => name === "or")?.[1][0]).toBe(`source_season_id.is.null,source_season_id.neq.${PARTICIPANT_SAMPLE_SEASON_ID}`);
+    expect(calls[1].find(([name]) => name === "limit")?.[1][0]).toBe(1);
+  });
+
+  it("does not query samples when leaderboard members already fill the limit", async () => {
+    const { client, calls } = fakeSupabase({ ranked: [member("e1"), member("e2")], samples: [member("s1")] });
+    const result = await createSupabaseStore(client).listActive(2);
+    expect(result.map((m) => m.account_id)).toEqual(["e1", "e2"]);
+    expect(calls).toHaveLength(1);
   });
 });
