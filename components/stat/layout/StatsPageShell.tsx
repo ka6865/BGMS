@@ -374,6 +374,37 @@ export function StatsPageShell({
 
           {activeTab === "overview" ? (
             <div className="flex flex-col gap-2 md:gap-4">
+              <div role="region" aria-label="AI 분석" tabIndex={-1}>
+                <details open={user ? true : undefined} className="rounded-2xl border border-white/10 bg-[#161616]">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-2 text-sm font-black text-amber-200 focus-visible:outline-2 focus-visible:outline-amber-300">
+                    <span>AI 전술 분석</span>
+                    <span className="text-xs font-bold text-white/65">{user ? "분석 열기/접기" : "로그인 후 이용 가능"}</span>
+                  </summary>
+                  <div className="px-2 pb-2">
+                    {aiMatchIds === null ? (
+                      <p role="status" className="p-3 text-center text-sm text-white/75">AI 분석에 사용할 최근 경기를 확인하고 있습니다.</p>
+                    ) : aiMatchIds.length > 0 ? (
+                      <RecentAISummary
+                        matchIds={aiMatchIds}
+                        nickname={result.nickname}
+                        platform={result.platform}
+                        isMobile={isMobile}
+                        pendingMatchCount={(recentMatchIds ?? []).filter((id) => !aiMatchIds.includes(id)).length}
+                        onApplyPendingMatches={applyRecentMatchIdsToAi}
+                      />
+                    ) : (
+                      <p
+                        role="status"
+                        aria-label="AI 분석할 최근 매치 없음"
+                        className="p-3 text-center text-sm font-bold text-white/75"
+                      >
+                        최근 매치 기록이 없어 AI 분석을 시작할 수 없습니다.
+                      </p>
+                    )}
+                  </div>
+                </details>
+              </div>
+
               <div className="stats-result-grid">
                 <div className="stats-match-column">
                   <MatchFeed
@@ -413,37 +444,6 @@ export function StatsPageShell({
                     seasonSummary={seasonOverviewForResult(initialSeasonSummary, result)}
                   />
                 </aside>
-              </div>
-
-              <div role="region" aria-label="AI 분석" tabIndex={-1}>
-                <details open={user ? true : undefined} className="rounded-2xl border border-white/10 bg-[#161616]">
-                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-2 text-sm font-black text-amber-200 focus-visible:outline-2 focus-visible:outline-amber-300">
-                    <span>AI 전술 분석</span>
-                    <span className="text-xs font-bold text-white/65">{user ? "분석 열기/접기" : "로그인 후 이용 가능"}</span>
-                  </summary>
-                  <div className="px-2 pb-2">
-                    {aiMatchIds === null ? (
-                      <p role="status" className="p-3 text-center text-sm text-white/75">AI 분석에 사용할 최근 경기를 확인하고 있습니다.</p>
-                    ) : aiMatchIds.length > 0 ? (
-                      <RecentAISummary
-                        matchIds={aiMatchIds}
-                        nickname={result.nickname}
-                        platform={result.platform}
-                        isMobile={isMobile}
-                        pendingMatchCount={(recentMatchIds ?? []).filter((id) => !aiMatchIds.includes(id)).length}
-                        onApplyPendingMatches={applyRecentMatchIdsToAi}
-                      />
-                    ) : (
-                      <p
-                        role="status"
-                        aria-label="AI 분석할 최근 매치 없음"
-                        className="p-3 text-center text-sm font-bold text-white/75"
-                      >
-                        최근 매치 기록이 없어 AI 분석을 시작할 수 없습니다.
-                      </p>
-                    )}
-                  </div>
-                </details>
               </div>
 
               {/* BGMS AI 전술 분석 시스템 설명 (토글형으로 최적화) */}

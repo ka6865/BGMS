@@ -216,8 +216,8 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(guide.parentElement).not.toHaveClass("mt-4");
     expect(guide.parentElement).not.toHaveClass("mb-6");
     expect(precedes(profile, tabs)).toBe(true);
-    expect(precedes(tabs, grid)).toBe(true);
-    expect(precedes(grid, fullAi)).toBe(true);
+    expect(precedes(tabs, fullAi)).toBe(true);
+    expect(precedes(fullAi, grid)).toBe(true);
     expect(precedes(fullAi, guide)).toBe(true);
     expect(precedes(guide, topAd)).toBe(true);
     const aiDetails = screen.getByRole("region", { name: "AI 분석" }).querySelector("details")!;
@@ -323,7 +323,7 @@ describe("StatsPageShell state and ownership matrix", () => {
     const grid = view.container.querySelector(".stats-result-grid")!;
     const guide = screen.getByRole("button", { name: /BGMS AI 전술 분석 가이드/ });
     const fullAi = await screen.findByTestId("full-ai");
-    expect(precedes(grid, fullAi)).toBe(true);
+    expect(precedes(fullAi, grid)).toBe(true);
     expect(precedes(grid, guide)).toBe(true);
     expect(screen.getAllByTestId("full-ai")).toHaveLength(1);
 

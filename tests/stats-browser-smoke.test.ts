@@ -721,6 +721,7 @@ async function layoutEvidence(page: Page) {
     const sequenceSpecs = [
       ["profile", '[aria-label="플레이어 프로필"]'],
       ["tabs", '[aria-label="전적 분석 섹션"]'],
+      ["ai", '[role="region"][aria-label="AI 분석"]'],
       ["match", '[aria-label="최근 매치"]'],
       ["overview", ".stats-overview-rail"],
       ["top-ad", '[data-ad-placement="stats-top"]'],
@@ -851,20 +852,18 @@ function assertLayoutContract(
   expect(evidence.shellCapOk).toBe(true);
   expect(evidence.gridColumnCount).toBe(width < 1024 ? 1 : 2);
   expect(evidence.sequence.map((item) => item.name)).toEqual([
-    "profile",
-    "tabs",
-    "match",
-    "overview",
-    "top-ad",
+    "profile", "tabs", "ai", "match", "overview", "top-ad",
   ]);
-  expect(evidence.sequence[0].top).toBeLessThan(evidence.sequence[1].top);
-  expect(evidence.sequence[1].top).toBeLessThan(evidence.sequence[2].top);
+  const [profile, tabs, ai, match, overview, ad] = evidence.sequence;
+  expect(profile.bottom).toBeLessThanOrEqual(tabs.top);
+  expect(tabs.bottom).toBeLessThanOrEqual(ai.top);
+  expect(ai.bottom).toBeLessThanOrEqual(match.top);
   if (width < 1024) {
-    expect(evidence.sequence[2].top).toBeLessThan(evidence.sequence[3].top);
+    expect(match.bottom).toBeLessThanOrEqual(overview.top);
   } else {
-    expect(Math.abs(evidence.sequence[2].top - evidence.sequence[3].top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(match.top - overview.top)).toBeLessThanOrEqual(1);
   }
-  expect(evidence.sequence[3].bottom).toBeLessThanOrEqual(evidence.sequence[4].top);
+  expect(Math.max(match.bottom, overview.bottom)).toBeLessThanOrEqual(ad.top);
   expect(evidence.topReservation).toBe(width < 768 ? 100 : 90);
   expect(evidence.topState).toBe("mounted");
   expect(evidence.bottomSafePaddingOk).toBe(true);

@@ -57,8 +57,13 @@ describe.skipIf(!enabled)('전적 검색 디자인 전후 비교', () => {
               };
               return { overflow: document.documentElement.scrollWidth > innerWidth, pageHeight: document.documentElement.scrollHeight,
                 profile: rect('header[aria-label="플레이어 프로필"]'), firstMatch: rect('[data-compact-match-id]'),
-                ad: rect('[data-ad-placement="stats-top"]'), inputHeight: rect('input[name="nickname"]')?.height };
+                ad: rect('[data-ad-placement="stats-top"]'), ai: rect('[role="region"][aria-label="AI 분석"]'), inputHeight: rect('input[name="nickname"]')?.height };
             });
+            if (phase === 'after' && state === 'result') {
+              expect(evidence.ai).not.toBeNull();
+              expect(evidence.ai!.top).toBeGreaterThanOrEqual(evidence.profile!.top + evidence.profile!.height);
+              expect(evidence.ai!.top + evidence.ai!.height).toBeLessThanOrEqual(evidence.firstMatch!.top);
+            }
             expect(evidence.overflow).toBe(false);
             expect(errors).toEqual([]);
             dispatcher.ledger.assertNoUnexpected();
