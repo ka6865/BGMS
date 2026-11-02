@@ -5,8 +5,8 @@ const {
   mockWithAuthGuard,
   mockGetSquadAnalysisData,
   mockGenerateContent,
-  mockGetGenerativeModel,
   MockGoogleGenerativeAI,
+  mockStreamText,
 } = vi.hoisted(() => {
   const mockWithAuthGuard = vi.fn();
   const mockGetSquadAnalysisData = vi.fn();
@@ -16,11 +16,28 @@ const {
     constructor(public apiKey: string) {}
     getGenerativeModel = mockGetGenerativeModel;
   }
-  return { mockWithAuthGuard, mockGetSquadAnalysisData, mockGenerateContent, mockGetGenerativeModel, MockGoogleGenerativeAI };
+  // 스쿼드 route는 AI SDK streamText를 쓴다. 기존 generateContent 시나리오를 같은 순서의 스트림 파트로 옮긴다.
+  const mockStreamText = vi.fn((options: { prompt: string; abortSignal?: AbortSignal }) => {
+    const fullStream = (async function* () {
+      let response: any;
+      try {
+        response = await mockGenerateContent(options.prompt, { signal: options.abortSignal });
+      } catch (error) {
+        yield { type: "error", error };
+        return;
+      }
+      yield { type: "start-step" };
+      yield { type: "text-delta", text: response.response.text() };
+    })();
+    return { fullStream, usage: Promise.resolve({ inputTokens: 0, outputTokens: 0 }) };
+  });
+  return { mockWithAuthGuard, mockGetSquadAnalysisData, mockGenerateContent, mockGetGenerativeModel, MockGoogleGenerativeAI, mockStreamText };
 });
 
 vi.mock("@/utils/supabase/guard", () => ({ withAuthGuard: mockWithAuthGuard }));
 vi.mock("@/lib/pubg-analysis/squadAnalysis", () => ({ getSquadAnalysisData: mockGetSquadAnalysisData }));
+vi.mock("ai", async (importOriginal) => ({ ...(await importOriginal<typeof import("ai")>()), streamText: mockStreamText }));
+vi.mock("@ai-sdk/google", () => ({ createGoogleGenerativeAI: () => (modelName: string) => ({ modelName }) }));
 vi.mock("@google/generative-ai", () => ({
   GoogleGenerativeAI: MockGoogleGenerativeAI,
   SchemaType: { OBJECT: "OBJECT", STRING: "STRING", ARRAY: "ARRAY" },
@@ -78,11 +95,12 @@ function deferred<T>() {
 
 const canonicalSquadData = {
   groupKey: "Beta",
-  matchCount: 2,
-  latestMatchCount: 2,
-  bestMatchCount: 2,
-  selectedMatchIds: ["match-2", "match-1"],
+  matchCount: 3,
+  latestMatchCount: 3,
+  bestMatchCount: 3,
+  selectedMatchIds: ["match-3", "match-2", "match-1"],
   matchesSummary: [
+    { matchId: "match-3", mapName: "Baltic_Main", winPlace: 1, createdAt: new Date(Date.now() - 86_400_000).toISOString() },
     { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: new Date(Date.now() - 86_400_000).toISOString() },
     { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString() },
   ],
@@ -242,13 +260,15 @@ describe("AI squad release blockers", () => {
     const responsePromise = aiSquadPOST(request({ groupKey: "Beta", nickname: "Player_A", platform: "steam" }));
     for (let index = 0; index < 50 && mockGenerateContent.mock.calls.length < 1; index += 1) await Promise.resolve();
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(22_100);
+    // 생성 예산은 30초다. 모델 4개가 각각 8초(마지막은 남은 시간) 안에 시작하지 못하면 사실 응답으로 끝난다.
+    await vi.advanceTimersByTimeAsync(31_000);
     const response = await responsePromise;
 
     expect(providerSignal?.aborted).toBe(true);
-    expect(response.status).toBe(504);
-    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
-    expect(mockGetGenerativeModel).toHaveBeenCalledTimes(3);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ mode: "facts_only", errorCode: "PUBG_AI_SQUAD_FACTS_ONLY", reason: "timeout" });
+    expect(mockGenerateContent).toHaveBeenCalledTimes(4);
+    expect(mockStreamText).toHaveBeenCalledTimes(4);
     expect(cache.upsert).not.toHaveBeenCalled();
   });
 
@@ -265,12 +285,12 @@ describe("AI squad release blockers", () => {
       coachingStyle: "spicy",
     }, controller.signal));
 
-    expect([503, 504]).toContain(response.status);
+    expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({
       errorCode: "PUBG_AI_SQUAD_ABORTED",
       retryable: true,
     });
-    expect(mockGetGenerativeModel).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
     expect(mockGenerateContent).not.toHaveBeenCalled();
     expect(cache.upsert).not.toHaveBeenCalled();
   });
@@ -302,7 +322,7 @@ describe("AI squad release blockers", () => {
     });
     expect(cache.select).not.toHaveBeenCalled();
     expect(cache.upsert).not.toHaveBeenCalled();
-    expect(mockGetGenerativeModel).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
     expect(mockGenerateContent).not.toHaveBeenCalled();
   });
 
@@ -334,23 +354,26 @@ describe("AI squad release blockers", () => {
     expect(cache.abortSignal).toHaveBeenCalledTimes(1);
     expect(cache.abortSignal.mock.calls[0][0]).toBe(pendingRequest.signal);
     expect(cache.upsert).not.toHaveBeenCalled();
-    expect(mockGetGenerativeModel).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
     expect(mockGenerateContent).not.toHaveBeenCalled();
   });
 
-  it("returns an explicitly retryable 503 after immediate provider errors", async () => {
-    const { supabase } = configuredSupabase();
+  it("returns the facts-only contract after immediate provider errors on every model", async () => {
+    const { supabase, cache } = configuredSupabase();
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     mockGenerateContent.mockRejectedValue(new Error("provider unavailable"));
 
     const response = await aiSquadPOST(request({ groupKey: "Beta", nickname: "Player_A", platform: "steam" }));
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      errorCode: "PUBG_AI_SQUAD_PROVIDER_ERROR",
+      mode: "facts_only",
+      errorCode: "PUBG_AI_SQUAD_FACTS_ONLY",
+      reason: "provider",
       retryable: true,
     });
     expect(mockGenerateContent).toHaveBeenCalledTimes(4);
-    expect(mockGetGenerativeModel).toHaveBeenCalledTimes(4);
+    expect(mockStreamText).toHaveBeenCalledTimes(4);
+    expect(cache.upsert).not.toHaveBeenCalled();
   });
 });

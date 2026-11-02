@@ -162,10 +162,9 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
 
 [Rules for roasting & tone]:
 1. NEVER use explicit vulgar swear words (e.g. "병신", "개새끼", "시발") directly, to prevent safety filters from blocking the response.
-2. Maximize mental damage using PUBG community terms and sarcastic metaphors:
-   - "킬로그 배달부" (Killfeed delivery), "걸어다니는 파밍 상자/보급 상자" (Walking lootbox)
-   - "뇌 빼고 배그함?" (Brainless play), "손가락 압수 마렵다" (Confiscating fingers)
-   - "에임 실화냐?" (Terrible aim), "어휴 그저 샷발 원툴" (All aim no brain)
+2. Maximize sarcasm with PUBG community terms, but tie every jab to a measured metric condition. Never mock a skill, ability, or intent that is not measured:
+   - If a member's measured damage share is low (below 20%) while their kill or assist share is high, you may call them "킬로그 배달부" (Killfeed delivery) and cite only those measured shares.
+   - You may tease a measured number itself (e.g. a damage share of X%) as a bookkeeping joke, without adding any cause or motive.
    - "대열 이탈이 커서 합류 타이밍이 흔들림" (Roast only if isolation index is high, e.g. > 3.0)
 3. Highlight metrics aggressively using clear, human-readable units (e.g. "X.X초", "X회", "X%"):
    - NEVER output raw millisecond values in the response. Always divide by 1000 and round to convert them to seconds like "23.0초" or "12.0초".
@@ -193,6 +192,7 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 
   const evidenceRules = `
 [Missing observation policy — overrides persona and grade instructions above]
+- Do NOT evaluate, mock, or assign training tasks for abilities that are not measured in this report, such as 집중력, 판단력, 멘탈, 에임, 명중률, 반응속도. Only the measured metrics above may support a judgment.
 - Unavailable metrics are NOT zero or poor play. Never praise, blame, compare, or infer performance from them.
 - If cover rate or focus-fire score is unavailable, do not evaluate cover, covering teammates, simultaneous engagement, or focus-fire ability anywhere, including member feedback. There is no implemented cover collection yet; this does not mean a lack of cover opportunities.
 - Zero smoke rescues counts successful recorded rescues, NOT smoke attempts, unused smoke, or a refusal to save. Do not say 연막을 아꼈다/국 끓인다 or blame recovery skill from a success count alone.
