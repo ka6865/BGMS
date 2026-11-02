@@ -14,6 +14,8 @@ insert into public.system_settings(key,value) values('private_players_list','[]'
 on conflict(key) do update set value=excluded.value;
 insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,account_id,ranking_eligible)
 select 'cache-player-'||n,'steam','cache-match-'||n,(select week_start from public.pubg_ranking_week())+interval '1 day','solo','Baltic_Main',n,1000+n,1,'official','account.cache'||n,true from generate_series(1,32)n;
+insert into public.pubg_player_cache(id,platform,nickname,lower_nickname,search_count)
+select 'account.cache'||n,'steam','cache-player-'||n,'cache-player-'||n,1 from generate_series(1,32)n;
 do $$ declare a jsonb;b jsonb; begin
  a:=pg_temp.rank('damage',array['solo'],'all',3,8,1,73);
  b:=pg_temp.rank('damage',array['solo','solo'],'all',3,8,1,73);
@@ -36,6 +38,8 @@ end $$;
 update public.system_settings set value='[]' where key='private_players_list';
 insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,match_type,account_id,ranking_eligible)
 values('MiXeD-Privacy','steam','mixed-privacy-match',(select week_start from public.pubg_ranking_week())+interval '1 day','duo','Baltic_Main',10,2000,'official',null,true);
+insert into public.pubg_player_cache(id,platform,nickname,lower_nickname,search_count)
+values('account.mixedprivacy','steam','MiXeD-Privacy','mixed-privacy',1);
 update public.system_settings set value='[{"platform":"steam","nickname":"MIXED-PRIVACY"}]' where key='private_players_list';
 do $$ begin
  if pg_temp.rank('damage',array['duo'],'all',3,8,1,73)->'entries'<>'[]'::jsonb

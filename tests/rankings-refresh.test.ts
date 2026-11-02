@@ -14,6 +14,13 @@ beforeEach(() => { fetchMock.mockReset().mockResolvedValue(response()); vi.stubG
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('랭킹 조회', () => {
+  it('검색 이력이 있는 계정의 지난주 최고 경기이며 확정 후 신규 조회와 정정에 따른 갱신 기준을 안내한다', () => {
+    render(createElement(RankingsClient, props));
+    expect(screen.getByText(/BGMS에서 전적을 조회한 이력이 있는 계정/)).toBeTruthy();
+    expect(screen.getByText(/확정 후 새 조회만으로 순위를 갱신하지 않으며/)).toBeTruthy();
+    expect(screen.getByText(/비공개 설정 변경 등 정정 시 순위가 달라질 수 있습니다/)).toBeTruthy();
+  });
+
   it('초기 응답을 기다리는 동안 제목과 필터를 표시하고 딜량만 조회한다', () => {
     fetchMock.mockReturnValue(new Promise(() => {}));
     render(createElement(RankingsClient, props));
