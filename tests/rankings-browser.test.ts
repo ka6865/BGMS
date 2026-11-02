@@ -32,7 +32,7 @@ describe.skipIf(!enabled)('검색 계정 랭킹 브라우저', () => {
       const page = await context.newPage();
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(String(error)));
-      let state: 'success' | 'empty' | 'error' = 'success';
+      let state: 'success' | 'empty' | 'error' | 'pending' = 'success';
       const queries: string[] = [];
       try {
         await page.setViewport(viewport);
@@ -43,8 +43,8 @@ describe.skipIf(!enabled)('검색 계정 랭킹 브라우저', () => {
           if (url.origin !== server.baseUrl) { await request.abort(); return; }
           if (url.pathname !== '/api/rankings') { await request.continue(); return; }
           queries.push(url.search);
-          await request.respond({ status: state === 'error' ? 503 : 200, contentType: 'application/json', body: JSON.stringify(
-            state === 'error' ? { error: 'fixture error' } : {
+          await request.respond({ status: state === 'error' ? 503 : state === 'pending' ? 202 : 200, contentType: 'application/json', body: JSON.stringify(
+            state === 'error' ? { error: 'fixture error' } : state === 'pending' ? { pending: true, entries: [] } : {
               entries: state === 'empty' ? [] : [{ rank: 1, platform: 'steam', playerId: 'SearchedPlayer', nickname: 'SearchedPlayer', value: 1234, secondary: 8, gameMode: '스쿼드', mapName: '에란겔' }],
               generatedAt: '2026-11-02T00:00:00Z', period: { start: '2026-10-25T15:00:00Z', end: '2026-11-01T15:00:00Z', finalized: true },
             }) });
@@ -64,8 +64,13 @@ describe.skipIf(!enabled)('검색 계정 랭킹 브라우저', () => {
             button.click();
           }, label);
         };
-        state = 'empty';
+        expect(await page.$$eval('button', buttons => buttons.some(button => button.textContent?.trim() === '새로고침'))).toBe(false);
+        state = 'pending';
         await click('지난주 킬');
+        await waitText('집계 시각: 집계 중');
+        await waitText('잠시 후 자동으로 다시 불러옵니다.');
+        await page.screenshot({ path: join(process.cwd(), `tmp/rankings-searched-qa/${viewport.width}-pending.png`), fullPage: true });
+        state = 'empty';
         await waitText('이번 주 데이터가 없습니다');
         expect(queries.at(-1)).toContain('tab=kills');
         state = 'error';

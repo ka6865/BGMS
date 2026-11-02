@@ -244,17 +244,9 @@ export default function RankingsClient({ updatedAt }: Props) {
               </h1>
               <p className="text-gray-500 text-xs mt-1">BGMS 전적 조회 계정 기준</p>
             </div>
-            <button
-              onClick={handleRefresh}
-              disabled={isPending}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs text-gray-400 transition-all disabled:opacity-40"
-            >
-              <RefreshCw size={13} className={isPending ? 'animate-spin' : ''} />
-              새로고침
-            </button>
           </div>
-          <p className="text-[10px] text-gray-700">
-            {period && <>{formatRankingPeriod(period)} · </>}조회 기준: {isPending && currentData.length === 0 ? '조회 중' : currentHasError ? '조회 실패' : formatUpdatedAt(lastUpdated)}{isPending && currentData.length > 0 ? ' · 갱신 중' : ''}
+          <p className="text-xs text-gray-400">
+            {period && <>{formatRankingPeriod(period)} · </>}집계 시각: {isPending && currentData.length === 0 ? '조회 중' : currentHasError ? '조회 실패' : result?.query === query && result.pending ? '집계 중' : formatUpdatedAt(lastUpdated)}{isPending && currentData.length > 0 ? ' · 갱신 중' : ''}
           </p>
         </div>
       </div>
