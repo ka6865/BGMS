@@ -20,6 +20,7 @@ import { selectSummaryDebateTopics } from "@/lib/pubg-analysis/aiSummaryTopics";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
+import { sanitizeLegacySummaryJudgment } from "@/lib/pubg-analysis/aiSummaryJudgment";
 import {
   hasUnsupportedAiSummaryMode,
   normalizeAiSummaryDebatePayload,
@@ -2468,7 +2469,8 @@ export async function POST(request: Request) {
         canonicalEvidence,
       });
       if (!normalized) return null;
-      return JSON.stringify(sanitizeSummaryPayload(normalized));
+      // 이 함수는 새 응답 저장과 캐시 읽기에 모두 쓰이므로 판단 문자열 정책도 여기서 함께 적용한다.
+      return JSON.stringify(sanitizeLegacySummaryJudgment(sanitizeSummaryPayload(normalized)));
     };
 
     // Cache lookup must happen after every effective prompt/visual/benchmark

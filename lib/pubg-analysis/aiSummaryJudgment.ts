@@ -34,6 +34,8 @@ const UNSUPPORTED_INFERENCES = [
   /기동력\s*중심의/u,
   /(?:교전|전투)[^.!?\n]{0,20}주도권[^.!?\n]{0,12}(?:쥐|확보했|장악했|입증)/u,
   /(?:더\s*)?주도적인\s*각을\s*만들어내야/u,
+  // 측정하지 않은 집중력을 개선 대상으로 단정하는 문장. 집중력 유지 조언은 막지 않는다.
+  /집중력(?:을|이)?\s*(?:보완|개선|향상|강화|끌어올리|끌어올려|높여)(?![^.!?\n]{0,8}(?:필요(?:는|가|도)?\s*없|필요하지\s*않|않))/u,
   // 요약 카드에 없는 사격 지표. 명중·적중 비율, 조준, 반동, 탄약은 요약 근거로 전달하지 않는다.
   /(?:명중률|적중률|명중\s*정확도|사격\s*정확도|에임|조준\s*(?:능력|실력|정확도|속도)|반동\s*(?:제어|조절|관리)|탄약|탄창|장전|헤드샷)/u,
 ];
@@ -91,6 +93,18 @@ const ADVICE_RULES = [
     replacement: '다음 교전 후 피해를 주기 어려웠던 구간과 사격 기회가 있었는지 점검하세요.',
     allowsCondition: true,
   },
+  {
+    // 협공 비중·타이밍 맞춘 집중 타격은 요약 카드가 관측한 조율 기록이 아니다.
+    pattern: /협공[^.!?\n]{0,20}(?:비중|교전)[^.!?\n]{0,12}(?:확대|늘리|늘려|높이|높여)|아군과[^.!?\n]{0,12}타이밍을?\s*맞춘[^.!?\n]{0,24}(?:시도|공격)(?:하세요|하십시오|해\s*보세요|해야)/u,
+    replacement: '다음 교전 전에 상대 위치와 빠져나올 경로를 확인해 보세요. 팀 모드라면 팀원이 함께 대응할 수 있는지도 확인하세요.',
+    allowsCondition: true,
+  },
+  {
+    // 투척 사용량 증가는 표본과 무관하게 근거가 없다. 요약은 사용 여부만 확인 질문으로 바꾼다.
+    pattern: /(?:공격형|피해형)\s*투척[^.!?\n]{0,12}(?:시도|사용|빈도|횟수)[^.!?\n]{0,12}(?:늘리|늘려|높이|높여|증가)/u,
+    replacement: '다음 교전에서 투척을 쓸 수 있었던 상황이 있었는지 확인해 보세요.',
+    allowsCondition: true,
+  },
 ] as const;
 
 function unsupportedAdviceRule(sentence: string) {
@@ -115,4 +129,45 @@ export function sanitizeSummaryAdviceText(text: string): string {
   if (!hasUnsupportedSummaryAdvice(text)) return text;
   return [...new Set(text.split(/(?<=[.!?。！？])\s+|\n+/u)
     .map(sentence => unsupportedAdviceRule(sentence)?.replacement ?? sentence))].join(' ').trim();
+}
+
+// 이전 형식(v1) 요약의 판단 문자열. v2 카드와 같은 정책을 쓰고, 필드 이름만 레거시 JSON에 맞춘다.
+const LEGACY_DEBATE_JUDGMENT_FIELDS = ['kindOpinion', 'spicyOpinion', 'reason', 'evaluation'] as const;
+const LEGACY_ACTION_JUDGMENT_FIELDS = ['title', 'desc'] as const;
+
+function sanitizeSummaryJudgmentProse(text: string): string {
+  return sanitizeSummaryInferenceText(sanitizeSummaryAdviceText(text));
+}
+
+// 제목은 짧은 라벨이라 조언 문장으로 바꾸지 않고, 정책에 걸리면 중립 라벨로 바꾼다.
+const LEGACY_NEUTRAL_ACTION_TITLE = '다음 교전 점검';
+
+function sanitizeLegacyRecordFields(record: unknown, fields: readonly string[]): unknown {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return record;
+  return Object.fromEntries(Object.entries(record).map(([key, value]) => {
+    if (!fields.includes(key) || typeof value !== 'string') return [key, value];
+    const sanitized = sanitizeSummaryJudgmentProse(value);
+    if (key !== 'title') return [key, sanitized];
+    return [key, sanitized === value ? value : LEGACY_NEUTRAL_ACTION_TITLE];
+  }));
+}
+
+/**
+ * v1 요약 최종 JSON의 판단 문자열(finalVerdict, debateIssues 의견·근거, actionItems 제목·설명)에 정책을 적용한다.
+ * 근거가 모두 빠진 행동 제안은 보류 문장만 남기지 않고 항목째 뺀다. 두 번 적용해도 결과가 같다.
+ */
+export function sanitizeLegacySummaryJudgment(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  const result: Record<string, unknown> = { ...record };
+  if (typeof record.finalVerdict === 'string') result.finalVerdict = sanitizeSummaryJudgmentProse(record.finalVerdict);
+  if (Array.isArray(record.debateIssues)) {
+    result.debateIssues = record.debateIssues.map(issue => sanitizeLegacyRecordFields(issue, LEGACY_DEBATE_JUDGMENT_FIELDS));
+  }
+  if (Array.isArray(record.actionItems)) {
+    result.actionItems = record.actionItems
+      .map(item => sanitizeLegacyRecordFields(item, LEGACY_ACTION_JUDGMENT_FIELDS))
+      .filter(item => !(item && typeof item === 'object' && (item as Record<string, unknown>).desc === COACHING_JUDGMENT_WITHHELD));
+  }
+  return result;
 }
