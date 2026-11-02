@@ -19,12 +19,14 @@ vi.mock('../lib/pubg-analysis/roleReference', async (importOriginal) => {
   return { ...actual, get ROLE_REFERENCE_VERSION() { return roleReferenceState.version; } };
 });
 // 기본은 실제 분류기를 그대로 쓴다. 테스트에서만 화면 설명(verdict)이나 제목을 바꿔 hash 계약을 확인한다.
-const roleClassifierState = vi.hoisted(() => ({ verdictDetail: null as string | null, title: null as string | null, evidenceNote: null as string | null }));
+const roleClassifierState = vi.hoisted(() => ({ verdictDetail: null as string | null, title: null as string | null, evidenceNote: null as string | null, optionCalls: [] as unknown[] }));
 vi.mock('../lib/pubg-analysis/roleClassifier', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/pubg-analysis/roleClassifier')>();
   return {
     ...actual,
     classifyRole: (...args: Parameters<typeof actual.classifyRole>) => {
+      // 라우트가 넘긴 판정 옵션(보류 지표 목록 등)을 테스트가 확인할 수 있게 남긴다.
+      roleClassifierState.optionCalls.push(args[3]);
       const result = actual.classifyRole(...args);
       if (roleClassifierState.verdictDetail !== null) result.verdict = { ...result.verdict, detail: roleClassifierState.verdictDetail };
       if (roleClassifierState.title !== null) result.title = roleClassifierState.title;
@@ -7350,5 +7352,214 @@ describe("스쿼드 생성 토큰 추정", () => {
     const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "kakao" }));
     expect(response.status).toBe(200);
     expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", expect.any(String), 10, 50, "squad", expect.any(Object));
+  });
+});
+
+describe("AI 생성 차단 스위치·계측 로그·선제 지표 보류", () => {
+  beforeEach(() => {
+    roleReferenceState.version = 1;
+    roleClassifierState.verdictDetail = null;
+    roleClassifierState.title = null;
+    roleClassifierState.evidenceNote = null;
+    roleClassifierState.optionCalls = [];
+    vi.clearAllMocks();
+    process.env.GOOGLE_GEMINI_API_KEY = "test-gemini-key";
+    mockWithAuthGuard.mockResolvedValue({
+      user: { id: "user-1" },
+      supabaseAdmin: createSupabaseMock({}),
+    });
+    mockGetSquadAnalysisData.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  function singleSummaryTelemetry(matchId: string, overrides: Record<string, any> = {}) {
+    return createQueryChain({
+      data: [{ match_id: matchId, player_id: "player_a", platform: "kakao", data: { fullResult: createSummaryMatch(matchId, overrides) } }],
+      error: null,
+    });
+  }
+
+  it("ai-summary 생성 차단 시 Gemini 없이 사실 카드만 응답하고 캐시에 쓰지 않는다", async () => {
+    vi.stubEnv("PUBG_AI_GENERATION_DISABLED", "true");
+    const summaryCache = createQueryChain();
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: singleSummaryTelemetry("switch-miss"),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["switch-miss"],
+      nickname: "Player_A",
+      platform: "kakao",
+      summaryContractVersion: 2,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(records.map((record) => record.type)).toEqual(["visuals", "cards", "error", "done"]);
+    expect(records[2]).toMatchObject({ errorCode: "PUBG_AI_GENERATION_DISABLED", retryable: false });
+    expect(records[3]).toMatchObject({ valid: false, errorCode: "PUBG_AI_GENERATION_DISABLED", retryable: false });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary 생성 차단이어도 기존 요약 캐시 적중은 final을 그대로 돌려준다", async () => {
+    mockSummaryGeminiResponse();
+    const summaryCache = createQueryChain();
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: singleSummaryTelemetry("switch-hit"),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    const body = { matchIds: ["switch-hit"], nickname: "Player_A", platform: "kakao" };
+
+    const firstResponse = await aiSummaryPOST(createRequest({ ...body, force: true }));
+    await firstResponse.text();
+    const firstHash = summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+    configureSummaryCacheHitForHash(summaryCache, firstHash);
+    mockGenerateContentStream.mockClear();
+
+    vi.stubEnv("PUBG_AI_GENERATION_DISABLED", "true");
+    const secondResponse = await aiSummaryPOST(createRequest(body));
+    const records = parseSummaryNdjson(await secondResponse.text());
+
+    expect(records.map((record) => record.type)).toEqual(["visuals", "final", "done"]);
+    expect(records[2]).toMatchObject({ valid: true });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+
+  it("ai-analyze 생성 차단 시 캐시가 없으면 Gemini 없이 503과 차단 코드를 반환한다", async () => {
+    vi.stubEnv("PUBG_AI_GENERATION_DISABLED", "true");
+    const matchCache = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: createQueryChain({ data: createCanonicalAnalyzeRow("switch-analyze"), error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiAnalyzePOST(createRequest({
+      nickname: "Player_A",
+      platform: "kakao",
+      coachingStyle: "spicy",
+      matchData: {
+        matchId: "switch-analyze",
+        stats: { kills: 1, assists: 0, DBNOs: 1, damageDealt: 100, winPlace: 10, timeSurvived: 600 },
+      },
+    }));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_GENERATION_DISABLED", retryable: false });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+
+  it("ai-analyze 생성 차단이어도 기존 단일 경기 코칭 캐시 적중은 그대로 반환한다", async () => {
+    vi.stubEnv("PUBG_AI_GENERATION_DISABLED", "true");
+    const matchCache = createQueryChain({
+      data: { ai_result: { text: "cached-while-disabled" } },
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: createQueryChain({ data: createCanonicalAnalyzeRow("switch-analyze-hit"), error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiAnalyzePOST(createRequest({
+      nickname: "Player_A",
+      platform: "kakao",
+      coachingStyle: "spicy",
+      matchData: {
+        matchId: "switch-analyze-hit",
+        stats: { kills: 1, assists: 0, DBNOs: 1, damageDealt: 100, winPlace: 10, timeSurvived: 600 },
+      },
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("cached-while-disabled");
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary는 요청 결과마다 단계별 계측 로그 한 줄을 남기고 닉네임을 넣지 않는다", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    mockSummaryGeminiResponse();
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: singleSummaryTelemetry("timing-ok"),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: ["timing-ok"], nickname: "Player_A", platform: "kakao" }));
+    await response.text();
+
+    const lines = info.mock.calls.map((call) => String(call[0])).filter((line) => line.includes('"kind":"ai-route-timing"'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toContain("Player_A");
+    const timing = JSON.parse(lines[0]);
+    expect(timing).toMatchObject({ kind: "ai-route-timing", route: "summary", outcome: "success" });
+    expect(timing.requestId).toEqual(expect.any(String));
+    expect(Object.keys(timing.stages)).toEqual(expect.arrayContaining([
+      "auth", "privateGuard", "processedLookup", "benchmark", "promptBuild", "cacheLookup",
+      "geminiFirstPart", "geminiTotal", "persist", "total",
+    ]));
+    expect(timing.stages.cacheLookup).toEqual({ ms: expect.any(Number), result: "miss" });
+    expect(timing.stages.persist).toEqual({ ms: expect.any(Number), status: "ok" });
+    expect(timing.attempts).toEqual([{ model: "gemini-3.5-flash-lite", outcome: "ok", ms: expect.any(Number) }]);
+    info.mockRestore();
+  });
+
+  it("ai-summary 캐시 저장 실패는 console.error로 올리고 계측 로그 persist 상태를 failed로 남긴다", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockSummaryGeminiResponse();
+    const summaryCache = createQueryChain({ data: null, error: { message: "summary cache write rejected" } });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: singleSummaryTelemetry("timing-persist-fail"),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: ["timing-persist-fail"], nickname: "Player_A", platform: "kakao", force: true }));
+    const records = parseSummaryNdjson(await response.text());
+
+    expect(records.map((record) => record.type)).toContain("done");
+    expect(error).toHaveBeenCalledWith("[AI-SUMMARY] Failed to write cache to DB:", "summary cache write rejected");
+    const lines = info.mock.calls.map((call) => String(call[0])).filter((line) => line.includes('"kind":"ai-route-timing"'));
+    expect(JSON.parse(lines[0]).stages.persist).toMatchObject({ status: "failed" });
+    info.mockRestore();
+    error.mockRestore();
+  });
+
+  it.each([
+    [5, ["reactionSec", "initiative"]],
+    [4, ["reactionSec"]],
+  ])("ai-summary는 칭호 판정 경기에 계산 %s가 있을 때 선제 타격 지표를 보류 목록에 넣는다", async (calculationVersion, expectedPending) => {
+    mockSummaryGeminiResponse();
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain({ data: null, error: null }),
+      processed_match_telemetry: singleSummaryTelemetry(`role-calc-${calculationVersion}`, { calculationVersion }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: [`role-calc-${calculationVersion}`],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    await response.text();
+
+    const options = roleClassifierState.optionCalls.at(-1) as { pendingReferenceMetrics?: string[] } | undefined;
+    expect(options?.pendingReferenceMetrics).toEqual(expectedPending);
   });
 });

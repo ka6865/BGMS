@@ -1,5 +1,5 @@
 import { AI_SUMMARY_HIGHER_IS_BETTER } from "./aiSummaryDebate";
-import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText } from "./aiSummaryJudgment";
+import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText, summaryAdviceRuleId, summaryInferenceRuleId } from "./aiSummaryJudgment";
 import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
 import { ANALYSIS_CALCULATION_VERSION } from "./constants";
 
@@ -719,13 +719,17 @@ function hasContradictedIsolationClaim(text: string, row: SummaryEvidence): bool
   return false;
 }
 
-function hasUnsupportedCardConclusion(text: string, card: Pick<SummaryCard, "topicId" | "context" | "evidence">): boolean {
+/**
+ * 카드 해석 문장이 걸린 결론 규칙의 식별자("conclusion:<id>")를 돌려준다. 걸리지 않으면 null이다.
+ * 검사 순서는 기존 hasUnsupportedCardConclusion과 같다.
+ */
+function cardConclusionRuleId(text: string, card: Pick<SummaryCard, "topicId" | "context" | "evidence">): string | null {
   // A card's match population is server-owned, just like its metric values.
   const populations = Array.from(text.matchAll(/최근\s*(\d+)\s*(?:개\s*)?(?:판|경기)/gu));
-  if (populations.some((match) => Number(match[1]) !== card.context.userMatchCount)) return true;
+  if (populations.some((match) => Number(match[1]) !== card.context.userMatchCount)) return "conclusion:population_mismatch";
   if (card.topicId === "positioning") {
     const comparable = card.evidence.find((row) => row.metricId === "isolation_average" && row.status === "comparable");
-    if (comparable && hasContradictedIsolationClaim(text, comparable)) return true;
+    if (comparable && hasContradictedIsolationClaim(text, comparable)) return "conclusion:isolation_contradiction";
   }
   if (card.topicId === "positioning"
     && !card.evidence.some((row) => row.metricId === "isolation_average" && row.status === "comparable")) {
@@ -734,17 +738,23 @@ function hasUnsupportedCardConclusion(text: string, card: Pick<SummaryCard, "top
       for (const conclusion of conclusions) {
         const tail = sentence.slice(conclusion.index + conclusion[0].length);
         if (/^(?:고|는|다고|다는)?\s*(?:(?:단정|판단|평가)할\s*수(?:는)?\s*없(?:습니다|다|어요|음)|(?:(?:단정|판단|평가)할\s*)?비교\s*근거(?:가|는)?\s*없(?:습니다|다|어요|음))[.!?。！？]?\s*$/u.test(tail)) continue;
-        return true;
+        return "conclusion:isolation_unmeasured";
       }
     }
   }
-  if (card.topicId !== "utility") return false;
+  if (card.topicId !== "utility") return null;
   if (requiresRescueOpportunityEvidence(text)
-    && !card.evidence.some((row) => row.metricId === "smoke_opportunity_rate" && row.userValue !== null && row.status !== "unavailable")) return true;
+    && !card.evidence.some((row) => row.metricId === "smoke_opportunity_rate" && row.userValue !== null && row.status !== "unavailable")) return "conclusion:rescue_opportunity_missing";
   // Counts establish use, not intent or an adequate frequency. Do not let
   // an old provider/template infer cover purpose or "few offensive throws"
   // from these observations, even when the referenced IDs are valid.
-  return /(?:대부분|거의\s*(?:모두|전부)).*(?:연막|생존|엄폐)|(?:공격형|피해형)\s*투척(?:\s*시도)?(?:은|는|이|가)?\s*(?:매우\s*)?(?:적었|적습니다|부족했)|(?:생존|엄폐)(?:\s*(?:및|·|\/)?\s*(?:생존|엄폐))?용으로\s*(?:적극\s*)?(?:활용했|사용했)|보유량에\s*비해/u.test(text);
+  return /(?:대부분|거의\s*(?:모두|전부)).*(?:연막|생존|엄폐)|(?:공격형|피해형)\s*투척(?:\s*시도)?(?:은|는|이|가)?\s*(?:매우\s*)?(?:적었|적습니다|부족했)|(?:생존|엄폐)(?:\s*(?:및|·|\/)?\s*(?:생존|엄폐))?용으로\s*(?:적극\s*)?(?:활용했|사용했)|보유량에\s*비해/u.test(text)
+    ? "conclusion:utility_usage_claim"
+    : null;
+}
+
+function hasUnsupportedCardConclusion(text: string, card: Pick<SummaryCard, "topicId" | "context" | "evidence">): boolean {
+  return cardConclusionRuleId(text, card) !== null;
 }
 
 function sanitizeRequiredText(
@@ -768,13 +778,17 @@ function safeActionItems(
 ): {
   items: Array<{ icon: string; title: string; desc: string }>;
   rejected: boolean;
+  // 탈락한 항목의 사유 id(action_items:...). 결과 수용 여부와 무관한 기록용이다.
+  dropped: string[];
 } | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   const rejected = { value: false };
   const items: Array<{ icon: string; title: string; desc: string }> = [];
+  const dropped: string[] = [];
   for (const rawItem of value) {
     if (!isRecord(rawItem)) {
       rejected.value = true;
+      dropped.push("action_items:shape");
       continue;
     }
     const icon = nonEmptyString(rawItem.icon);
@@ -782,30 +796,48 @@ function safeActionItems(
     const desc = nonEmptyString(rawItem.desc);
     if (!icon || !title || !desc) {
       rejected.value = true;
+      dropped.push("action_items:shape");
       continue;
     }
     let itemRejected = isNeutralText(title) || isNeutralText(desc);
+    // 사유는 탈락 판정 순서(모드, 중립, 정제 후 빈 문장)대로 처음 걸린 것을 쓴다.
+    let itemReason: string | null = itemRejected ? "action_items:neutral" : null;
     try {
       // Check the provider's original action text as well as the sanitized
       // copy. A sanitizer must not make a foreign-mode action cacheable just
       // because it removed the marker before this validation.
-      if (hasUnsupportedMode(title) || hasUnsupportedMode(desc)) itemRejected = true;
+      if (hasUnsupportedMode(title) || hasUnsupportedMode(desc)) {
+        itemRejected = true;
+        itemReason = itemReason ?? "action_items:mode";
+      }
     } catch {
       itemRejected = true;
+      itemReason = itemReason ?? "action_items:mode";
     }
     const sanitizedTitle = sanitizeRequiredText(title, sanitizeText);
     const sanitizedDesc = sanitizeRequiredText(desc, sanitizeText);
     if (sanitizedTitle.empty || sanitizedDesc.empty
       || isNeutralText(sanitizedTitle.value) || isNeutralText(sanitizedDesc.value)) {
       itemRejected = true;
+      if (!itemReason) {
+        const emptyText = sanitizedTitle.empty ? title : desc;
+        itemReason = sanitizedTitle.empty || sanitizedDesc.empty
+          ? `action_items:${proseRuleId(emptyText)}`
+          : "action_items:neutral";
+      }
     }
     try {
-      if (hasUnsupportedMode(sanitizedTitle.value) || hasUnsupportedMode(sanitizedDesc.value)) itemRejected = true;
+      if (hasUnsupportedMode(sanitizedTitle.value) || hasUnsupportedMode(sanitizedDesc.value)) {
+        itemRejected = true;
+        itemReason = itemReason ?? "action_items:mode";
+      }
     } catch {
       itemRejected = true;
+      itemReason = itemReason ?? "action_items:mode";
     }
     if (itemRejected) {
       rejected.value = true;
+      dropped.push(itemReason ?? "action_items:neutral");
       continue;
     }
     items.push({
@@ -814,7 +846,15 @@ function safeActionItems(
       desc: sanitizedDesc.value,
     });
   }
-  return { items, rejected: rejected.value };
+  return { items, rejected: rejected.value, dropped };
+}
+
+/**
+ * 원문 문장에 걸린 추론·제안 규칙 id를 돌려준다. 걸린 규칙이 없으면 "empty"다.
+ * 정제 뒤 빈 문장이 된 이유를 남길 때만 쓴다.
+ */
+function proseRuleId(text: string): string {
+  return summaryInferenceRuleId(text) ?? summaryAdviceRuleId(text) ?? "empty";
 }
 
 export function buildSummaryCards(input: {
@@ -1077,12 +1117,22 @@ function groundedVerdict(cards: SummaryCard[], hasActionItems: boolean): string 
   ].filter(Boolean).join(" ");
 }
 
+// 카드 해석 필드의 사유 코드. 순서는 kindOpinion, spicyOpinion, reason, evaluation이다.
+const PROSE_FIELD_CODES = ["kind", "spicy", "reason", "evaluation"] as const;
+
 export function normalizeSummaryCardFinal(input: unknown, cards: readonly SummaryCard[], options: {
   sanitizeText: (value: string) => string;
   sanitizeCardText?: (value: string, card: SummaryCard) => string;
   hasUnsupportedMode: (value: unknown) => boolean;
   onSchemaError?: (reason: string) => void;
-}): { final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" }; cacheable: boolean; usable: boolean; rejectReasons: string[] } | null {
+}): {
+  final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" };
+  cacheable: boolean;
+  usable: boolean;
+  rejectReasons: string[];
+  // 수용·거부와 무관하게 빠진 행동 제안의 사유 id(action_items:...). 기록용이며 rejectReasons에는 넣지 않는다.
+  actionDropReasons: string[];
+} | null {
   const malformed = (reason: string) => {
     options?.onSchemaError?.(reason);
     return null;
@@ -1100,6 +1150,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   if (!Array.isArray(input.debateIssues) || input.debateIssues.length !== serverCards.length) return malformed("debate_issues_count");
   const actionItems = safeActionItems(input.actionItems, options.sanitizeText, options.hasUnsupportedMode);
   if (!actionItems) return malformed("action_items");
+  const actionDropReasons: string[] = [...actionItems.dropped];
 
   let cacheable = true;
   // 어떤 규칙에서 탈락했는지 운영 로그로 구분할 수 있게 사유 코드를 모은다.
@@ -1169,6 +1220,10 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       }
     });
     const proseRejected = sanitized.some((item) => item.empty);
+    // 사유 id는 필드 이름과 원문에 걸린 규칙으로 만든다(예: "reason:inference:..."). 수용 판정에는 쓰지 않는다.
+    const proseReasons = sanitized.flatMap((item, index) => item.empty
+      ? [`${serverCard.topicId}:prose:${PROSE_FIELD_CODES[index]}:${proseRuleId([kindOpinion, spicyOpinion, reason, evaluation][index])}`]
+      : []);
     let issueHasForeignMode = false;
     try {
       // Inspect prose only. Topic/metric IDs are structured server
@@ -1205,12 +1260,18 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       else referencesValid = referencesValid && referenceValues.length > 0;
     }
 
-    const unsupportedConclusion = [kindOpinion, spicyOpinion, reason, evaluation]
-      .some((text) => hasUnsupportedCardConclusion(text, serverCard));
+    const conclusionReasons = [kindOpinion, spicyOpinion, reason, evaluation].flatMap((text, index) => {
+      const ruleId = cardConclusionRuleId(text, serverCard);
+      return ruleId ? [`${serverCard.topicId}:conclusion:${PROSE_FIELD_CODES[index]}:${ruleId}`] : [];
+    });
+    const unsupportedConclusion = conclusionReasons.length > 0;
     // 중립 의견은 서버 근거와 지표별 점검으로 대신하므로 카드를 숨기지 않는다.
     const rejected = issueHasForeignMode || !referencesValid || proseRejected || unsupportedConclusion;
     if (rejected) {
-      reject(`${serverCard.topicId}:${issueHasForeignMode ? "mode" : !referencesValid ? "evidence" : proseRejected ? "prose" : "conclusion"}`);
+      const category = issueHasForeignMode ? "mode" : !referencesValid ? "evidence" : proseRejected ? "prose" : "conclusion";
+      reject(`${serverCard.topicId}:${category}`);
+      // 상세 사유는 기존 코드(topic:prose, topic:conclusion) 뒤에 덧붙인다. 기존 코드 비교는 그대로 통과한다.
+      (category === "prose" ? proseReasons : category === "conclusion" ? conclusionReasons : []).forEach(reject);
       return unavailableCard(serverCard, issueHasForeignMode ? "허용되지 않은 게임 모드가 포함되어 AI 해석을 보류했습니다." : unsupportedConclusion ? "경기 범위나 투척 기록으로 확인되지 않는 해석이 있어 판정을 보류했습니다." : UNAVAILABLE_REASON);
     }
     if (serverCard.dataStatus === "unavailable") {
@@ -1257,13 +1318,19 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   if (readyCards.length > 0 && neutralCards >= readyCards.length) reject("all_neutral");
   const providerActionItems = readyCards.length === 0 ? [] : actionItems.items.flatMap((item) => {
     const desc = conditionalCheckText(item.desc);
-    if (!desc || /\d/u.test(item.title)) return [];
+    if (!desc || /\d/u.test(item.title)) {
+      actionDropReasons.push(desc ? "action_items:title_number" : "action_items:check_text");
+      return [];
+    }
     // 비교 결과 보완점이 없는 카드(모두 평균 이상이거나 방향이 없는 지표뿐)만 다루는 제안은
     // 약점을 전제한 표현(보완·높이기·줄이기 등)일 때만 뺀다. "유지되는지 확인"처럼 점검만 하는
     // 제안은 남긴다. 다른 카드 주제도 함께 다루면 그대로 유지한다.
     const text = `${item.title} ${desc}`;
     const topics = actionItemTopics(text);
-    if (topics.length > 0 && topics.every((topicId) => !isActionableTopic(readyCards, topicId)) && WEAKNESS_PREMISE.test(text)) return [];
+    if (topics.length > 0 && topics.every((topicId) => !isActionableTopic(readyCards, topicId)) && WEAKNESS_PREMISE.test(text)) {
+      actionDropReasons.push("action_items:weakness_premise");
+      return [];
+    }
     return [{ ...item, desc }];
   });
   const serverActionItems = readyCards
@@ -1326,7 +1393,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     debateIssues: legacyIssues,
     actionItems: normalizedActionItems,
   } as Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" };
-  return { final, cacheable, usable, rejectReasons };
+  return { final, cacheable, usable, rejectReasons, actionDropReasons };
 }
 
 export function parseSummaryCards(input: unknown): SummaryCard[] | null {
