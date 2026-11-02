@@ -15,6 +15,7 @@ export interface StatsSearchBarProps {
   empty: boolean;
   submitDisabled: boolean;
   submitLabel?: string;
+  placeholder?: string;
   onPlatformChange(value: StatsPlatform): void;
   onNicknameChange(value: string): void;
   onSubmit(): void;
@@ -34,6 +35,7 @@ export function StatsSearchBar({
   empty,
   submitDisabled,
   submitLabel = "검색",
+  placeholder = "정확한 대소문자 닉네임을 입력하세요",
   onPlatformChange,
   onNicknameChange,
   onSubmit,
@@ -51,6 +53,9 @@ export function StatsSearchBar({
     source: StatsSearchBarProps["suggestions"];
   } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Escape로 닫은 뒤 입력창에 focus를 돌려줄 때 목록이 다시 열리지 않게 한다
+  const skipFocusOpenRef = useRef(false);
   const items = useMemo(() => [
     ...favorites.map((entry) => ({ ...entry, type: "favorite" as const })),
     ...recentSearches
@@ -69,6 +74,11 @@ export function StatsSearchBar({
     document.addEventListener("mousedown", closeOutside);
     return () => document.removeEventListener("mousedown", closeOutside);
   }, []);
+
+  useEffect(() => {
+    if (!suggestionsOpen || suggestionIndex < 0) return;
+    document.getElementById(`${suggestionsId}-option-${suggestionIndex}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [suggestionsOpen, suggestionIndex, suggestionsId]);
 
   return (
     <div className={`flex flex-col gap-3 md:flex-row md:items-end max-w-3xl mx-auto mb-8 relative ${showDropdown ? "z-[1000]" : "z-30"}`}>
@@ -100,9 +110,17 @@ export function StatsSearchBar({
             setShowDropdown(false);
           }
         }}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.target === inputRef.current || !showDropdown) return;
+          setActiveSuggestion(null);
+          setShowDropdown(false);
+          skipFocusOpenRef.current = true;
+          inputRef.current?.focus();
+        }}
       >
         <label className="mb-1 block text-xs leading-4 text-gray-300" htmlFor={nicknameId}>닉네임</label>
         <input
+          ref={inputRef}
           id={nicknameId}
           name="nickname"
           type="text"
@@ -112,7 +130,7 @@ export function StatsSearchBar({
           aria-controls={suggestionsOpen ? suggestionsId : undefined}
           aria-activedescendant={suggestionIndex >= 0 && suggestionsOpen ? `${suggestionsId}-option-${suggestionIndex}` : undefined}
           autoComplete="off"
-          placeholder="정확한 대소문자 닉네임을 입력하세요"
+          placeholder={placeholder}
           value={nickname}
           onChange={(event) => {
             setActiveSuggestion(null);
@@ -141,7 +159,13 @@ export function StatsSearchBar({
               onSubmit();
             }
           }}
-          onFocus={() => setShowDropdown(true)}
+          onFocus={() => {
+            if (skipFocusOpenRef.current) {
+              skipFocusOpenRef.current = false;
+              return;
+            }
+            setShowDropdown(true);
+          }}
           className="min-h-11 w-full p-3 bg-[#252525] text-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
         />
 

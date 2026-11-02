@@ -437,6 +437,12 @@ export function createStatsBrowserScenario(input: {
     if (normalized === "latest" || normalized === "new") {
       return jsonResponse(200, { suggestions: [{ nickname: "LatestPlayer", platform: "kakao" }] });
     }
+    // 운영 추천 API의 최대 개수(8)로 목록 스크롤을 검증한다
+    if (normalized === "many") {
+      return jsonResponse(200, {
+        suggestions: Array.from({ length: 8 }, (_, index) => ({ nickname: `ManyPlayer${index + 1}`, platform: "steam" })),
+      });
+    }
     return jsonResponse(200, { suggestions: [] });
   };
 

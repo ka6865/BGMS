@@ -940,6 +940,9 @@ describeBrowser("stats browser smoke", () => {
         await goToPlayer(page,dispatcher,baseUrl,'steam','FixturePlayer');
         await waitForSummarySuccess(dispatcher,'FixturePlayer','steam');
         await page.evaluate(()=>{
+          // 가이드는 AI 분석 영역 안에 있으므로 비로그인으로 접힌 영역을 먼저 펼친다
+          const details=document.querySelector<HTMLDetailsElement>('[aria-label="AI 분석"] details');
+          if(details&&!details.open) details.querySelector('summary')?.click();
           const button=[...document.querySelectorAll('button')].find(node=>node.textContent?.includes('BGMS AI 전술 분석 가이드'));
           if(!button) throw new Error('Glossary button missing');
           button.click();

@@ -197,21 +197,22 @@ export function CurrentSeasonSummaryCard({
           <AvailabilityNotice availability={summary.availability} />
           <div className="grid grid-cols-2 gap-2 p-3 md:grid-cols-4 md:p-4">
             {summary.mode === "ranked" ? (
-              <div className="flex min-w-0 items-center gap-2 rounded-xl bg-amber-400/[0.06] p-2.5">
+              <div className="flex min-w-0 items-center gap-1.5 rounded-xl bg-amber-400/[0.06] p-2.5 md:gap-2">
                 {summary.tier ? (
                   <img
                     src={getTierIconPath(summary.tier, summary.subTier)}
                     alt={`${rankLabel(summary)} 티어 아이콘`}
-                    className="h-10 w-10 shrink-0 object-contain"
+                    className="h-8 w-8 shrink-0 object-contain md:h-10 md:w-10"
                   />
                 ) : (
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5 text-white/60">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/5 text-white/60 md:h-10 md:w-10">
                     <Trophy size={20} aria-hidden="true" />
                   </div>
                 )}
                 <div className="min-w-0">
                   <div className="text-xs font-black text-white/75">현재 랭크</div>
-                  <div className="truncate text-lg font-black text-amber-300">{rankLabel(summary)}</div>
+                  {/* 가장 긴 티어 이름(Platinum 3)도 좁은 화면에서 잘리지 않게 글자 크기를 줄이고 줄바꿈을 허용한다 */}
+                  <div className="text-base font-black leading-tight break-words text-amber-300 md:text-lg">{rankLabel(summary)}</div>
                   <div className="text-xs font-bold tabular-nums text-white/80">
                     {summary.rankPoint != null ? `${summary.rankPoint} RP` : "RP —"}
                   </div>
