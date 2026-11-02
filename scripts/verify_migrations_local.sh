@@ -139,6 +139,7 @@ MIGRATIONS=(
   "20261031020000_lol_augment_icons_bucket"
   "20261031030000_lol_ranking_publication"
   "20261031040000_lol_master_publication_delete_where"
+  "20261102183251_pubg_rankings_searched_players"
 )
 
 cleanup() {
@@ -399,6 +400,7 @@ PY
 fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/player-cache-compaction-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/suggest-similar-players-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/ranking-searched-players-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-background-refresh-scenarios.sql

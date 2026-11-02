@@ -242,7 +242,7 @@ export default function RankingsClient({ updatedAt }: Props) {
                 <Trophy size={28} className="text-yellow-400" />
                 랭킹
               </h1>
-              <p className="text-gray-500 text-xs mt-1">아시아 서버 BGMS 분석 데이터 기준</p>
+              <p className="text-gray-500 text-xs mt-1">BGMS 전적 조회 계정 기준</p>
             </div>
             <button
               onClick={handleRefresh}
@@ -259,7 +259,7 @@ export default function RankingsClient({ updatedAt }: Props) {
         </div>
       </div>
 
-      <p className="mx-auto max-w-2xl px-4 pb-4 text-xs leading-relaxed text-gray-400">지난주(월~일)에 수집된 경기 중 개인 최고 기록입니다. 매주 월요일 0시에 잠정 공개하고 화요일 오전 9시에 늦게 들어온 경기까지 반영해 확정합니다. 딜량·킬은 기본 전적, BGMS 최고 경기는 분석 완료 점수 기준이며 PUBG 공식 티어와 다릅니다.</p>
+      <p className="mx-auto max-w-2xl px-4 pb-4 text-xs leading-relaxed text-gray-400">BGMS에서 전적을 조회한 이력이 있는 계정의 지난주(월~일) 경기 중 개인 최고 기록입니다. 매주 월요일 0시에 잠정 공개하고 화요일 오전 9시에 늦게 들어온 경기까지 반영해 확정합니다. 확정 후 새 조회만으로 순위를 갱신하지 않으며, 비공개 설정 변경 등 정정 시 순위가 달라질 수 있습니다. 딜량·킬은 기본 전적, BGMS 최고 경기는 분석 완료 점수 기준이며 PUBG 공식 티어와 다릅니다.</p>
       {/* 탭 */}
       <div className="relative max-w-2xl mx-auto px-4">
         <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">

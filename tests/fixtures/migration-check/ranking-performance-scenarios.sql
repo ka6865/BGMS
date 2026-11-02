@@ -21,6 +21,10 @@ values ('account.ranksteam','steam','current-private-name','current-private-name
 on conflict (id) do update set nickname=excluded.nickname,lower_nickname=excluded.lower_nickname,updated_at=excluded.updated_at,last_seen_at=excluded.last_seen_at;
 insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,account_id,ranking_eligible)
 values ('current-private-name','steam','rank-private-cache-legacy',now()-interval '1 day','squad','Baltic_Main',25,3500,1,'official',null,true);
+-- 기존 랭킹 회귀의 참가자는 검색된 계정이다. 검색되지 않은 반례는 별도 시나리오에서 검사한다.
+insert into public.pubg_player_cache(id,platform,nickname,lower_nickname,search_count) values
+('account.rankkakao','kakao','same','same',1),
+('account.legacyprivate','steam','old-private-name','old-private-name',1);
 do $$ declare n integer; v double precision; begin
   select count(*) into n from public.get_pubg_rankings('damage',array['squad'],'all',2,8,1,73,'{}');
   if n<>4 then raise exception 'Expected two accounts and two legacy aliases, got %',n; end if;
@@ -91,6 +95,9 @@ insert into public.pubg_match_performance(platform,account_id,match_id,player_id
 ('steam','account.queryregular','query-recent','query-regular',3,73,82,'S','{"score":82}',true),
 ('steam','account.querynull','query-null','query-null',2,73,99,'S+','{"score":99}',true),
 ('steam','account.querynull','query-null','query-null',3,73,null,null,null,true);
+insert into public.pubg_player_cache(id,platform,nickname,lower_nickname,search_count)
+select distinct account_id,platform,player_id,lower(player_id),1 from public.pubg_player_matches where player_id like 'query-%'
+on conflict(id) do nothing;
 do $$ declare r record; n integer; tab text; begin
   foreach tab in array array['damage','kills','tier'] loop
     select count(*) into n from public.get_pubg_rankings(tab,array['duo'],'all',3,8,1,73,'{}');

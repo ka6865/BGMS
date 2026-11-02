@@ -8,5 +8,6 @@ drop function public.get_pubg_rankings(text,text[],text,integer,integer,integer,
 alter function public.get_pubg_rankings_before_concurrency_test(text,text[],text,integer,integer,integer,integer,text[],timestamptz,timestamptz) rename to get_pubg_rankings;
 drop table public.ranking_cache_test_calls;
 delete from public.pubg_player_matches where match_id='concurrent-ranking-match';
+delete from public.pubg_player_cache where id='account.concurrentranking';
 delete from public.pubg_response_cache where cache_key like 'rankings:v2:%';
 update public.system_settings set value='[]' where key='private_players_list';

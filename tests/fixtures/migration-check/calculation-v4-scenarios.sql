@@ -109,6 +109,8 @@ END $$;
 -- 3. 랭킹은 계산 4 요청에서 2·3·4를 함께 쓰고 같은 경기는 높은 버전을 고른다. 성과 작업은 이전 버전 자료가 있으면 다시 만들지 않는다.
 INSERT INTO public.profiles(id,pubg_nickname,pubg_platform,last_active_at)
 VALUES ('00000000-0000-0000-0000-000000000904','coexist4','steam',now());
+INSERT INTO public.pubg_player_cache(id,platform,nickname,lower_nickname,search_count)
+VALUES ('account.coexist4','steam','coexist4','coexist4',1);
 INSERT INTO public.pubg_player_matches(player_id,platform,account_id,match_id,played_at,game_mode,map_name,match_type,kills,damage,win_place,ranking_eligible)
 SELECT 'coexist4','steam','account.coexist4',id,now()-interval '1 day',
   CASE WHEN id='c4-mixed' THEN 'duo' ELSE 'squad' END,'Baltic_Main','official',5,500,1,true

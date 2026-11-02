@@ -187,6 +187,29 @@ async function getSimilarPlayerSuggestions(nickname: string, platform: string) {
   }
 }
 
+async function recordInitialPlayerSearch(cacheData: any, platform: string): Promise<boolean> {
+  if (cacheData.search_count != null && cacheData.search_count !== 0) return true;
+  try {
+    const { error } = await createServiceRoleClient().from("pubg_player_cache")
+      .update({ search_count: 1 })
+      .eq("id", cacheData.id)
+      .eq("platform", platform)
+      .or("search_count.is.null,search_count.eq.0");
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+function cachedPlayerSaveFailedResponse() {
+  return NextResponse.json({
+    error: "전적 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    code: "PLAYER_UPSTREAM_UNAVAILABLE",
+    retryable: true,
+    requestId: crypto.randomUUID(),
+  }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "30" } });
+}
+
 async function playerNotFoundResponse(nickname: string, platform: string) {
   const suggestions = await getSimilarPlayerSuggestions(nickname, platform);
 
@@ -284,6 +307,7 @@ export async function GET(request: Request) {
       || !hasSavedPlayerStats(cacheData)
       || (autoRefresh && (!cachedStatsComplete || isAutoRefreshDue(cacheData.updated_at)));
     if (!shouldRefreshCachedPlayer) {
+      if (!await recordInitialPlayerSearch(cacheData, platform)) return cachedPlayerSaveFailedResponse();
       const responseBody = await buildCachedPlayerResponse(supabase, cacheData, reqSeason);
       return NextResponse.json(await withCachedBanObservation(responseBody, platform), {
         headers: { "Cache-Control": "no-store" },
@@ -293,6 +317,7 @@ export async function GET(request: Request) {
       const claimed = await claimForceRefresh(buildPlayerRefreshLockKey(platform, nickname));
       refreshLockClaimed = claimed;
       if (!claimed) {
+        if (!await recordInitialPlayerSearch(cacheData, platform)) return cachedPlayerSaveFailedResponse();
         const responseBody = await buildCachedPlayerResponse(supabase, cacheData, reqSeason);
         return NextResponse.json(await withCachedBanObservation({
           ...responseBody,

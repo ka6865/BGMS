@@ -44,6 +44,8 @@ export const MATCH_API_INTERVAL_MS = 1_000;
 const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 /** 리더보드에 이 기간 동안 나오지 않은 벤치마커는 은퇴로 표시하고 수집 대상에서 뺀다. */
 export const COHORT_RETIRE_AFTER_DAYS = 30;
+// 계산 5 표본 수집(scripts/sample_calc5_population.ts)이 명단에 넣는 행의 표시. 리더보드 명단보다 뒤에 수집한다.
+export const PARTICIPANT_SAMPLE_SEASON_ID = "participant-sample";
 
 export function hasTrustedScraperCache(fullResult: unknown): boolean {
   if (!fullResult || typeof fullResult !== "object" || Array.isArray(fullResult)) return false;
@@ -439,7 +441,7 @@ export async function runEliteScraper(deps: EliteScraperDeps, config: EliteScrap
   return result;
 }
 
-function createSupabaseStore(supabase: SupabaseClient): EliteScraperStore {
+export function createSupabaseStore(supabase: SupabaseClient): EliteScraperStore {
   const table = () => supabase.from("pubg_benchmark_cohort");
   const assertOk = ({ error }: { error: unknown }) => {
     if (error) throw new Error("benchmark-cohort-query-failed");
@@ -475,15 +477,26 @@ function createSupabaseStore(supabase: SupabaseClient): EliteScraperStore {
       assertOk(await table().delete().eq("platform", PLATFORM).in("account_id", accountIds));
     },
     async listActive(limit) {
-      const { data, error } = await table()
+      // 리더보드 명단을 먼저 채운다. 계산 5 표본(participant-sample)은 남는 자리만 쓴다.
+      // 표본이 수백 명이면 수집 시각 순서만으로는 엘리트 재수집이 몇 주씩 밀리기 때문이다.
+      const query = () => table()
         .select("account_id, nickname, collected_player_ids, last_ranked_at, last_collected_at, retired_at")
         .eq("platform", PLATFORM)
-        .is("retired_at", null)
+        .is("retired_at", null);
+      const ranked = await query()
+        .or(`source_season_id.is.null,source_season_id.neq.${PARTICIPANT_SAMPLE_SEASON_ID}`)
         .order("last_collected_at", { ascending: true, nullsFirst: true })
         .order("last_ranked_at", { ascending: false })
         .limit(limit);
-      assertOk({ error });
-      return (data ?? []) as CohortMember[];
+      assertOk(ranked);
+      const members = (ranked.data ?? []) as CohortMember[];
+      if (members.length >= limit) return members;
+      const samples = await query()
+        .eq("source_season_id", PARTICIPANT_SAMPLE_SEASON_ID)
+        .order("last_collected_at", { ascending: true, nullsFirst: true })
+        .limit(limit - members.length);
+      assertOk(samples);
+      return [...members, ...((samples.data ?? []) as CohortMember[])];
     },
     async markCollected(accountId, update) {
       assertOk(await table()

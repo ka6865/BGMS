@@ -3,6 +3,8 @@ insert into public.system_settings(key,value) values('private_players_list','[]'
 delete from public.pubg_response_cache where cache_key like 'rankings:v2:%';
 insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,match_type,account_id,ranking_eligible)
 values('concurrent-ranking','steam','concurrent-ranking-match',(select week_start from public.pubg_ranking_week())+interval '1 day','solo','Baltic_Main',5,1000,'official','account.concurrentranking',true);
+insert into public.pubg_player_cache(id,platform,nickname,lower_nickname,search_count)
+values('account.concurrentranking','steam','concurrent-ranking','concurrent-ranking',1);
 create table public.ranking_cache_test_calls(id integer);
 grant all on public.ranking_cache_test_calls to service_role;
 alter function public.get_pubg_rankings(text,text[],text,integer,integer,integer,integer,text[],timestamptz,timestamptz) rename to get_pubg_rankings_before_concurrency_test;
