@@ -194,19 +194,19 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
 
       <div className="pointer-events-none relative z-10 flex min-h-11 w-full items-center gap-3 p-3 text-left md:gap-4 md:p-4">
         <div className="flex h-12 min-w-[3.5rem] shrink-0 flex-col items-center justify-center rounded-lg border border-white/5 bg-white/5 px-2.5">
-          <span className="text-[9px] font-black text-white/50">{mode === "tdm" ? "결과" : "순위"}</span>
+          <span className="text-xs font-black text-white/75">{mode === "tdm" ? "결과" : "순위"}</span>
           <strong className="my-0.5 text-base font-black leading-none text-white md:text-lg">
             {mode === "tdm" ? status.label : `#${summary.stats.winPlace}`}
           </strong>
-          {mode !== "tdm" && total > 0 && <span className="text-[9px] text-white/50">/ {total}</span>}
+          {mode !== "tdm" && total > 0 && <span className="text-xs text-white/70">/ {total}</span>}
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <strong className="truncate text-sm text-white md:text-base">
               {getMapDisplayName(summary.mapName) ?? "맵 정보 없음"}
             </strong>
-            <span className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-black ${
+            <span className={`shrink-0 rounded-md border px-2 py-0.5 text-xs font-black ${
               mode === "unknown" || mode === "unavailable"
                 ? "border-sky-500/30 bg-sky-500/15 text-sky-200"
                 : mode === "casual"
@@ -217,17 +217,17 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
             }`}>
               {MODE_LABELS[mode]}
             </span>
-            <span className="hidden text-[10px] font-bold text-white/50 sm:inline">{formatMode(summary.gameMode || "")}</span>
+            <span className="hidden text-xs font-bold text-white/70 sm:inline">{formatMode(summary.gameMode || "")}</span>
             {playedAtAgo && (
               <time
                 dateTime={matchDate}
-                className="whitespace-nowrap text-[10px] font-bold text-white/50"
+                className="whitespace-nowrap text-xs font-bold text-white/70"
               >
                 · {playedAtAgo}
               </time>
             )}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-white/55">
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold leading-5 text-white/75 md:gap-x-3">
             <span><strong className="text-white">{summary.stats.kills}</strong> 킬</span>
             <span><strong className="text-white">{Math.floor(summary.stats.damageDealt || 0)}</strong> 피해</span>
             <span aria-label={knocks === null ? "기절 정보 없음" : `기절 ${knocks}회`}><strong className="text-white">{knocks ?? "—"}</strong> 기절</span>
@@ -241,25 +241,25 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
             )}
           </div>
           {teammates.length > 0 && (
-            <p className="mt-1 truncate text-[10px] font-bold text-white/50 md:hidden" data-testid="match-row-teammates-inline">
+            <p className="mt-1 truncate text-xs font-bold text-white/70 md:hidden" data-testid="match-row-teammates-inline">
               팀원 {teammates.join(" · ")}
             </p>
           )}
           {(knocks === null || survivalMinutes === null) && (
-            <p className="mt-1 text-[10px] leading-relaxed text-white/50">일부 기본 기록이 저장되지 않은 경기입니다.</p>
+            <p className="mt-1 text-xs leading-relaxed text-white/70">일부 기본 기록이 저장되지 않은 경기입니다.</p>
           )}
         </div>
 
         {teammates.length > 0 && (
           <ul className="hidden w-36 shrink-0 flex-col gap-0.5 self-center md:flex" aria-label="함께한 팀원" data-testid="match-row-teammates">
             {teammates.map((name) => (
-              <li key={name} className="truncate text-[11px] font-bold text-white/60">{name}</li>
+              <li key={name} className="truncate text-xs font-bold text-white/75">{name}</li>
             ))}
           </ul>
         )}
 
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <span className="text-[10px] font-black text-white/50">{status.label}</span>
+          <span className="text-xs font-black text-white/75">{status.label}</span>
           {tier ? (
             <div
               ref={tierRef}
@@ -299,7 +299,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
                     }
                   }
                 }}
-                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-indigo-500/15 px-2 text-[10px] font-black text-indigo-300 transition-colors hover:bg-indigo-500/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 md:min-h-8 md:min-w-0"
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-indigo-500/15 px-2 text-xs font-black text-indigo-300 transition-colors hover:bg-indigo-500/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 md:min-h-8 md:min-w-0"
               >
                 {tier}
               </button>
@@ -347,7 +347,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
           ) : (
             <span
               aria-label={summary.performanceState ? performanceLabel : "티어 미산정"}
-              className="whitespace-nowrap text-[10px] font-bold text-white/50"
+              className="whitespace-nowrap text-xs font-bold text-white/70"
             >
               {summary.performanceState ? performanceLabel : "티어 미산정"}
             </span>

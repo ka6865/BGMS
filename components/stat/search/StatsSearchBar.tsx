@@ -44,7 +44,12 @@ export function StatsSearchBar({
 }: StatsSearchBarProps) {
   const platformId = useId();
   const nicknameId = useId();
+  const suggestionsId = useId();
   const [showDropdown, setShowDropdown] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState<{
+    item: StatsSearchBarProps["suggestions"][number];
+    source: StatsSearchBarProps["suggestions"];
+  } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const items = useMemo(() => [
     ...favorites.map((entry) => ({ ...entry, type: "favorite" as const })),
@@ -52,6 +57,8 @@ export function StatsSearchBar({
       .filter((entry) => !favorites.some(favorite => statsSearchKey(favorite) === statsSearchKey(entry)))
       .map((entry) => ({ ...entry, type: "recent" as const })),
   ], [favorites, recentSearches]);
+  const suggestionIndex = activeSuggestion?.source === suggestions ? suggestions.indexOf(activeSuggestion.item) : -1;
+  const suggestionsOpen = showDropdown && nickname.trim().length >= 2 && suggestions.length > 0;
 
   useEffect(() => {
     const closeOutside = (event: MouseEvent) => {
@@ -64,34 +71,75 @@ export function StatsSearchBar({
   }, []);
 
   return (
-    <div className={`flex flex-col md:flex-row gap-3 max-w-3xl mx-auto mb-8 relative ${showDropdown ? "z-[1000]" : "z-30"}`}>
-      <label className="sr-only" htmlFor={platformId}>플랫폼</label>
-      <select
-        id={platformId}
-        name="platform"
-        autoComplete="off"
-        value={platform}
-        onChange={(event) => onPlatformChange(event.target.value === "kakao" ? "kakao" : "steam")}
-        className="min-h-11 w-full md:w-48 p-3 bg-[#252525] color-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
-      >
-        <option value="steam">스팀 (Steam)</option>
-        <option value="kakao">카카오 (Kakao)</option>
-      </select>
+    <div className={`flex flex-col gap-3 md:flex-row md:items-end max-w-3xl mx-auto mb-8 relative ${showDropdown ? "z-[1000]" : "z-30"}`}>
+      <div className="w-full md:w-48">
+        <label className="mb-1 block text-xs leading-4 text-gray-300" htmlFor={platformId}>플랫폼</label>
+        <select
+          id={platformId}
+          name="platform"
+          autoComplete="off"
+          value={platform}
+          onChange={(event) => {
+            setActiveSuggestion(null);
+            setShowDropdown(false);
+            onPlatformChange(event.target.value === "kakao" ? "kakao" : "steam");
+          }}
+          className="min-h-11 w-full p-3 bg-[#252525] color-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
+        >
+          <option value="steam">스팀 (Steam)</option>
+          <option value="kakao">카카오 (Kakao)</option>
+        </select>
+      </div>
 
-      <div className="relative flex-1" ref={dropdownRef}>
+      <div
+        className="relative flex-1"
+        ref={dropdownRef}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setActiveSuggestion(null);
+            setShowDropdown(false);
+          }
+        }}
+      >
+        <label className="mb-1 block text-xs leading-4 text-gray-300" htmlFor={nicknameId}>닉네임</label>
         <input
           id={nicknameId}
           name="nickname"
           type="text"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={suggestionsOpen}
+          aria-controls={suggestionsOpen ? suggestionsId : undefined}
+          aria-activedescendant={suggestionIndex >= 0 && suggestionsOpen ? `${suggestionsId}-option-${suggestionIndex}` : undefined}
           autoComplete="off"
           placeholder="정확한 대소문자 닉네임을 입력하세요"
           value={nickname}
           onChange={(event) => {
+            setActiveSuggestion(null);
             onNicknameChange(event.target.value);
             setShowDropdown(true);
           }}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !submitDisabled) onSubmit();
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+            if (event.key === "Escape") {
+              setActiveSuggestion(null);
+              setShowDropdown(false);
+            } else if (nickname.trim().length >= 2 && suggestions.length > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+              event.preventDefault();
+              setShowDropdown(true);
+              const direction = event.key === "ArrowDown" ? 1 : -1;
+              const nextIndex = suggestionIndex < 0
+                ? (direction === 1 ? 0 : suggestions.length - 1)
+                : (suggestionIndex + direction + suggestions.length) % suggestions.length;
+              setActiveSuggestion({ item: suggestions[nextIndex], source: suggestions });
+            } else if (event.key === "Enter" && suggestionIndex >= 0 && suggestionsOpen) {
+              event.preventDefault();
+              onSuggestionSelect(suggestions[suggestionIndex]);
+              setActiveSuggestion(null);
+              setShowDropdown(false);
+            } else if (event.key === "Enter" && !submitDisabled) {
+              onSubmit();
+            }
           }}
           onFocus={() => setShowDropdown(true)}
           className="min-h-11 w-full p-3 bg-[#252525] text-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
@@ -102,34 +150,42 @@ export function StatsSearchBar({
             <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
               {nickname.trim().length >= 2 && suggestions.length > 0 && (
                 <div className="pb-2">
-                  <div className="px-4 py-2 text-[10px] font-black text-amber-500/50 uppercase tracking-widest border-b border-white/5 bg-white/2">추천 플레이어</div>
-                  {suggestions.map((suggestion) => {
+                  <div id={`${suggestionsId}-label`} className="px-4 py-2 text-xs font-semibold text-amber-300 border-b border-white/5 bg-white/2">추천 플레이어</div>
+                  <div id={suggestionsId} role="listbox" aria-labelledby={`${suggestionsId}-label`}>
+                    {suggestions.map((suggestion, index) => {
                     const platformLabel = suggestion.platform === "kakao" ? "카카오" : "스팀";
                     return (
-                      <button
-                        type="button"
+                      <div
+                        id={`${suggestionsId}-option-${index}`}
+                        role="option"
+                        aria-selected={index === suggestionIndex}
                         key={`${suggestion.platform}:${suggestion.nickname}`}
-                        aria-label={`${suggestion.nickname} ${platformLabel}로 검색`}
+                        onMouseDown={(event) => event.preventDefault()}
                         onClick={() => {
                           onSuggestionSelect(suggestion);
+                          setActiveSuggestion(null);
                           setShowDropdown(false);
                         }}
-                        className="flex min-h-11 w-full items-center gap-3 border-b border-white/5 px-4 py-3 text-left transition-colors last:border-0 hover:bg-amber-500/10 cursor-pointer"
+                        className={`flex min-h-11 w-full items-center gap-3 border-b border-white/5 px-4 py-3 text-left transition-colors last:border-0 hover:bg-amber-500/10 cursor-pointer ${index === suggestionIndex ? "bg-amber-500/10" : ""}`}
                       >
                         <User size={14} className="text-amber-500 shrink-0" />
-                        <span className="text-sm font-bold text-gray-200 truncate">{suggestion.nickname}</span>
-                        <span className="ml-auto text-[10px] text-gray-400 uppercase">{suggestion.platform}</span>
-                      </button>
+                        <span className="min-w-0 truncate text-sm font-bold text-gray-200">{suggestion.nickname}</span>
+                        <span className="ml-auto shrink-0 text-xs text-gray-300">{platformLabel}</span>
+                      </div>
                     );
-                  })}
+                    })}
+                  </div>
                 </div>
               )}
 
               {nickname.trim().length >= 2 && suggestions.length === 0 && !suggesting && empty && (
-                <div className="px-4 py-4 text-center text-xs text-gray-500 italic">검색 결과가 없습니다</div>
+                <div className="px-4 py-4 text-center text-xs text-gray-400 italic">검색 결과가 없습니다</div>
               )}
 
-              {(nickname.trim().length < 2 || suggestions.length === 0) && items.map((item) => {
+              {(nickname.trim().length < 2 || suggestions.length === 0) && items.length > 0 && (
+                // Safari는 클릭한 버튼에 focus를 주지 않으므로 입력창 blur로 popup이 먼저 닫히지 않게 막는다
+                <div role="region" aria-label="즐겨찾기 및 최근 검색" onMouseDown={(event) => event.preventDefault()}>
+                  {items.map((item) => {
                 const favorite = favorites.some(entry => statsSearchKey(entry) === statsSearchKey(item));
                 return (
                   <div key={statsSearchKey(item)} className="w-full px-4 py-3 flex items-center gap-3 border-b border-white/5 last:border-0">
@@ -146,7 +202,7 @@ export function StatsSearchBar({
                         ? <Star size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
                         : <Clock size={14} className="text-gray-500 shrink-0" />}
                       <span className="truncate text-sm font-bold text-gray-300">{item.nickname}</span>
-                      <span aria-hidden="true" className="text-[10px] text-gray-400">{item.platform === "kakao" ? "카카오" : "스팀"}</span>
+                      <span aria-hidden="true" className="text-xs text-gray-300">{item.platform === "kakao" ? "카카오" : "스팀"}</span>
                     </button>
                     <button
                       type="button"
@@ -174,7 +230,9 @@ export function StatsSearchBar({
                     )}
                   </div>
                 );
-              })}
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}

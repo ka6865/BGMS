@@ -33,7 +33,7 @@ export function StatsLandingState({
           <div key={feature.label} data-testid="stats-landing-feature" className="rounded-xl border border-white/5 bg-black/20 p-4">
             <feature.icon size={18} className="mb-3 text-amber-500" />
             <h3 className="text-sm font-black text-white">{feature.label}</h3>
-            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{feature.description}</p>
+            <p className="mt-1 text-sm leading-relaxed text-gray-300">{feature.description}</p>
           </div>
         ))}
       </div>
@@ -46,7 +46,7 @@ export function StatsLandingState({
         1:1 전적 비교
       </button>
       {!authenticated && (
-        <div className="mt-5 flex items-center justify-center gap-3 border-t border-white/5 pt-5 text-xs text-gray-500">
+        <div className="mt-5 flex items-center justify-center gap-3 border-t border-white/5 pt-5 text-xs text-gray-300">
           <span>닉네임을 저장하고 빠르게 내 전적 보기</span>
           <Link href="/login" className="font-black text-amber-500 hover:text-amber-400">
             로그인
@@ -54,7 +54,7 @@ export function StatsLandingState({
         </div>
       )}
       {authenticated && profileLoaded && !hasRegisteredNickname && (
-        <div className="mt-5 flex items-center justify-center gap-3 border-t border-white/5 pt-5 text-xs text-gray-500">
+        <div className="mt-5 flex items-center justify-center gap-3 border-t border-white/5 pt-5 text-xs text-gray-300">
           <span>내 PUBG 계정을 검색창에 자동으로 불러오세요.</span>
           <Link href="/mypage" className="font-black text-amber-500 hover:text-amber-400">
             PUBG 닉네임 등록

@@ -24,14 +24,14 @@ export function StatsSeasonOverviewCard({ season }: StatsSeasonOverviewCardProps
   return (
     <section className="rounded-2xl border border-white/10 bg-[#161616] p-5 lg:w-[320px] lg:shrink-0" aria-label="이번 시즌 전체">
       <h2 className="text-base font-black text-white">이번 시즌 전체</h2>
-      <p className="mt-1 text-[11px] leading-5 text-white/50">
+      <p className="mt-1 text-xs leading-5 text-white/75">
         {season.seasonName ?? "최근 시즌"}의 경쟁전·일반전, 솔로·듀오·스쿼드를 모두 합친 기록입니다.
       </p>
       <dl className="mt-3 grid grid-cols-4 gap-2 border-t border-white/10 pt-3 text-center">
-        <div><dt className="text-[10px] font-bold text-white/50">경기</dt><dd className="text-sm font-black text-white">{season.rounds}</dd></div>
-        <div><dt className="text-[10px] font-bold text-white/50">평균 딜량</dt><dd className="text-sm font-black text-white">{season.avgDamage}</dd></div>
-        <div><dt className="text-[10px] font-bold text-white/50">경기당 킬</dt><dd className="text-sm font-black text-white">{season.killsPerRound}</dd></div>
-        <div><dt className="text-[10px] font-bold text-white/50">우승</dt><dd className="text-sm font-black text-white">{season.wins}</dd></div>
+        <div><dt className="text-xs font-bold text-white/70">경기</dt><dd className="text-sm font-black text-white">{season.rounds}</dd></div>
+        <div><dt className="text-xs font-bold text-white/70">평균 딜량</dt><dd className="text-sm font-black text-white">{season.avgDamage}</dd></div>
+        <div><dt className="text-xs font-bold text-white/70">경기당 킬</dt><dd className="text-sm font-black text-white">{season.killsPerRound}</dd></div>
+        <div><dt className="text-xs font-bold text-white/70">우승</dt><dd className="text-sm font-black text-white">{season.wins}</dd></div>
       </dl>
     </section>
   );

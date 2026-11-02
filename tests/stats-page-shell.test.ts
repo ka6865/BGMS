@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   controller: null as unknown as StatsPageController,
   routerPush: vi.fn(),
   addRecent: vi.fn(),
+  aiMounts: 0,
+  aiUnmounts: 0,
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.routerPush }) }));
@@ -63,9 +65,18 @@ vi.mock("@/components/stat/matches/MatchFeed", () => ({
         : null,
     ),
 }));
-vi.mock("@/components/stat/RecentAISummary", () => ({
-  RecentAISummary: ({ matchIds, pendingMatchCount }: { matchIds: readonly string[]; pendingMatchCount?: number }) => createElement("div", { "data-testid": "full-ai", "data-pending": String(pendingMatchCount ?? 0) }, matchIds.join(",")),
-}));
+vi.mock("@/components/stat/RecentAISummary", async () => {
+  const React = await import("react");
+  return {
+    RecentAISummary: ({ matchIds, pendingMatchCount }: { matchIds: readonly string[]; pendingMatchCount?: number }) => {
+      React.useEffect(() => {
+        mocks.aiMounts += 1;
+        return () => { mocks.aiUnmounts += 1; };
+      }, []);
+      return React.createElement("div", { "data-testid": "full-ai", "data-pending": String(pendingMatchCount ?? 0) }, matchIds.join(","));
+    },
+  };
+});
 vi.mock("@/components/stat/SquadAnalysisPanel", () => ({ default: () => createElement("div", null, "squad-panel") }));
 
 import { StatsPageShell } from "@/components/stat/layout/StatsPageShell";
@@ -132,6 +143,8 @@ describe("StatsPageShell state and ownership matrix", () => {
     mocks.controller = controller();
     mocks.routerPush.mockReset();
     mocks.addRecent.mockReset();
+    mocks.aiMounts = 0;
+    mocks.aiUnmounts = 0;
     vi.spyOn(window, "scrollTo").mockImplementation(() => {});
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -166,7 +179,7 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(screen.getByRole("status")).toHaveTextContent("전적을 불러오는 중");
   });
 
-  it("loading no-result는 로딩 골격, ready result는 profile → top ad → tabs → overview grid를 렌더한다", () => {
+  it("loading no-result는 로딩 골격, ready result는 profile → tabs → 결과 → top ad를 렌더한다", () => {
     mocks.controller = controller({ status: "loading" });
     const view = render(createElement(StatsPageShell));
     expect(screen.getByRole("status")).toHaveTextContent("플레이어 전적을 불러오는 중");
@@ -180,9 +193,12 @@ describe("StatsPageShell state and ownership matrix", () => {
     const topAd = view.container.querySelector('[data-ad-placement="stats-top"]')!;
     const tabs = screen.getByRole("group", { name: "전적 분석 섹션" });
     const grid = view.container.querySelector(".stats-result-grid")!;
-    expect(precedes(profile, topAd)).toBe(true);
-    expect(precedes(topAd, tabs)).toBe(true);
+    const match = screen.getByTestId("match-feed");
+    const summary = screen.getByTestId("summary-panel");
+    expect(precedes(profile, tabs)).toBe(true);
     expect(precedes(tabs, grid)).toBe(true);
+    expect(precedes(match, summary)).toBe(true);
+    expect(precedes(grid, topAd)).toBe(true);
   });
 
   it("mobile result/overview outer stack은 8px, md 이상은 16px이고 guide에 중복 margin이 없다", async () => {
@@ -199,11 +215,36 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(grid.parentElement).toHaveClass("gap-2", "md:gap-4");
     expect(guide.parentElement).not.toHaveClass("mt-4");
     expect(guide.parentElement).not.toHaveClass("mb-6");
-    expect(precedes(profile, topAd)).toBe(true);
-    expect(precedes(topAd, tabs)).toBe(true);
-    expect(precedes(tabs, grid)).toBe(true);
+    expect(precedes(profile, tabs)).toBe(true);
+    expect(precedes(tabs, fullAi)).toBe(true);
     expect(precedes(fullAi, grid)).toBe(true);
-    expect(precedes(grid, guide)).toBe(true);
+    expect(precedes(fullAi, guide)).toBe(true);
+    expect(precedes(guide, topAd)).toBe(true);
+    const aiDetails = screen.getByRole("region", { name: "AI 분석" }).querySelector("details")!;
+    expect(aiDetails).not.toHaveAttribute("open");
+    fireEvent.click(aiDetails.querySelector("summary")!);
+    expect(aiDetails).toHaveAttribute("open");
+  });
+
+  it("비로그인 AI disclosure는 닫혀 있어도 RecentAISummary를 한 번만 mount하고 분석 요청을 보내지 않는다", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mocks.controller = controller({ status: "ready", result: readyResult(), summaryStatus: "ready" });
+    const view = render(createElement(StatsPageShell));
+    const region = screen.getByRole("region", { name: "AI 분석" });
+    const details = region.querySelector("details")!;
+    expect(details).not.toHaveAttribute("open");
+    expect(await screen.findByTestId("full-ai")).toBeInTheDocument();
+    expect(mocks.aiMounts).toBe(1);
+    expect(mocks.aiUnmounts).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fireEvent.click(details.querySelector("summary")!);
+    mocks.controller = controller({ status: "ready", result: readyResult(), summaryStatus: "ready", statsMode: "normal" });
+    view.rerender(createElement(StatsPageShell));
+    expect(details).toHaveAttribute("open");
+    expect(mocks.aiMounts).toBe(1);
+    expect(mocks.aiUnmounts).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("stats mode/party 조작은 독립 match filter value/setter를 변경하지 않는다", () => {

@@ -66,7 +66,7 @@ function Metric({
 }) {
   return (
     <div className="min-w-0 rounded-xl bg-white/[0.035] px-3 py-2.5">
-      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-white/50">
+      <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wide text-white/75">
         {icon}
         <span className="truncate">{label}</span>
       </div>
@@ -99,7 +99,7 @@ function EmptySummary({
       <div className="flex min-h-28 items-center justify-center px-5 py-6 text-center">
         <div>
           <div className="text-sm font-black text-sky-200">이전 자료를 확인할 수 없습니다</div>
-          <div className="mt-1 text-xs font-bold text-white/40">마지막 갱신: {updated} · {seasonName} {mode} {party} 자료</div>
+          <div className="mt-1 text-xs font-bold text-white/75">마지막 갱신: {updated} · {seasonName} {mode} {party} 자료</div>
         </div>
       </div>
     );
@@ -109,7 +109,7 @@ function EmptySummary({
     <div className="flex min-h-28 items-center justify-center px-5 py-6 text-center">
       <div>
         <div className="text-sm font-black text-white/70">{label}</div>
-        <div className="mt-1 text-xs font-bold text-white/35">{label === "아직 갱신하지 않은 시즌"
+        <div className="mt-1 text-xs font-bold text-white/75">{label === "아직 갱신하지 않은 시즌"
           ? "전적 갱신을 눌러 이 시즌의 기록을 불러오세요."
           : `${seasonName} ${mode}에 저장된 ${party} 경기가 아직 없습니다.`}</div>
       </div>
@@ -126,7 +126,7 @@ function UnavailableSummary({ message }: { message: string }) {
     >
       <div>
         <div className="text-sm font-black text-amber-200">조회 불가</div>
-        <div className="mt-1 text-xs font-bold leading-5 text-white/45">{message}</div>
+        <div className="mt-1 text-xs font-bold leading-5 text-white/75">{message}</div>
       </div>
     </div>
   );
@@ -169,44 +169,17 @@ export function CurrentSeasonSummaryCard({
       aria-label={ariaLabel}
       className="overflow-hidden rounded-2xl border border-white/10 bg-[#161616]"
     >
-      <div className="flex items-start justify-between gap-4 border-b border-white/10 bg-gradient-to-r from-[#1c2b2d] to-[#182022] px-4 py-3 md:px-5">
+      <div className="border-b border-white/10 bg-gradient-to-r from-[#1c2b2d] to-[#182022] px-3 py-2.5 md:px-5 md:py-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-teal-200/70">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-black uppercase tracking-wide text-teal-100">
             <span>현재 시즌</span>
             <span className="text-white/20">|</span>
             <span>{modeLabel} · {party}</span>
           </div>
-          <h3 className="mt-1 truncate text-xl font-black tracking-tight text-white md:text-2xl">
+          <h3 className="mt-0.5 truncate text-lg font-black tracking-tight text-white md:text-2xl">
             {summary.seasonName}
           </h3>
         </div>
-        {survivalMastery ? (
-          <div
-            className="group relative flex shrink-0 items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/10 px-2.5 py-2 outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
-            tabIndex={0}
-            role="group"
-            aria-label={`생존 티어 ${survivalMastery.tier ?? "확인 불가"}, 레벨 ${survivalMastery.level}${survivalMastery.xp != null ? `, 누적 XP ${survivalMastery.xp.toLocaleString("ko-KR")}` : ""}`}
-            title={survivalMastery.xp != null ? `누적 XP ${survivalMastery.xp.toLocaleString("ko-KR")}` : undefined}
-          >
-            <Crown size={16} className="text-amber-300" aria-hidden="true" />
-            <div className="text-right">
-              <div className="text-[9px] font-black uppercase tracking-wider text-amber-200/60">
-                생존 티어 {survivalMastery.tier ?? "—"}
-              </div>
-              <div className="text-sm font-black tabular-nums text-amber-200">Lv.{survivalMastery.level}</div>
-            </div>
-            {survivalMastery.xp != null && (
-              <div
-                role="tooltip"
-                className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-lg border border-amber-300/20 bg-[#111] px-3 py-2 text-[11px] font-black text-amber-100 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus:opacity-100"
-              >
-                누적 XP {survivalMastery.xp.toLocaleString("ko-KR")}
-              </div>
-            )}
-          </div>
-        ) : (
-          <Crown size={22} className="mt-1 shrink-0 text-amber-300" aria-hidden="true" />
-        )}
       </div>
 
       {summary.kind === "unavailable" ? (
@@ -222,62 +195,99 @@ export function CurrentSeasonSummaryCard({
       ) : (
         <>
           <AvailabilityNotice availability={summary.availability} />
-          <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(180px,0.78fr)_minmax(0,1.7fr)] md:p-5">
+          <div className="grid grid-cols-2 gap-2 p-3 md:grid-cols-4 md:p-4">
             {summary.mode === "ranked" ? (
-              <div className="flex min-w-0 items-center gap-3 rounded-xl border border-amber-400/10 bg-amber-400/[0.04] p-3">
+              <div className="flex min-w-0 items-center gap-2 rounded-xl bg-amber-400/[0.06] p-2.5">
                 {summary.tier ? (
                   <img
                     src={getTierIconPath(summary.tier, summary.subTier)}
                     alt={`${rankLabel(summary)} 티어 아이콘`}
-                    className="h-16 w-16 shrink-0 object-contain md:h-20 md:w-20"
+                    className="h-10 w-10 shrink-0 object-contain"
                   />
                 ) : (
-                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white/5 text-white/25 md:h-20 md:w-20">
-                    <Trophy size={28} aria-hidden="true" />
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/5 text-white/60">
+                    <Trophy size={20} aria-hidden="true" />
                   </div>
                 )}
                 <div className="min-w-0">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-white/50">현재 랭크</div>
-                  <div className="mt-1 truncate text-xl font-black text-amber-300">{rankLabel(summary)}</div>
-                  <div className="mt-1 text-sm font-black tabular-nums text-white/80">
+                  <div className="text-xs font-black text-white/75">현재 랭크</div>
+                  <div className="truncate text-lg font-black text-amber-300">{rankLabel(summary)}</div>
+                  <div className="text-xs font-bold tabular-nums text-white/80">
                     {summary.rankPoint != null ? `${summary.rankPoint} RP` : "RP —"}
                   </div>
-                  {(summary.bestTier || summary.bestRankPoint != null) && (
-                    <div className="mt-1 truncate text-[10px] font-bold text-white/45">
-                      {summary.bestTier && `최고 ${summary.bestTier}${summary.bestSubTier != null ? ` ${summary.bestSubTier}` : ""}`}
-                      {summary.bestRankPoint != null && ` · ${summary.bestRankPoint} RP`}
-                    </div>
-                  )}
                 </div>
               </div>
             ) : (
-              <div className="flex min-w-0 items-center gap-3 rounded-xl border border-sky-400/10 bg-sky-400/[0.04] p-3">
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-sky-400/10 text-sky-200 md:h-20 md:w-20">
-                  <BarChart3 size={28} aria-hidden="true" />
+              <div className="min-w-0 rounded-xl bg-sky-400/[0.06] px-3 py-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-black text-white/75">
+                  <BarChart3 size={12} aria-hidden="true" /> 일반전 성적
                 </div>
-                <div className="min-w-0">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-white/50">일반전 성적</div>
-                  <div className="mt-1 text-xl font-black text-sky-200">{summary.roundsPlayed}경기</div>
-                  <div className="mt-1 text-[10px] font-bold text-white/45">랭크 티어 미적용</div>
-                </div>
+                <div className="mt-1 text-lg font-black text-sky-200">{summary.roundsPlayed}경기</div>
+                <div className="text-xs font-bold text-white/70">랭크 티어 미적용</div>
               </div>
             )}
-
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              <Metric icon={<BarChart3 size={12} aria-hidden="true" />} label="경기" value={summary.roundsPlayed} />
-              <Metric icon={<Trophy size={12} aria-hidden="true" />} label="승" value={summary.wins} accent />
-              <Metric icon={<Target size={12} aria-hidden="true" />} label="승률" value={summary.winRate} accent />
-              <Metric icon={<Crown size={12} aria-hidden="true" />} label="Top 10률" value={summary.top10Rate} accent />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 border-t border-white/10 px-4 py-4 md:grid-cols-4 md:px-5">
             <Metric icon={<Crosshair size={12} aria-hidden="true" />} label="평균 딜량" value={summary.averageDamage} />
             <Metric label="KDA" value={summary.kda} />
-            <Metric icon={<Clock3 size={12} aria-hidden="true" />} label="평균 생존" value={summary.averageSurvival} />
-            <Metric label="헤드샷률" value={summary.headshotRate} />
+            <Metric icon={<Target size={12} aria-hidden="true" />} label="승률" value={summary.winRate} accent />
           </div>
+
+          <details className="border-t border-white/10 px-3 py-2 md:px-4">
+            <summary className="min-h-11 cursor-pointer py-2 text-sm font-bold text-white/80 focus-visible:outline-2 focus-visible:outline-amber-300">
+              기타 시즌 지표 및 생존 레벨
+            </summary>
+            <div className="grid grid-cols-2 gap-2 pb-2 md:grid-cols-4">
+              {summary.mode === "ranked" && <Metric icon={<BarChart3 size={12} aria-hidden="true" />} label="경기" value={summary.roundsPlayed} />}
+              <Metric icon={<Trophy size={12} aria-hidden="true" />} label="승" value={summary.wins} accent />
+              <Metric icon={<Crown size={12} aria-hidden="true" />} label="Top 10률" value={summary.top10Rate} accent />
+              <Metric icon={<Clock3 size={12} aria-hidden="true" />} label="평균 생존" value={summary.averageSurvival} />
+              <Metric label="헤드샷률" value={summary.headshotRate} />
+              {(summary.bestTier || summary.bestRankPoint != null) && (
+                <div className="col-span-2 self-center px-3 py-2 text-sm font-bold text-white/75 md:col-span-1">
+                  최고 {summary.bestTier && `${summary.bestTier}${summary.bestSubTier != null ? ` ${summary.bestSubTier}` : ""}`}
+                  {summary.bestRankPoint != null && ` · ${summary.bestRankPoint} RP`}
+                </div>
+              )}
+              {survivalMastery && (
+                <div
+                  className="group relative col-span-2 flex min-h-11 items-center gap-2 px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-amber-300 md:col-span-1"
+                  tabIndex={0}
+                  role="group"
+                  aria-label={`생존 티어 ${survivalMastery.tier ?? "확인 불가"}, 레벨 ${survivalMastery.level}${survivalMastery.xp != null ? `, 누적 XP ${survivalMastery.xp.toLocaleString("ko-KR")}` : ""}`}
+                  title={survivalMastery.xp != null ? `누적 XP ${survivalMastery.xp.toLocaleString("ko-KR")}` : undefined}
+                >
+                  <Crown size={16} className="text-amber-300" aria-hidden="true" />
+                  <span className="text-sm font-bold text-amber-100">
+                    생존 티어 {survivalMastery.tier ?? "—"} · Lv.{survivalMastery.level}
+                  </span>
+                  {survivalMastery.xp != null && (
+                    <span role="tooltip" className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-lg border border-amber-300/20 bg-[#111] px-3 py-2 text-xs font-black text-amber-100 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus:opacity-100">
+                      누적 XP {survivalMastery.xp.toLocaleString("ko-KR")}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </details>
         </>
+      )}
+
+      {summary.kind !== "ready" && survivalMastery && (
+        <details className="border-t border-white/10 px-3 py-2 md:px-4">
+          <summary className="min-h-11 cursor-pointer py-2 text-sm font-bold text-white/80 focus-visible:outline-2 focus-visible:outline-amber-300">
+            기타 시즌 지표 및 생존 레벨
+          </summary>
+          <div
+            className="flex min-h-11 items-center gap-2 px-3 py-2"
+            role="group"
+            aria-label={`생존 티어 ${survivalMastery.tier ?? "확인 불가"}, 레벨 ${survivalMastery.level}${survivalMastery.xp != null ? `, 누적 XP ${survivalMastery.xp.toLocaleString("ko-KR")}` : ""}`}
+          >
+            <Crown size={16} className="text-amber-300" aria-hidden="true" />
+            <span className="text-sm font-bold text-amber-100">
+              생존 티어 {survivalMastery.tier ?? "—"} · Lv.{survivalMastery.level}
+              {survivalMastery.xp != null && ` · 누적 XP ${survivalMastery.xp.toLocaleString("ko-KR")}`}
+            </span>
+          </div>
+        </details>
       )}
 
       {(onModeChange || onPartySizeChange) && (
@@ -293,8 +303,8 @@ export function CurrentSeasonSummaryCard({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => onModeChange(option.value)}
-                      className={`min-h-11 min-w-11 rounded-md px-2.5 text-[10px] font-black transition-colors ${
-                        selected ? "bg-amber-500 text-black" : "text-white/50 hover:bg-white/5 hover:text-white"
+                      className={`min-h-11 min-w-11 rounded-md px-2.5 text-xs font-black transition-colors ${
+                      selected ? "bg-amber-500 text-black" : "text-white/75 hover:bg-white/5 hover:text-white"
                       }`}
                     >
                       {option.label}
@@ -313,8 +323,8 @@ export function CurrentSeasonSummaryCard({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => onPartySizeChange(option.value)}
-                      className={`min-h-11 min-w-11 rounded-md px-2.5 text-[10px] font-black transition-colors ${
-                        selected ? "bg-amber-500 text-black" : "text-white/50 hover:bg-white/5 hover:text-white"
+                      className={`min-h-11 min-w-11 rounded-md px-2.5 text-xs font-black transition-colors ${
+                      selected ? "bg-amber-500 text-black" : "text-white/75 hover:bg-white/5 hover:text-white"
                       }`}
                     >
                       {option.label}

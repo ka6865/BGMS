@@ -175,7 +175,7 @@ export function MatchFeed({
   return (
     <section ref={feedRef} aria-label="최근 매치" className="min-w-0">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(저장된 전적 {storedMatchCount}경기{historyTotalPages > 1 ? ` · ${historyPage}/${historyTotalPages}페이지` : ""})</span></h3>
+        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/65">(저장된 전적 {storedMatchCount}경기{historyTotalPages > 1 ? ` · ${historyPage}/${historyTotalPages}페이지` : ""})</span></h3>
         <div role="group" aria-label="매치 유형 필터" className="flex flex-wrap gap-1 rounded-xl bg-white/5 p-1">
           {FILTERS.map((item) => (
             <button
@@ -183,7 +183,7 @@ export function MatchFeed({
               type="button"
               aria-pressed={filter === item.value}
               onClick={() => onFilterChange(item.value)}
-              className={`min-h-11 whitespace-nowrap rounded-lg px-3 text-xs font-black ${filter === item.value ? "bg-indigo-600 text-white" : "text-white/50"}`}
+              className={`min-h-11 whitespace-nowrap rounded-lg px-3 text-xs font-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300 ${filter === item.value ? "bg-indigo-600 text-white" : "text-white/75"}`}
             >
               {item.label}
             </button>
@@ -192,7 +192,7 @@ export function MatchFeed({
       </div>
 
       {summaryStatus === "loading" && (
-        <p role="status" className="mb-3 text-xs text-white/50">{collectionProgress?.total
+        <p role="status" className="mb-3 text-xs leading-5 text-white/75">{collectionProgress?.total
           ? `전체 ${collectionProgress.total}경기 중 ${collectionProgress.loaded}경기 불러오는 중입니다.`
           : "전적을 수집하는 중입니다."}</p>
       )}
@@ -255,13 +255,13 @@ export function MatchFeed({
           })}
         </div>
       ) : (
-        <div className="rounded-2xl border border-white/5 bg-white/3 p-10 text-center text-xs font-bold text-white/40">
+        <div className="rounded-2xl border border-white/5 bg-white/3 p-10 text-center text-xs font-bold text-white/70">
           {emptyMessage}
         </div>
       )}
 
       {historyStatus === "loading" && (
-        <div role="status" aria-label="전적 페이지 로딩" className="mt-4 text-center text-[10px] font-bold text-white/50">
+        <div role="status" aria-label="전적 페이지 로딩" className="mt-4 text-center text-xs font-bold text-white/70">
           {historyTotalPages > 0 ? "페이지 불러오는 중..." : "전적 페이지 정보 불러오는 중..."}
         </div>
       )}
