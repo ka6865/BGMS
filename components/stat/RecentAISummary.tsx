@@ -1594,17 +1594,25 @@ export const RecentAISummary = ({
               <p className="text-gray-500 text-xs mb-4">{CALCULATION_UPGRADE_DETAIL}</p>
             </>
           ) : (
-            <>
-              <p className="text-gray-300 text-sm mb-1">AI 해석을 표시할 수 없습니다.</p>
-              <p className="text-gray-500 text-xs mb-4">{error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 확인된 기록은 아래에 표시되며 잠시 후 다시 시도할 수 있어요." : "확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요."}</p>
-              <button
-                onClick={retrySummary}
-                disabled={retryDisabled}
-                className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {retryLabel}
-              </button>
-            </>
+            error.errorCode === "PUBG_AI_GENERATION_DISABLED" ? (
+              // 생성 차단 중에는 다시 시도해도 같은 결과라 재시도 버튼을 두지 않는다.
+              <>
+                <p className="text-gray-300 text-sm mb-1">AI 해석은 잠시 중지되어 있어요.</p>
+                <p className="text-gray-500 text-xs">확인된 기록은 아래에서 그대로 볼 수 있어요.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-300 text-sm mb-1">AI 해석을 표시할 수 없습니다.</p>
+                <p className="text-gray-500 text-xs mb-4">{error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 확인된 기록은 아래에 표시되며 잠시 후 다시 시도할 수 있어요." : "확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요."}</p>
+                <button
+                  onClick={retrySummary}
+                  disabled={retryDisabled}
+                  className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {retryLabel}
+                </button>
+              </>
+            )
           )}
         </div>
       )}
