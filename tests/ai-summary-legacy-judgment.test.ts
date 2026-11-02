@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeLegacySummaryJudgment } from '@/lib/pubg-analysis/aiSummaryJudgment';
+import {
+  hasUnsupportedSummaryAdvice,
+  hasUnsupportedSummaryInference,
+  sanitizeLegacySummaryJudgment,
+  sanitizeSummaryAdviceText,
+} from '@/lib/pubg-analysis/aiSummaryJudgment';
+import { normalizeAiSummaryDebatePayload } from '@/lib/pubg-analysis/aiSummaryDebate';
 import { COACHING_JUDGMENT_WITHHELD } from '@/lib/pubg-analysis/aiCoachingQuality';
+
+const NEXT_ENGAGEMENT_CHECK = '다음 교전 전에 상대 위치와 빠져나올 경로를 확인해 보세요. 팀 모드라면 팀원이 함께 대응할 수 있는지도 확인하세요.';
+const THROW_CHECK = '다음 교전에서 투척을 쓸 수 있었던 상황이 있었는지 확인해 보세요.';
 
 // 2026-11-02 실제 Gemini 원문(이전 형식 v1 응답)에서 나온 문장을 그대로 쓴다.
 const TEAM_ATTACK = '협공 교전 비중 확대: 아군과 타이밍을 맞춘 집중 타격을 시도하십시오';
@@ -73,9 +82,33 @@ describe('legacy summary judgment policy on real provider text', () => {
     expect(thrice).toEqual(once);
   });
 
-  it('drops an action item whose only description is withheld', () => {
+  it('replaces an action item whose only description is withheld with the neutral check, so the list is never saved empty', () => {
     const input = { actionItems: [{ icon: 'target', title: '집중력 점검', desc: CONCENTRATION_GAP }] };
-    expect(sanitizeLegacySummaryJudgment(input)).toEqual({ actionItems: [] });
+    expect(sanitizeLegacySummaryJudgment(input)).toEqual({
+      actionItems: [{ icon: 'target', title: '다음 교전 점검', desc: NEXT_ENGAGEMENT_CHECK }],
+    });
+  });
+
+  it('keeps a legacy final readable after its only action item is withheld (save, then cache read)', () => {
+    const raw = {
+      signature: '화력 기여형 플레이어',
+      signatureSub: '관측된 경기 지표와 다음 경기의 점검 과제입니다.',
+      finalVerdict: '관측된 기록을 바탕으로 합니다.',
+      debateIssues: [1, 2, 3].map(n => ({
+        topic: `주제 ${n}`, question: '질문인가?', kindOpinion: '관측된 기록입니다.', spicyOpinion: '관측된 기록입니다.',
+        winner: null, reason: '근거입니다.', evaluation: '평가입니다.', userStats: [], benchmarkStats: [],
+      })),
+      actionItems: [{ icon: 'target', title: '집중력 점검', desc: '집중력을 높여야 합니다.' }],
+    };
+    const normalized = normalizeAiSummaryDebatePayload(raw);
+    expect(normalized).not.toBeNull();
+    // 새 응답 저장 경로: 정규화 뒤 판단 정책을 적용해 JSON으로 저장한다.
+    const saved = sanitizeLegacySummaryJudgment(normalized) as Record<string, unknown>;
+    expect(saved.actionItems).toEqual([{ icon: 'target', title: '다음 교전 점검', desc: NEXT_ENGAGEMENT_CHECK }]);
+    // 캐시 읽기 경로: 저장된 JSON을 다시 정규화할 수 있어야 캐시 미스가 나지 않는다.
+    const reread = normalizeAiSummaryDebatePayload(JSON.parse(JSON.stringify(saved)));
+    expect(reread).not.toBeNull();
+    expect(sanitizeLegacySummaryJudgment(reread)).toEqual(saved);
   });
 
   it('keeps factual, limited and conditional sentences that the v2 policy already keeps', () => {
@@ -94,5 +127,57 @@ describe('legacy summary judgment policy on real provider text', () => {
     expect(sanitizeLegacySummaryJudgment(null)).toBeNull();
     expect(sanitizeLegacySummaryJudgment('화력 집중력을 보완해야')).toBe('화력 집중력을 보완해야');
     expect(sanitizeLegacySummaryJudgment(['화력 집중력을 보완해야'])).toEqual(['화력 집중력을 보완해야']);
+  });
+});
+
+describe('v2 공유 규칙 확장과 오탐 방지 (2026-11-02 후속)', () => {
+  it.each([
+    '집중력을 높이세요.',
+    '집중력을 높이기 위해 휴식을 취하세요.',
+    '집중력을 높일 필요가 있습니다.',
+    '집중력 향상을 위해 휴식을 취하세요.',
+  ])('flags a concentration improvement directive: %s', sentence => {
+    expect(hasUnsupportedSummaryInference(sentence)).toBe(true);
+  });
+
+  it.each([
+    '투척 횟수를 늘리세요.',
+    '피해형 투척을 늘리세요.',
+    '피해형 투척을 더 많이 던지세요.',
+    '공격형 투척을 더 자주 사용하세요.',
+    '수류탄을 더 많이 던져 보세요.',
+    '유틸리티 사용량을 늘려야 합니다.',
+    '투척 명중률을 높여야 합니다.',
+    '피해형 투척을 늘리는 것이 필요합니다.',
+  ])('flags a throw-usage increase directive: %s', sentence => {
+    expect(hasUnsupportedSummaryAdvice(sentence)).toBe(true);
+    expect(sanitizeSummaryAdviceText(sentence)).toBe(THROW_CHECK);
+  });
+
+  it.each([
+    '투척 횟수를 늘리지 마세요.',
+    '투척을 늘릴 필요는 없습니다.',
+    '피해형 투척을 많이 사용하지 않으세요.',
+    '피해형 투척을 사용하지 않아도 됩니다.',
+    '피해형 투척을 사용하지 않아 피해를 높이지 못했다.',
+    '투척 횟수가 늘었습니다.',
+  ])('does not treat a fact or a negated remark as a throw-usage directive: %s', sentence => {
+    expect(hasUnsupportedSummaryAdvice(sentence)).toBe(false);
+  });
+
+  it.each([
+    '집중력을 유지하세요.',
+    '집중력 보완 필요성은 이 기록만으로 판단할 수 없습니다.',
+    '집중력을 개선할 근거는 관측되지 않았습니다.',
+    '집중력 향상 효과는 측정되지 않았습니다.',
+    '집중력이 향상된 흔적은 확인되지 않았습니다.',
+    '집중력 보완이 필요 없습니다.',
+  ])('keeps a concentration limitation or maintenance remark: %s', sentence => {
+    expect(hasUnsupportedSummaryInference(sentence)).toBe(false);
+  });
+
+  it('applies the shared rules idempotently on the legacy path', () => {
+    const once = sanitizeLegacySummaryJudgment(legacyFinal());
+    expect(sanitizeLegacySummaryJudgment(once)).toEqual(once);
   });
 });

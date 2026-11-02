@@ -34,8 +34,8 @@ const UNSUPPORTED_INFERENCES = [
   /기동력\s*중심의/u,
   /(?:교전|전투)[^.!?\n]{0,20}주도권[^.!?\n]{0,12}(?:쥐|확보했|장악했|입증)/u,
   /(?:더\s*)?주도적인\s*각을\s*만들어내야/u,
-  // 측정하지 않은 집중력을 개선 대상으로 단정하는 문장. 집중력 유지 조언은 막지 않는다.
-  /집중력(?:을|이)?\s*(?:보완|개선|향상|강화|끌어올리|끌어올려|높여)(?![^.!?\n]{0,8}(?:필요(?:는|가|도)?\s*없|필요하지\s*않|않))/u,
+  // 측정하지 않은 집중력을 개선 대상으로 단정하거나 개선을 지시하는 문장. 집중력 유지 조언과 한계 진술은 막지 않는다.
+  /집중력(?:을|이)?\s*(?:보완|개선|향상|강화|끌어올리|끌어올려|높여|높이|높일)(?!(?:[^.!?\n]{0,30}(?:측정되지|측정할\s*수\s*없|판단할\s*수\s*없|판단하기\s*어렵|평가할\s*수\s*없|알\s*수\s*없|관측되지|확인되지))|[^.!?\n]{0,8}(?:필요(?:는|가|도)?\s*없|필요하지\s*않|않))/u,
   // 요약 카드에 없는 사격 지표. 명중·적중 비율, 조준, 반동, 탄약은 요약 근거로 전달하지 않는다.
   /(?:명중률|적중률|명중\s*정확도|사격\s*정확도|에임|조준\s*(?:능력|실력|정확도|속도)|반동\s*(?:제어|조절|관리)|탄약|탄창|장전|헤드샷)/u,
 ];
@@ -62,10 +62,14 @@ export function sanitizeSummaryInferenceText(text: string): string {
   return retained || COACHING_JUDGMENT_WITHHELD;
 }
 
+// 행동 제안의 중립 점검 문장. 근거가 빠진 제안을 대신하는 문장으로도 쓴다.
+const NEXT_ENGAGEMENT_CHECK = '다음 교전 전에 상대 위치와 빠져나올 경로를 확인해 보세요. 팀 모드라면 팀원이 함께 대응할 수 있는지도 확인하세요.';
+const THROW_USAGE_CHECK = '다음 교전에서 투척을 쓸 수 있었던 상황이 있었는지 확인해 보세요.';
+
 const ADVICE_RULES = [
   {
     pattern: /(?:혼자|단독으로|독립적인|독립적으로)[^.!?\n]{0,20}(?:교전|전투|싸움)[^.!?\n]{0,25}(?:늘리(?:세요|십시오)|늘려야|만들어야|만드(?:세요|십시오)|시도하(?:세요|십시오)|시도해야)/u,
-    replacement: '다음 교전 전에 상대 위치와 빠져나올 경로를 확인해 보세요. 팀 모드라면 팀원이 함께 대응할 수 있는지도 확인하세요.',
+    replacement: NEXT_ENGAGEMENT_CHECK,
     allowsCondition: false,
   },
   {
@@ -96,13 +100,15 @@ const ADVICE_RULES = [
   {
     // 협공 비중·타이밍 맞춘 집중 타격은 요약 카드가 관측한 조율 기록이 아니다.
     pattern: /협공[^.!?\n]{0,20}(?:비중|교전)[^.!?\n]{0,12}(?:확대|늘리|늘려|높이|높여)|아군과[^.!?\n]{0,12}타이밍을?\s*맞춘[^.!?\n]{0,24}(?:시도|공격)(?:하세요|하십시오|해\s*보세요|해야)/u,
-    replacement: '다음 교전 전에 상대 위치와 빠져나올 경로를 확인해 보세요. 팀 모드라면 팀원이 함께 대응할 수 있는지도 확인하세요.',
+    replacement: NEXT_ENGAGEMENT_CHECK,
     allowsCondition: true,
   },
   {
+    // 투척·수류탄·유틸리티 사용량이나 명중률을 늘리라는 권고. 접두사 없는 표현도 잡고, 권고 어미가 붙은 문장에서만 동작한다.
+    // 부정된 지시("늘리지 마세요")와 사실 서술("사용하지 않아 피해를 높이지 못했다")은 막지 않는다.
+    pattern: /(?:투척|수류탄|유틸리티)[^.!?\n]{0,16}(?:늘리|늘려|늘릴|높이|높여|높일|키우|키워|키울|증가)(?!\s*지\s*(?:마|않|말))[^.!?\n]{0,12}(?:세요|십시오|해야|여야|야\s*(?:합니다|한다|해요)|것이\s*(?:좋|필요)|필요합니다|좋습니다)|(?:투척|수류탄|유틸리티)[^.!?\n]{0,16}(?:더\s*)?(?:많이|자주)\s*(?:던지|던져|쓰|써|사용|활용)(?![^.!?\n]{0,4}지\s*(?:마|않|말))[^.!?\n]{0,12}(?:세요|십시오|해야|여야|야\s*(?:합니다|한다|해요)|것이\s*(?:좋|필요)|필요합니다|좋습니다)/u,
     // 투척 사용량 증가는 표본과 무관하게 근거가 없다. 요약은 사용 여부만 확인 질문으로 바꾼다.
-    pattern: /(?:공격형|피해형)\s*투척[^.!?\n]{0,12}(?:시도|사용|빈도|횟수)[^.!?\n]{0,12}(?:늘리|늘려|높이|높여|증가)/u,
-    replacement: '다음 교전에서 투척을 쓸 수 있었던 상황이 있었는지 확인해 보세요.',
+    replacement: THROW_USAGE_CHECK,
     allowsCondition: true,
   },
 ] as const;
@@ -154,7 +160,8 @@ function sanitizeLegacyRecordFields(record: unknown, fields: readonly string[]):
 
 /**
  * v1 요약 최종 JSON의 판단 문자열(finalVerdict, debateIssues 의견·근거, actionItems 제목·설명)에 정책을 적용한다.
- * 근거가 모두 빠진 행동 제안은 보류 문장만 남기지 않고 항목째 뺀다. 두 번 적용해도 결과가 같다.
+ * 근거가 빠진 행동 제안은 항목째 뺀다. 모두 빠지면 중립 점검 항목 1개로 채운다.
+ * 빈 목록을 저장하면 다음 캐시 읽기의 정규화가 거부해 매번 미스가 나므로 빈 목록은 만들지 않는다. 두 번 적용해도 결과가 같다.
  */
 export function sanitizeLegacySummaryJudgment(value: unknown): unknown {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
@@ -165,9 +172,12 @@ export function sanitizeLegacySummaryJudgment(value: unknown): unknown {
     result.debateIssues = record.debateIssues.map(issue => sanitizeLegacyRecordFields(issue, LEGACY_DEBATE_JUDGMENT_FIELDS));
   }
   if (Array.isArray(record.actionItems)) {
-    result.actionItems = record.actionItems
+    const kept = record.actionItems
       .map(item => sanitizeLegacyRecordFields(item, LEGACY_ACTION_JUDGMENT_FIELDS))
       .filter(item => !(item && typeof item === 'object' && (item as Record<string, unknown>).desc === COACHING_JUDGMENT_WITHHELD));
+    result.actionItems = kept.length === 0 && record.actionItems.length > 0
+      ? [{ icon: 'target', title: LEGACY_NEUTRAL_ACTION_TITLE, desc: NEXT_ENGAGEMENT_CHECK }]
+      : kept;
   }
   return result;
 }

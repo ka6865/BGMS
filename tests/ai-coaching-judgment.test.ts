@@ -429,3 +429,78 @@ describe('2026-11-02 real gemini follow-ups: throw title sync and listed concent
     expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}))).toEqual({ actionItems: [] });
   });
 });
+
+describe('2026-11-02 follow-up: throw usage directives, negation scope and concentration limitations', () => {
+  const oneThrow = { combatPressure: { utilityStats: { throwCount: 1, lethalThrowCount: 0, hitCount: 0 } } };
+  const threeThrows = { combatPressure: { utilityStats: { throwCount: 3, lethalThrowCount: 0, hitCount: 0 } } };
+  const checkPoint = '다음 경기에서는 투척을 쓸 수 있었던 교전이 있었는지 확인해 보세요.';
+  const pendingSentence = '투척은 총 1회라 사용량 증감을 판단하기에는 표본이 적습니다.';
+
+  it.each([
+    '투척을 더 많이 던지되 무리하지 않으세요.',
+    '수류탄을 더 자주 쓰세요.',
+    '유틸리티 사용 횟수를 늘리세요.',
+    '투척 명중률을 높이세요.',
+  ])('turns a small-sample usage directive in a desc into a check question: %s', desc => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ actionItems: [{ title: '투척 활용', desc }] }), oneThrow));
+    expect(result.actionItems).toEqual([{ title: '투척 기회 확인', desc: checkPoint }]);
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), oneThrow))).toEqual(result);
+  });
+
+  it.each([
+    '투척을 던지지 마세요.',
+    '투척을 많이 사용하지 않으세요.',
+    '투척을 늘릴 필요는 없습니다.',
+  ])('keeps a negated or unnecessary throw remark in a desc: %s', desc => {
+    const input = { actionItems: [{ title: '투척 활용', desc }] };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), oneThrow))).toEqual(input);
+  });
+
+  it.each(['briefFeedback', 'finalVerdict', 'signatureSub'])('withholds a small-sample throw-usage directive in %s as a pending sentence', key => {
+    const input = { [key]: '피해형 투척 사용 횟수를 늘리는 것이 필요합니다.' };
+    const once = applyMatchAiEvidencePolicy(JSON.stringify(input), oneThrow);
+    expect(JSON.parse(once)[key]).toBe(pendingSentence);
+    expect(applyMatchAiEvidencePolicy(once, oneThrow)).toBe(once);
+  });
+
+  it('keeps the same throw-usage directive when at least three throws were observed in a non-desc field', () => {
+    const input = { briefFeedback: '피해형 투척 사용 횟수를 늘리는 것이 필요합니다.' };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), threeThrows))).toEqual(input);
+  });
+
+  it('keeps a measured-limitation sentence that mentions concentration', () => {
+    const input = { briefFeedback: '집중력은 측정할 수 없습니다.' };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}))).toEqual(input);
+  });
+
+  it('does not leave an unsupported superlative behind after removing a concentration list', () => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ briefFeedback: '교전 집중력과 화력이 모두 높습니다.' }), {}));
+    expect(result.briefFeedback).not.toContain('모두 높습니다');
+    expect(result.briefFeedback).not.toContain('집중력');
+  });
+
+  it('replaces a listed superlative with observed contributions when the match has them', () => {
+    const match = { stats: { kills: 2 } };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ briefFeedback: '교전 집중력과 화력이 모두 높습니다.' }), match));
+    expect(result.briefFeedback).toBe('이번 경기에서 처치 2회를 기록했습니다.');
+  });
+
+  it('does not put a fact sentence into a short signature after removing a concentration list', () => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ signature: '교전 집중력과 화력이 모두 높은 전사' }), {}));
+    expect(result.signature).toBe('경기 기록 점검');
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), {}))).toEqual(result);
+  });
+
+  it('stays idempotent for the follow-up inputs', () => {
+    const inputs = [
+      { actionItems: [{ title: '투척 활용', desc: '투척을 더 많이 던지되 무리하지 않으세요.' }] },
+      { actionItems: [{ title: '투척 활용', desc: '수류탄을 더 자주 쓰세요.' }] },
+      { briefFeedback: '피해형 투척 사용 횟수를 늘리는 것이 필요합니다.', finalVerdict: '투척을 더 많이 던지되 무리하지 않으세요.' },
+      { briefFeedback: '교전 집중력과 화력이 모두 높습니다. 집중력은 측정할 수 없습니다.' },
+    ];
+    for (const input of inputs) for (const match of [oneThrow, threeThrows, {}]) {
+      const once = applyMatchAiEvidencePolicy(JSON.stringify(input), match);
+      expect(applyMatchAiEvidencePolicy(once, match)).toBe(once);
+    }
+  });
+});

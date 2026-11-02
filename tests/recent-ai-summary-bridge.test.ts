@@ -299,6 +299,18 @@ describe("RecentAISummary callback bridge", () => {
     })).toMatchObject({
       trends: { dmgTrend: -5, winTrend: -12.5 },
     });
+    // 이전 계산 경기가 섞여 교전 승률 추세가 보류되어도 딜량 추세는 남긴다.
+    expect(normalizeRouteOwnedVisuals({
+      trends: {
+        dmgTrend: 5,
+        winTrend: null,
+        status: "안정권 유지",
+        recent: { damage: 100, winRate: null },
+        older: { damage: 95, winRate: null },
+      },
+    })).toMatchObject({
+      trends: { dmgTrend: 5, winTrend: null, recent: { damage: 100, winRate: null }, older: { damage: 95, winRate: null } },
+    });
     expect(normalizeRouteOwnedVisuals({ calculationPendingCount: 2.8 })).toMatchObject({
       calculationPendingCount: 2,
     });
