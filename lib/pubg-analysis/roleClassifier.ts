@@ -298,6 +298,20 @@ const ratio = (numerator: number, denominator: number): number | null =>
   denominator > 0 ? (100 * numerator) / denominator : null;
 
 /**
+ * 성공 비율의 95% 신뢰 하한(Wilson, 0~100). 시도가 적을 때 100%나 0%로 치우치는 값을 낮춰 보정한다.
+ * 시도가 0이면 null이다. 예: 5번 중 5번 성공은 약 57, 100번 중 100번은 약 96이다.
+ */
+export function wilsonLowerBound(successes: number, trials: number, z = 1.96): number | null {
+  if (!(trials > 0)) return null;
+  const observed = Math.min(Math.max(successes, 0), trials) / trials;
+  const z2 = z * z;
+  const denominator = 1 + z2 / trials;
+  const center = observed + z2 / (2 * trials);
+  const margin = z * Math.sqrt((observed * (1 - observed) + z2 / (4 * trials)) / trials);
+  return Math.max(0, Math.min(100, (100 * (center - margin)) / denominator));
+}
+
+/**
  * ai-summary aggregateMatches 결과에서 역할 지표를 뽑는다. 기회가 부족한 지표는 null이다.
  * 기준 분포(roleReference)와 같은 정의와 최소 기회 수를 쓴다.
  */
@@ -322,7 +336,10 @@ export function extractRoleMetrics(stats: any): Record<RoleMetricKey, number | n
   const killTotal = assist + Math.max(0, finiteOrNull(contrib.solo) ?? 0) + Math.max(0, finiteOrNull(contrib.cleanup) ?? 0);
 
   return {
-    initiative: (finiteOrNull(stats?.totalInitiativeAttempts) ?? 0) >= MIN_INITIATIVE_ATTEMPTS ? finiteOrNull(stats?.userInitiativeRate) : null,
+    // 선제 성공률은 시도 수가 최소 기준 이상일 때만 쓰고, 소표본 과대평가를 막으려고 Wilson 하한을 쓴다.
+    initiative: (finiteOrNull(stats?.totalInitiativeAttempts) ?? 0) >= MIN_INITIATIVE_ATTEMPTS
+      ? wilsonLowerBound(finiteOrNull(stats?.totalInitiativeSuccess) ?? 0, finiteOrNull(stats?.totalInitiativeAttempts) ?? 0)
+      : null,
     reactionSec: finiteOrNull(stats?.avgReactionLatency),
     duelWin: duels >= 3 ? finiteOrNull(stats?.avgDuelWinRate) : null,
     reversal: (finiteOrNull(stats?.totalReversalAttempts) ?? 0) >= 2 ? finiteOrNull(stats?.userReversalRate) : null,

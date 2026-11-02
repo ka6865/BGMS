@@ -76,6 +76,7 @@ const BASE = {
   avgBackupLatency: "측정 불가",
   userInitiativeRate: null,
   totalInitiativeAttempts: 0,
+  totalInitiativeSuccess: 0,
   avgDuelWinRate: null,
   totalDuelWins: 0,
   totalDuelLosses: 0,
@@ -111,7 +112,8 @@ const classify = (overrides: Record<string, unknown> = {}, tier = "B") => classi
 
 // 기준 분포 95백분위를 넘는 값(백분위 97.5).
 const STRONG_EXECUTOR = { avgDuelWinRate: 95, totalDuelWins: 19, totalDuelLosses: 1, userReversalRate: 50, totalReversalAttempts: 4 };
-const STRONG_POINT_MAN = { userInitiativeRate: 80, totalInitiativeAttempts: 10, avgReactionLatency: "0.90s" };
+// 선제 19승 1패(20회)는 Wilson 하한이 약 76으로 기준 상단에 든다.
+const STRONG_POINT_MAN = { userInitiativeRate: 95, totalInitiativeAttempts: 20, totalInitiativeSuccess: 19, avgReactionLatency: "0.90s" };
 // 기준 분포 중앙값(백분위 50).
 const MEDIAN_EXECUTOR = { avgDuelWinRate: 70, totalDuelWins: 7, totalDuelLosses: 3, userReversalRate: 12.5, totalReversalAttempts: 8 };
 
@@ -154,7 +156,7 @@ describe("role metric extraction", () => {
     const metrics = extractRoleMetrics({
       ...BASE,
       avgDuelWinRate: 100, totalDuelWins: 2, totalDuelLosses: 0,
-      userInitiativeRate: 100, totalInitiativeAttempts: 2,
+      userInitiativeRate: 100, totalInitiativeAttempts: 2, totalInitiativeSuccess: 2,
       totalTeammateKnocks: 2, totalRevCount: 2,
       totalDistanceDamage: { short: 200, mid: 0, long: 0 },
       killContribFinal: { solo: 1, cleanup: 0, assist: 1 },
@@ -218,9 +220,9 @@ describe("role selection", () => {
 
   it("treats a faster reaction as better", () => {
     expect(classify(STRONG_POINT_MAN).scores.pointMan).toBe(97.5);
-    expect(classify({ ...STRONG_POINT_MAN, userInitiativeRate: null, totalInitiativeAttempts: 0 }).scores.pointMan).toBeNull();
+    expect(classify({ ...STRONG_POINT_MAN, userInitiativeRate: null, totalInitiativeAttempts: 0, totalInitiativeSuccess: 0 }).scores.pointMan).toBeNull();
     // 지표 백분위 5는 선봉대 역할 점수 분포의 5백분위(12.13)보다 낮다.
-    expect(classify({ userInitiativeRate: 0, totalInitiativeAttempts: 10, avgReactionLatency: "3.00s" }).scores.pointMan).toBe(2.5);
+    expect(classify({ userInitiativeRate: 0, totalInitiativeAttempts: 10, totalInitiativeSuccess: 0, avgReactionLatency: "3.00s" }).scores.pointMan).toBe(2.5);
   });
 
   it("uses a combo title only when both roles are strong, regardless of order", () => {
@@ -229,7 +231,7 @@ describe("role selection", () => {
     expect(combo.secondaryRole).not.toBeNull();
     expect(combo.roleLabel).toContain("보조:");
 
-    const single = classify({ ...STRONG_EXECUTOR, userInitiativeRate: 50, totalInitiativeAttempts: 10, avgReactionLatency: "2.196s" });
+    const single = classify({ ...STRONG_EXECUTOR, userInitiativeRate: 50, totalInitiativeAttempts: 10, totalInitiativeSuccess: 5, avgReactionLatency: "2.196s" });
     expect(single).toMatchObject({ primaryRole: "executor", secondaryRole: null, title: "결투의 제왕" });
   });
 
@@ -242,7 +244,8 @@ describe("role selection", () => {
     // 각 지표를 기준 분포 80백분위 값으로 맞춘다.
     const result = classify({
       avgDuelWinRate: 82.353, totalDuelWins: 8, totalDuelLosses: 2, userReversalRate: 25, totalReversalAttempts: 4,
-      userInitiativeRate: 62.5, totalInitiativeAttempts: 10, avgReactionLatency: "1.611s",
+      // 선제 656승 1000회는 Wilson 하한이 약 62.6이다(기존 비율 62.5와 같은 자리).
+      userInitiativeRate: 65.6, totalInitiativeAttempts: 1000, totalInitiativeSuccess: 656, avgReactionLatency: "1.611s",
       avgPressureIndex: 4.91, avgPlacementPct: 84.853, totalEdgePlay: 13,
       totalUtilityHits: 1.6, totalLethalThrows: 3.333,
       totalDistanceDamage: { short: 681.95, mid: 318.05, long: 0 },
@@ -485,7 +488,8 @@ describe("role verdict explanation", () => {
   });
 
   it("shows only top-25% records as observed tendencies without turning them into a title", () => {
-    const result = classify({ ...MEDIAN_EXECUTOR, userInitiativeRate: 75, totalInitiativeAttempts: 10, avgPlacementPct: 50.3 });
+    // 선제 19승 20회는 Wilson 하한이 약 76으로 기준 상단(95백분위 75)을 넘는다.
+    const result = classify({ ...MEDIAN_EXECUTOR, userInitiativeRate: 95, totalInitiativeAttempts: 20, totalInitiativeSuccess: 19, avgPlacementPct: 50.3 });
     expect(result.primaryRole).toBe("balanced");
     expect(result.verdict.observations).toEqual(["선제 타격 성공률 상위 3%"]);
     expect(result.title).toBe("균형형 전술가");
