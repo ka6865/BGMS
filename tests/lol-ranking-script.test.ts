@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LolRankingKeyError, runLolRankingSnapshot, type RankingDependencies } from "../scripts/lol_ranking_snapshot";
+import { LolRankingKeyError, parseAccount, runLolRankingSnapshot, type RankingDependencies } from "../scripts/lol_ranking_snapshot";
 import type { AccountState, RankingStore } from "@/lib/lol/ranking";
 import { accountHmac, riotIdHmac, type SeasonCursor } from "@/lib/lol/ranking";
 
@@ -320,5 +320,11 @@ describe("삭제 요청 제외 CLI 경로", () => {
     expect(sleeps).toEqual([5000, 10_000, 20_000]);
     expect(result.counts.unresolvedRiotId).toBe(0);
     expect(result.budget.calls).toBe(free.budget.calls);
+  });
+  it("태그 가운데 공백은 정상 Riot ID로 받고 #과 제어 문자는 거부한다", () => {
+    expect(parseAccount({ gameName: "이름", tagLine: "KR 1" })).toEqual({ gameName: "이름", tagLine: "KR 1" });
+    expect(() => parseAccount({ gameName: "이름", tagLine: "K#1" })).toThrow();
+    expect(() => parseAccount({ gameName: "이름", tagLine: "K\u00001" })).toThrow();
+    expect(() => parseAccount({ gameName: "이름", tagLine: "   " })).toThrow();
   });
 });

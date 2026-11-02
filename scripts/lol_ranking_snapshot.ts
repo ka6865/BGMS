@@ -69,10 +69,11 @@ function isKeyError(error: unknown): boolean {
   return kind === "key_or_permission" || kind === "unconfigured";
 }
 
-function parseAccount(raw: unknown): { gameName: string; tagLine: string } {
+// Riot 태그는 가운데 공백을 허용하므로 #과 제어 문자만 막는다.
+export function parseAccount(raw: unknown): { gameName: string; tagLine: string } {
   const account = raw as { gameName?: unknown; tagLine?: unknown } | null;
   if (!account || typeof account.gameName !== "string" || typeof account.tagLine !== "string"
-    || !account.gameName.trim() || account.gameName.length > 64 || !/^[^\s#]{1,16}$/.test(account.tagLine.trim())) {
+    || !account.gameName.trim() || account.gameName.length > 64 || !/^[^#\u0000-\u001f\u007f]{1,16}$/.test(account.tagLine.trim())) {
     throw new RankingValidationError("Riot ID 응답을 확인할 수 없습니다.");
   }
   return { gameName: account.gameName.trim(), tagLine: account.tagLine.trim() };
