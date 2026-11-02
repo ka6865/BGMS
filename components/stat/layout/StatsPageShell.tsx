@@ -307,6 +307,7 @@ export function StatsPageShell({
         empty={autocomplete.empty}
         submitDisabled={!nickname.trim() || loading || cooldown || navigationPending}
         submitLabel={loading ? "검색중..." : cooldown ? "쿨타임" : "검색"}
+        placeholder={result ? "다른 플레이어 닉네임 검색 (대소문자 구분)" : undefined}
         onPlatformChange={setPlatform}
         onNicknameChange={(value) => {
           userEditedRef.current = true;
@@ -375,10 +376,15 @@ export function StatsPageShell({
           {activeTab === "overview" ? (
             <div className="flex flex-col gap-2 md:gap-4">
               <div role="region" aria-label="AI 분석" tabIndex={-1}>
-                <details open={user ? true : undefined} className="rounded-2xl border border-white/10 bg-[#161616]">
-                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-2 text-sm font-black text-amber-200 focus-visible:outline-2 focus-visible:outline-amber-300">
+                <details open={user ? true : undefined} className="group rounded-2xl border border-white/10 bg-[#161616]">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-2 text-sm font-black text-amber-200 focus-visible:outline-2 focus-visible:outline-amber-300 [&::-webkit-details-marker]:hidden">
                     <span>AI 전술 분석</span>
-                    <span className="text-xs font-bold text-white/65">{user ? "분석 열기/접기" : "로그인 후 이용 가능"}</span>
+                    <span className="flex items-center gap-1 text-xs font-bold text-white/70">
+                      {!user && <span>로그인 후 이용 가능 ·</span>}
+                      <span className="group-open:hidden">펼치기</span>
+                      <span className="hidden group-open:inline">접기</span>
+                      <ChevronDown size={16} aria-hidden="true" className="transition-transform duration-200 group-open:rotate-180" />
+                    </span>
                   </summary>
                   <div className="px-2 pb-2">
                     {aiMatchIds === null ? (
@@ -401,6 +407,82 @@ export function StatsPageShell({
                         최근 매치 기록이 없어 AI 분석을 시작할 수 없습니다.
                       </p>
                     )}
+                    {/* BGMS AI 전술 분석 시스템 설명 */}
+                    <div className="mt-2 px-2">
+                      <button
+                        type="button"
+                        aria-expanded={showGuideline}
+                        onClick={() => setShowGuideline((value) => !value)}
+                        className="group flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/5"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Shield size={16} className="shrink-0 text-amber-400" aria-hidden="true" />
+                          <span className="text-sm font-black text-amber-300">BGMS AI 전술 분석 가이드 (V7.0)</span>
+                          <span className="hidden text-xs font-bold text-white/70 sm:inline">지표 산출 공식 및 시스템 안내</span>
+                        </span>
+                        <ChevronDown
+                          size={18}
+                          aria-hidden="true"
+                          className={`shrink-0 text-amber-400/70 transition-transform duration-300 group-hover:text-amber-300 ${showGuideline ? "rotate-180" : ""}`}
+                        />
+                      </button>
+
+                      {showGuideline && (
+                        <div className="mt-2 rounded-2xl border border-white/10 bg-black/30 p-4 md:p-5">
+                          <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="rounded-xl border border-white/5 bg-white/5 p-4">
+                              <div className="mb-1 text-sm font-black text-amber-400">01. 상황 입체 분석</div>
+                              <div className="text-sm leading-relaxed text-gray-300">단순 킬/딜을 넘어 교전 거리, 지형 고도차, 아군과의 거리 등 텔레메트리를 입체적으로 분석합니다.</div>
+                            </div>
+                            <div className="rounded-xl border border-white/5 bg-white/5 p-4">
+                              <div className="mb-1 text-sm font-black text-amber-400">02. 공정한 평가</div>
+                              <div className="text-sm leading-relaxed text-gray-300">불가항력적인 자기장 피해나 교전 기회가 없던 상황(N/A)은 지표 계산에서 제외하여 억울한 비난을 방지합니다.</div>
+                            </div>
+                            <div className="rounded-xl border border-white/5 bg-white/5 p-4">
+                              <div className="mb-1 text-sm font-black text-amber-400">03. 티어 판별 엔진</div>
+                              <div className="text-sm leading-relaxed text-gray-300">프로급(Elite) 유저들의 전술 데이터를 기준으로 당신의 현재 실력을 S~C 티어로 정밀 판별합니다.</div>
+                            </div>
+                          </div>
+
+                          <div className="border-t border-white/10 pt-5">
+                            <div className="mb-4 flex items-center gap-2">
+                              <div className="h-3 w-1 rounded-full bg-amber-500" />
+                              <span className="text-sm font-black text-white">전술 지표 사전</span>
+                            </div>
+                            <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2">
+                              <div className="flex gap-3">
+                                <span className="text-sm font-black text-amber-400/60">01</span>
+                                <div>
+                                  <div className="mb-1 text-sm font-bold text-gray-100">반격 소요 시간</div>
+                                  <div className="text-sm leading-relaxed text-gray-300">상대에게 피해를 받은 뒤 해당 상대에게 처음 피해를 주기까지의 시간입니다. 피격 전 연속 발사·불확실한 기록은 제외하며, 반사신경을 직접 측정한 값은 아닙니다.</div>
+                                </div>
+                              </div>
+                              <div className="flex gap-3">
+                                <span className="text-sm font-black text-amber-400/60">02</span>
+                                <div>
+                                  <div className="mb-1 text-sm font-bold text-gray-100">백업 소요 속도 (트레이드)</div>
+                                  <div className="text-sm leading-relaxed text-gray-300">아군이 기절한 후 당신이 해당 적을 처치하기까지의 시간. 팀워크와 커버 능력을 측정합니다.</div>
+                                </div>
+                              </div>
+                              <div className="flex gap-3">
+                                <span className="text-sm font-black text-amber-400/60">03</span>
+                                <div>
+                                  <div className="mb-1 text-sm font-bold text-gray-100">선제 타격 성공률</div>
+                                  <div className="text-sm leading-relaxed text-gray-300">먼저 피해를 준 교전 중 승리하거나 아군 마무리를 지원한 비율입니다. 전체 교전에서 먼저 발사한 비율은 아닙니다.</div>
+                                </div>
+                              </div>
+                              <div className="flex gap-3">
+                                <span className="text-sm font-black text-amber-400/60">04</span>
+                                <div>
+                                  <div className="mb-1 text-sm font-bold text-gray-100">팀 내 화력 지분</div>
+                                  <div className="text-sm leading-relaxed text-gray-300">팀 전체 데미지 중 당신의 지분. 단순 킬 수를 넘어 교전에서 실제로 얼마나 화력을 담당했는지 측정합니다.</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </details>
               </div>
@@ -446,86 +528,6 @@ export function StatsPageShell({
                 </aside>
               </div>
 
-              {/* BGMS AI 전술 분석 시스템 설명 (토글형으로 최적화) */}
-              <div>
-                <button
-                  type="button"
-                  aria-expanded={showGuideline}
-                  onClick={() => setShowGuideline((value) => !value)}
-                  className="group flex min-h-11 w-full items-center justify-between rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 transition-all hover:bg-amber-500/10"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-amber-500 rounded-lg shadow-[0_0_15px_rgba(245,158,11,0.3)]">
-                      <Shield size={18} className="text-black" aria-hidden="true" />
-                    </div>
-                    <div className="flex flex-col items-start">
-                      <h3 className="text-sm font-black text-amber-500 tracking-tight">BGMS AI 전술 분석 가이드 (V7.0)</h3>
-                      <span className="text-[10px] text-amber-500/60 font-bold">지표 산출 공식 및 시스템 안내 확인하기</span>
-                    </div>
-                  </div>
-                  <ChevronDown
-                    size={20}
-                    aria-hidden="true"
-                    className={`text-amber-500/50 group-hover:text-amber-500 transition-transform duration-300 ${showGuideline ? 'rotate-180' : ''}`}
-                  />
-                </button>
-
-                {showGuideline && (
-                  <div className="mt-3 p-6 bg-black/40 border border-white/5 rounded-[2rem] backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                      <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                        <div className="text-amber-500 text-[11px] font-black mb-1">01. 상황 입체 분석</div>
-                        <div className="text-gray-400 text-xs leading-relaxed">단순 킬/딜을 넘어 교전 거리, 지형 고도차, 아군과의 거리 등 텔레메트리를 입체적으로 분석합니다.</div>
-                      </div>
-                      <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                        <div className="text-amber-500 text-[11px] font-black mb-1">02. 공정한 평가</div>
-                        <div className="text-gray-400 text-xs leading-relaxed">불가항력적인 자기장 피해나 교전 기회가 없던 상황(N/A)은 지표 계산에서 제외하여 억울한 비난을 방지합니다.</div>
-                      </div>
-                      <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                        <div className="text-amber-500 text-[11px] font-black mb-1">03. 티어 판별 엔진</div>
-                        <div className="text-gray-400 text-xs leading-relaxed">프로급(Elite) 유저들의 전술 데이터를 기준으로 당신의 현재 실력을 S~C 티어로 정밀 판별합니다.</div>
-                      </div>
-                    </div>
-
-                    <div className="border-t border-white/5 pt-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <div className="w-1 h-3 bg-amber-500 rounded-full" />
-                        <span className="text-xs font-black text-white uppercase tracking-wider">전술 지표 사전</span>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                        <div className="flex gap-3">
-                          <span className="text-amber-500/30 font-black italic">01</span>
-                          <div>
-                            <div className="text-gray-200 text-xs font-bold mb-1">반격 소요 시간</div>
-                            <div className="text-gray-500 text-[11px] leading-relaxed">상대에게 피해를 받은 뒤 해당 상대에게 처음 피해를 주기까지의 시간입니다. 피격 전 연속 발사·불확실한 기록은 제외하며, 반사신경을 직접 측정한 값은 아닙니다.</div>
-                          </div>
-                        </div>
-                        <div className="flex gap-3">
-                          <span className="text-amber-500/30 font-black italic">02</span>
-                          <div>
-                            <div className="text-gray-200 text-xs font-bold mb-1">백업 소요 속도 (트레이드)</div>
-                            <div className="text-gray-500 text-[11px] leading-relaxed">아군이 기절한 후 당신이 해당 적을 처치하기까지의 시간. 팀워크와 커버 능력을 측정합니다.</div>
-                          </div>
-                        </div>
-                        <div className="flex gap-3">
-                          <span className="text-amber-500/30 font-black italic">03</span>
-                          <div>
-                            <div className="text-gray-200 text-xs font-bold mb-1">선제 타격 성공률</div>
-                            <div className="text-gray-500 text-[11px] leading-relaxed">먼저 피해를 준 교전 중 승리하거나 아군 마무리를 지원한 비율입니다. 전체 교전에서 먼저 발사한 비율은 아닙니다.</div>
-                          </div>
-                        </div>
-                        <div className="flex gap-3">
-                          <span className="text-amber-500/30 font-black italic">04</span>
-                          <div>
-                            <div className="text-gray-200 text-xs font-bold mb-1">팀 내 화력 지분</div>
-                            <div className="text-gray-500 text-[11px] leading-relaxed">팀 전체 데미지 중 당신의 지분. 단순 킬 수를 넘어 교전에서 실제로 얼마나 화력을 담당했는지 측정합니다.</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
 
             </div>
           ) : (

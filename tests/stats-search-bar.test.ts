@@ -111,6 +111,41 @@ describe("StatsSearchBar 접근성 및 키보드 동작", () => {
     expect(quickSearch).not.toBeInTheDocument();
   });
 
+  it("최근 검색 버튼에서 Escape를 누르면 popup을 닫고 입력창으로 focus를 돌려준다", () => {
+    renderSearchBar({
+      nickname: "",
+      suggestions: [],
+      recentSearches: [{ nickname: "Recent", platform: "steam" }],
+    });
+    const input = screen.getByLabelText("닉네임");
+    const quickSearch = screen.getByRole("button", { name: "Recent 스팀으로 검색" });
+    quickSearch.focus();
+
+    fireEvent.keyDown(quickSearch, { key: "Escape" });
+    expect(quickSearch).not.toBeInTheDocument();
+    expect(input).toHaveFocus();
+    expect(screen.queryByRole("region", { name: "즐겨찾기 및 최근 검색" })).not.toBeInTheDocument();
+  });
+
+  it("방향키로 활성화한 추천을 목록 스크롤 안으로 가져온다", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const suggestions = Array.from({ length: 8 }, (_, index) => ({ nickname: `Many${index + 1}`, platform: "steam" as const }));
+    renderSearchBar({ suggestions });
+    const input = screen.getByRole("combobox", { name: "닉네임" });
+
+    for (let index = 0; index < 8; index += 1) fireEvent.keyDown(input, { key: "ArrowDown" });
+    const options = within(screen.getByRole("listbox")).getAllByRole("option");
+    expect(input).toHaveAttribute("aria-activedescendant", options[7].id);
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(options[7]);
+  });
+
+  it("결과 화면용 placeholder를 받을 수 있다", () => {
+    renderSearchBar({ placeholder: "다른 플레이어 닉네임 검색 (대소문자 구분)" });
+    expect(screen.getByRole("combobox", { name: "닉네임" })).toHaveAttribute("placeholder", "다른 플레이어 닉네임 검색 (대소문자 구분)");
+  });
+
   it("IME 조합 중 Enter로 검색하거나 추천을 선택하지 않는다", () => {
     const { props } = renderSearchBar();
     fireEvent.keyDown(screen.getByRole("combobox", { name: "닉네임" }), {

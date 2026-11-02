@@ -137,7 +137,7 @@ describe("stats route-first/deep-link", () => {
 
   it("landing submit은 player를 prefetch하지 않고 encoded player route로 이동한다", () => {
     render(createElement(StatSearch));
-    fireEvent.change(screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요"), {
+    fireEvent.change(screen.getByRole("combobox", { name: "닉네임" }), {
       target: { value: "Fixture Player" },
     });
     fireEvent.click(screen.getByRole("button", { name: "검색" }));
@@ -148,7 +148,7 @@ describe("stats route-first/deep-link", () => {
 
   it("landing의 동기 double click/Enter는 route push 한 번만 만든다", () => {
     render(createElement(StatSearch));
-    const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
+    const input = screen.getByRole("combobox", { name: "닉네임" });
     fireEvent.change(input, { target: { value: "OnePush" } });
     const submit = screen.getByRole("button", { name: "검색" });
 
@@ -163,7 +163,7 @@ describe("stats route-first/deep-link", () => {
   it("same-route push가 완료되지 않아도 bounded timeout 뒤 navigation guard를 복구한다", () => {
     vi.useFakeTimers();
     render(createElement(StatSearch));
-    const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
+    const input = screen.getByRole("combobox", { name: "닉네임" });
     fireEvent.change(input, { target: { value: "R" } });
 
     fireEvent.click(screen.getByRole("button", { name: "검색" }));
@@ -189,7 +189,7 @@ describe("stats route-first/deep-link", () => {
       initialNickname: "PlayerA",
     }));
     await screen.findByText("PlayerA");
-    const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
+    const input = screen.getByRole("combobox", { name: "닉네임" });
 
     fireEvent.change(input, { target: { value: "PlayerB" } });
     const searchButton = screen.getByRole("button", { name: "검색" });
@@ -204,7 +204,7 @@ describe("stats route-first/deep-link", () => {
     localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify(["RecentPlayer"]));
     localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(["FavoritePlayer"]));
     const { unmount } = render(createElement(StatSearch));
-    const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
+    const input = screen.getByRole("combobox", { name: "닉네임" });
     fireEvent.focus(input);
 
     fireEvent.click(await screen.findByRole("button", { name: "RecentPlayer 스팀으로 검색" }));
@@ -214,7 +214,7 @@ describe("stats route-first/deep-link", () => {
     unmount();
     routerPush.mockReset();
     render(createElement(StatSearch));
-    fireEvent.focus(screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요"));
+    fireEvent.focus(screen.getByRole("combobox", { name: "닉네임" }));
     fireEvent.click(await screen.findByRole("button", { name: "FavoritePlayer 스팀으로 검색" }));
     expect(routerPush).toHaveBeenCalledWith("/stats/steam/FavoritePlayer");
     expect(playerRequests()).toHaveLength(0);
@@ -225,7 +225,7 @@ describe("stats route-first/deep-link", () => {
       suggestions: [{ nickname: "AutoPlayer", platform: "kakao" }],
     }));
     render(createElement(StatSearch));
-    const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
+    const input = screen.getByRole("combobox", { name: "닉네임" });
     fireEvent.change(input, { target: { value: "Au" } });
     fireEvent.focus(input);
 
@@ -238,7 +238,7 @@ describe("stats route-first/deep-link", () => {
   it("카카오 최근 검색은 플랫폼 선택이 스팀이어도 카카오 경로로 이동한다", async () => {
     localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify([{ nickname: "KakaoOnly", platform: "kakao" }]));
     render(createElement(StatSearch));
-    fireEvent.focus(screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요"));
+    fireEvent.focus(screen.getByRole("combobox", { name: "닉네임" }));
     fireEvent.click(await screen.findByRole("button", { name: "KakaoOnly 카카오로 검색" }));
     expect(routerPush).toHaveBeenCalledWith("/stats/kakao/KakaoOnly");
     expect(playerRequests()).toHaveLength(0);
@@ -315,7 +315,7 @@ describe("stats route-first/deep-link", () => {
     profileSingleMock.mockReturnValue(new Promise((resolve) => { resolveProfile = resolve; }));
     authState.user = { id: "late-user" };
     render(createElement(StatSearch));
-    const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
+    const input = screen.getByRole("combobox", { name: "닉네임" });
     fireEvent.change(input, { target: { value: "ManualPlayer" } });
 
     await act(async () => {

@@ -324,7 +324,10 @@ describe("StatsPageShell state and ownership matrix", () => {
     const guide = screen.getByRole("button", { name: /BGMS AI 전술 분석 가이드/ });
     const fullAi = await screen.findByTestId("full-ai");
     expect(precedes(fullAi, grid)).toBe(true);
-    expect(precedes(grid, guide)).toBe(true);
+    // 가이드는 AI 분석 영역 안에 두어 설명을 분석 결과 가까이 둔다
+    expect(screen.getByRole("region", { name: "AI 분석" })).toContainElement(guide);
+    expect(precedes(fullAi, guide)).toBe(true);
+    expect(precedes(guide, grid)).toBe(true);
     expect(screen.getAllByTestId("full-ai")).toHaveLength(1);
 
     expect(fullAi).toHaveTextContent("match-fixture-1");
