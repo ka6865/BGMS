@@ -25,9 +25,10 @@ describe('랭킹 조회', () => {
     fetchMock.mockReturnValue(new Promise(() => {}));
     render(createElement(RankingsClient, props));
     expect(screen.getByRole('heading', { name: '랭킹' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '새로고침' })).toBeNull();
     expect(screen.getByRole('button', { name: '스쿼드' })).toBeTruthy();
     expect(screen.queryByText('이번 주 데이터가 없습니다')).toBeNull();
-    expect(screen.getByText('조회 기준: 조회 중')).toBeTruthy();
+    expect(screen.getByText('집계 시각: 조회 중')).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe('/api/rankings?tab=damage&mode=all&perspective=all&matchType=all');
   });
@@ -61,7 +62,7 @@ describe('랭킹 조회', () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503 }).mockResolvedValue(response([entry('Recovered')]));
     render(createElement(RankingsClient, props));
     const retry = await screen.findByRole('button', { name: '다시 시도' });
-    expect(screen.getByText('조회 기준: 조회 실패')).toBeTruthy();
+    expect(screen.getByText('집계 시각: 조회 실패')).toBeTruthy();
     fireEvent.click(retry);
     await screen.findByText('Recovered');
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -78,6 +79,22 @@ describe('랭킹 조회', () => {
     render(createElement(RankingsClient, props));
     await screen.findByRole('button', { name: '다시 시도' });
     expect(screen.queryByText('이번 주 데이터가 없습니다')).toBeNull();
+  });
+
+  it('집계 중에는 10초 뒤 자동 조회하고 완료되면 서버 집계 시각을 표시한다', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ pending: true, entries: [] }) })
+      .mockResolvedValue(response([entry('Prepared')]));
+    render(createElement(RankingsClient, props));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText('집계 시각: 집계 중')).toBeTruthy();
+    expect(screen.getByText('잠시 후 자동으로 다시 불러옵니다.')).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_999); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Prepared')).toBeTruthy();
+    expect(screen.getByText('집계 시각: 10월 10일 오후 1:00')).toBeTruthy();
   });
 
   it('60초 자동 갱신은 보이는 탭만 조회하고 진행 중에는 중복 요청하지 않는다', async () => {
@@ -131,6 +148,6 @@ describe('랭킹 조회', () => {
     fetchMock.mockResolvedValue(response([entry('Snapshot')]));
     render(createElement(RankingsClient, props));
     await screen.findByText('Snapshot');
-    expect(screen.getByText('조회 기준: 10월 10일 오후 1:00')).toBeTruthy();
+    expect(screen.getByText('집계 시각: 10월 10일 오후 1:00')).toBeTruthy();
   });
 });
