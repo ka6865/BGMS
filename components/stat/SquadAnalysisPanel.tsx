@@ -21,6 +21,7 @@ import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { toast } from "sonner";
 import SquadCauseScenes, { SquadCauseSceneCardData } from "./SquadCauseScenes";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
+import { hasSquadFeedbackContent } from "@/lib/pubg-analysis/squadAiPolicy";
 import type { StatsPlatform } from "@/types/stats-page";
 
 import { createSquadRequestCache, type SquadRequestCache } from "@/lib/stats/squadRequestCache";
@@ -1107,28 +1108,32 @@ export default function SquadAnalysisPanel({
                   {/* Detail Content */}
                   <div className="w-full md:col-span-9 space-y-4 min-w-0">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40">
+                      <div className={`rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40 ${hasSquadFeedbackContent(aiFeedback.weakness) ? "" : "sm:col-span-2"}`}>
                         <h5 className="text-xs font-bold text-green-400 mb-1 flex items-center gap-1.5">
                           <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
                           {teamLabel} 협동 강점
                         </h5>
                         <p className="text-xs text-zinc-200 leading-relaxed font-medium">{aiFeedback.strength}</p>
                       </div>
-                      <div className="rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40">
-                        <h5 className="text-xs font-bold text-red-400 mb-1 flex items-center gap-1.5">
-                          <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                          {teamLabel} 취약점
-                        </h5>
-                        <p className="text-xs text-zinc-200 leading-relaxed font-medium">{aiFeedback.weakness}</p>
-                      </div>
+                      {hasSquadFeedbackContent(aiFeedback.weakness) && (
+                        <div className="rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40">
+                          <h5 className="text-xs font-bold text-red-400 mb-1 flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                            {teamLabel} 취약점
+                          </h5>
+                          <p className="text-xs text-zinc-200 leading-relaxed font-medium">{aiFeedback.weakness}</p>
+                        </div>
+                      )}
                     </div>
      
-                    <div className="rounded-lg bg-purple-950/10 p-4 border border-purple-500/10">
-                      <h5 className="text-xs font-bold text-purple-300 mb-1">
-                        <InlineIconLabel icon="info" iconSize={13}>전술적 개선 코칭 제안</InlineIconLabel>
-                      </h5>
-                      <p className="text-xs text-zinc-100 leading-relaxed font-medium">{aiFeedback.coaching}</p>
-                    </div>
+                    {hasSquadFeedbackContent(aiFeedback.coaching) && (
+                      <div className="rounded-lg bg-purple-950/10 p-4 border border-purple-500/10">
+                        <h5 className="text-xs font-bold text-purple-300 mb-1">
+                          <InlineIconLabel icon="info" iconSize={13}>전술적 개선 코칭 제안</InlineIconLabel>
+                        </h5>
+                        <p className="text-xs text-zinc-100 leading-relaxed font-medium">{aiFeedback.coaching}</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* 팀원 개별 피드백 */}
@@ -1155,21 +1160,25 @@ export default function SquadAnalysisPanel({
                                 <p className="text-zinc-300 pl-1 font-medium">{member.praise}</p>
                               </div>
                               
-                              {/* 못한 점 */}
-                              <div className="text-[11px] leading-relaxed">
-                                <div className="font-bold text-red-400 flex items-center gap-1 mb-0.5">
-                                  <InlineIconLabel icon="alert" iconSize={12}>못한 점</InlineIconLabel>
+                              {/* 못한 점: 근거가 없어 넘긴 문장뿐이면 칸을 만들지 않는다 */}
+                              {hasSquadFeedbackContent(member.fault) && (
+                                <div className="text-[11px] leading-relaxed">
+                                  <div className="font-bold text-red-400 flex items-center gap-1 mb-0.5">
+                                    <InlineIconLabel icon="alert" iconSize={12}>못한 점</InlineIconLabel>
+                                  </div>
+                                  <p className="text-zinc-300 pl-1 font-medium">{member.fault}</p>
                                 </div>
-                                <p className="text-zinc-300 pl-1 font-medium">{member.fault}</p>
-                              </div>
+                              )}
                               
                               {/* 피드백 */}
-                              <div className="text-[11px] leading-relaxed">
-                                <div className="font-bold text-purple-400 flex items-center gap-1 mb-0.5">
-                                  <InlineIconLabel icon="info" iconSize={12}>개인 피드백</InlineIconLabel>
+                              {hasSquadFeedbackContent(member.advice) && (
+                                <div className="text-[11px] leading-relaxed">
+                                  <div className="font-bold text-purple-400 flex items-center gap-1 mb-0.5">
+                                    <InlineIconLabel icon="info" iconSize={12}>개인 피드백</InlineIconLabel>
+                                  </div>
+                                  <p className="text-zinc-300 pl-1 font-medium">{member.advice}</p>
                                 </div>
-                                <p className="text-zinc-300 pl-1 font-medium">{member.advice}</p>
-                              </div>
+                              )}
                             </div>
                           </div>
                         ))}

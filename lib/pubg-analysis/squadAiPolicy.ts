@@ -81,6 +81,18 @@ export function isSquadWithheldCopy(sentence: string): boolean {
   return KNOWN_WITHHELD_COPY.has(sentence.trim());
 }
 
+/**
+ * 화면에 보여줄 내용이 있는지 본다. 비어 있거나 보류·넘김 문장뿐이면 false다.
+ * 근거가 없어 넘긴 칸을 팀원마다 반복해서 보여주지 않으려고 화면 쪽이 쓴다.
+ */
+export function hasSquadFeedbackContent(text: unknown): boolean {
+  if (typeof text !== "string") return false;
+  return text
+    .split(SENTENCE_SPLIT)
+    .map(sentence => sentence.trim())
+    .some(sentence => sentence !== "" && !isSquadWithheldCopy(sentence));
+}
+
 function stableIndex(seed: string, size: number): number {
   // FNV-1a 32비트 해시. 같은 문자열이면 항상 같은 인덱스를 준다.
   let hash = 0x811c9dc5;
