@@ -225,12 +225,13 @@ jobs:
           CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
         run: npx tsx scripts/monitor_storage.ts --label "BEFORE"
 
-      - name: Preserve Long Term Match Performance
+      # 현재 연동 회원의 만료 경기만 사용자별로 읽어 전역 정리 커서 조회를 피한다.
+      - name: Preserve Linked Member Match Performance
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: npx tsx scripts/preserve_match_performance.ts --apply --limit 1000
+        run: npx tsx scripts/preserve_match_performance.ts --linked-only --apply --limit 1000
 
       # 매치 분석·텔레메트리는 장기 보관하므로 이 단계는 pubg_player_cache 자동완성 후보만 줄인다.
       # R2 와 텔레메트리 보존 설정은 쓰지 않으므로 넘기지 않는다(최소 권한).
