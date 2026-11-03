@@ -155,7 +155,7 @@ const SUBJECT_DIVERSITY_TYPES = new Set<SquadCauseSceneType>([
 
 const SCENE_TYPE_LABELS: Record<SquadCauseSceneType, string> = {
   late_trade: "백업 지연",
-  isolation_death: "고립 위험",
+  isolation_death: "경기 평균 간격 참고",
   no_smoke_rescue: "복구 미확인",
   focus_fire_success: "화력 집중",
   team_wipe: "적 스쿼드 전멸 기여",
@@ -615,13 +615,13 @@ export function extractSquadCauseScenes(
         const outcome = getCriticalEventOutcome(event);
         const facts = [
           `${base.displayTime}에 ${targetName} ${getCriticalEventLabel(event)} 발생`,
-          `평균 아군 거리 ${roundedDistanceM}m / 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m`,
-          `팀 간격 위험도 ${deathIsolation.toFixed(2)} / 위험 기준 ${resolvedOptions.isolationDangerThreshold}`,
-          "팀 간격 위험도는 팀원과의 거리/대열 상태를 요약한 BGMS 파생 지표",
+          `평균 아군 거리 ${roundedDistanceM}m / 참고 기준 ${resolvedOptions.minDistanceDangerMeters}m`,
+          `팀 간격 지수 ${deathIsolation.toFixed(2)} / 참고 기준 ${resolvedOptions.isolationDangerThreshold}`,
+          "팀 간격 지수는 팀원과의 거리/대열 상태를 요약한 BGMS 파생 지표",
           "엄폐물, 시야, 지형 원인은 확인할 수 없음"
         ];
         if (!isDistanceRisk) {
-          facts.push("평균 거리가 위험 기준 이내라 거리만으로 고립 원인을 단정하지 않음");
+          facts.push("평균 거리가 참고 기준 이내라 거리만으로 고립 원인을 단정하지 않음");
         }
         if (reviveWithin30s) {
           facts.push("30초 안에 소생 성공 이벤트 확인");
@@ -630,8 +630,8 @@ export function extractSquadCauseScenes(
           ...base,
           title: `${targetName} ${outcome}`,
           reason: isDistanceRisk
-            ? `이 경기의 평균 아군 거리는 ${roundedDistanceM}m로 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m 이상입니다. 사건 시점 거리는 측정하지 않았습니다.`
-            : `이 경기의 평균 아군 거리는 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m 이내이고, 팀 간격 위험도는 경기 단위 보조 지표입니다. 사건 시점 거리는 측정하지 않았습니다.`,
+            ? `이 경기의 평균 아군 거리는 ${roundedDistanceM}m로 참고 기준 ${resolvedOptions.minDistanceDangerMeters}m 이상입니다. 사건 시점 거리는 측정하지 않았습니다.`
+            : `이 경기의 평균 아군 거리는 참고 기준 ${resolvedOptions.minDistanceDangerMeters}m 이내이고, 팀 간격 지수는 경기 단위 보조 지표입니다. 사건 시점 거리는 측정하지 않았습니다.`,
           severity: isRecoveredKnock ? "warning" : "danger",
           confidence: "medium",
           facts,
@@ -648,7 +648,7 @@ export function extractSquadCauseScenes(
             ? `${base.displayTime} ${targetName} ${outcome} 후 30초 안에 소생 성공 이벤트가 확인됩니다. 경기 평균 아군 거리는 ${roundedDistanceM}m이며, 사건 시점 거리는 측정 불가입니다.`
             : isDistanceRisk
               ? `${base.displayTime} ${targetName} ${outcome} 이벤트가 확인됩니다. 경기 평균 아군 거리는 ${roundedDistanceM}m이며, 사건 시점 거리는 측정 불가입니다.`
-              : `${base.displayTime} ${targetName} ${outcome} 이벤트가 확인됩니다. 경기 평균 아군 거리는 위험 기준 이내이며, 사건 시점 거리는 측정 불가라 거리만으로 원인을 단정할 수 없습니다.`
+              : `${base.displayTime} ${targetName} ${outcome} 이벤트가 확인됩니다. 경기 평균 아군 거리는 참고 기준 이내이며, 사건 시점 거리는 측정 불가라 거리만으로 원인을 단정할 수 없습니다.`
         });
       }
     });
