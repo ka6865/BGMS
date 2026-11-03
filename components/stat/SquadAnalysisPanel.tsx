@@ -64,6 +64,8 @@ interface SquadAnalysisData {
   groupKey: string;
   teamMode?: "duo" | "squad";
   matchCount: number;
+  // 함께 뛴 최근 경기 수. 팀 지표는 이 중 점수가 높은 matchCount경기로만 계산한다.
+  latestMatchCount?: number;
   matchesSummary: MatchSummaryItem[];
   stats: {
     avgIsolation: number | null;
@@ -976,7 +978,7 @@ export default function SquadAnalysisPanel({
                           평균 {p.avgDamage === null ? "측정 불가" : `${Math.round(p.avgDamage)}딜`} / {p.avgKills === null ? "측정 불가" : `${p.avgKills}킬`}
                         </span>
                         {p.totalDamage !== undefined && p.totalKills !== undefined && (
-                          <span className="text-zinc-500 font-medium">총 {formatObservedMetric(p.totalDamage, "딜")} / {formatObservedMetric(p.totalKills, "킬")} ({formatObservedMetric(analysisData.matchCount, "판 누적")})</span>
+                          <span className="text-zinc-500 font-medium">총 {formatObservedMetric(p.totalDamage, "딜")} / {formatObservedMetric(p.totalKills, "킬")} ({typeof analysisData.latestMatchCount === "number" && analysisData.latestMatchCount > analysisData.matchCount ? `최근 ${analysisData.latestMatchCount}판 중 점수 상위 ` : ""}{formatObservedMetric(analysisData.matchCount, "판 누적")})</span>
                         )}
                       </div>
                     </div>

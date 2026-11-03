@@ -133,7 +133,8 @@ ${reviveEvaluable
 - Team Mode: ${teamMode === "duo" ? "듀오(2인 팀). 팀원은 대상 플레이어 외 1명뿐이다" : "스쿼드(최대 4인 팀)"}
 - Target Player: ${nickname}
 - Teammates: ${groupKey}
-- Match Count Together: ${formatObserved(matchCount)} matches
+- Matches Played Together (latest): ${matchesSummary.length > 0 ? matchesSummary.length : formatObserved(matchCount)}
+- Matches Used For Stats: ${formatObserved(matchCount)}${matchesSummary.length > matchCount ? ` (the best-scoring ${matchCount} of the latest ${matchesSummary.length})` : ""}
 
 [Individual Member Role & Stats]
 ${membersReport}
@@ -169,8 +170,13 @@ ${benchmarkContext}
       : "It is below 50%, so do NOT call the squad a one-man show or say the team collapses without one player.";
 
   // 재료는 측정값과 표본 기준으로만 고른다. 측정이 없는 지표는 재료에서 빠진다.
+  // 팀 지표는 함께 뛴 최근 경기 중 점수가 높은 경기로만 계산한다. 우승·순위는 전체 경기라서 범위를 붙이지 않는다.
+  const statsScopePrefix = matchCount > 0 && matchesSummary.length > matchCount ? `점수 상위 ${matchCount}경기 기준 ` : "";
+  const SCOPE_FREE_METRICS = new Set(["wins", "bestRank", "squadGrade"]);
+  const teamPunchlines = selectSquadPunchlines({ stats, scores, squadGrade, benchmarkStats, matchesSummary, roleProfiles })
+    .map((item) => (statsScopePrefix && !SCOPE_FREE_METRICS.has(item.metric) ? { ...item, fact: `${statsScopePrefix}${item.fact}` } : item));
   const punchlineBlock = formatSquadPunchlineBlock(
-    selectSquadPunchlines({ stats, scores, squadGrade, benchmarkStats, matchesSummary, roleProfiles }),
+    teamPunchlines,
     selectSquadMemberPunchlines({ roleProfiles }),
   );
   // 못한 점과 개인 피드백의 근거가 되는 측정 분포. 펀치라인 재료와 달리 농담용이 아니다.
@@ -187,7 +193,7 @@ Analyze the provided squad synergy report and write a report.
 - Do not invent situational context or motives.
 - For memberFeedbacks: include EVERY member listed in roleProfiles. Always write praise from one measured stat. Write fault and advice only when a measured fact in this report supports it; otherwise output an empty string (""). Never write filler such as "keep it up" or "no data".
 - Place each fact in the field it belongs to: positive facts in summary or strength, lopsided or low facts in weakness or coaching. Never put a positive fact in weakness, and do not repeat the same fact in several fields.
-- For overallOpinion: Deliver a warm, encouraging, yet tactical message addressed to the entire team together, joining two facts into one sentence.
+- For overallOpinion: Deliver a warm, encouraging, yet tactical message addressed to the entire team together, joining two facts into one sentence. Connect them with a contrast or cause (예: "~했지만 ~입니다"); never paste two finished sentences together with 와/과 or copy a fact sentence verbatim.
 - Output MUST be structured in JSON matching the exact schema.
 - Language: Output fields MUST be written in Korean.
 - Preserve nicknames exactly as provided. Do NOT translate, localize, or Korean-transliterate nicknames such as "KangHeeSung_".
@@ -223,7 +229,7 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
 13. Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 뇌", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
 14. CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
 15. [PUNCHLINE FACTS] are the only material for jokes, exaggeration, metaphors and nicknames. Copy every number from the facts exactly. Do NOT round, convert, subtract, average, or derive any new number, even one that looks obvious (for example, a difference between two figures). Name each share with its exact label (딜 비중 = damage, 킬 비중 = kill, 어시스트 비중 = assist, 녹다운 비중 = knockouts) and never swap or rename them.
-16. Give the report some bite. Use short, punchy sentences and PUBG community slang such as 킬로그, 캐리, 치킨. Use a slang word only where it fits the sentence; never use it as filler. Place each fact in the field it belongs to: positive (hype) facts in summary or strength; negative or lopsided facts (roast, or a team-level gap from [MEASURED OBSERVATIONS]) in weakness or coaching. Never put a positive fact in weakness, and never fill a field just to avoid leaving it empty. summary is one line about the record. overallOpinion is a short closing remark to the whole team that joins two facts into one sentence, not a bare fact. Do not repeat the same fact in several fields.
+16. Give the report some bite. Use short, punchy sentences and PUBG community slang such as 킬로그, 캐리, 치킨. Use a slang word only where it fits the sentence; never use it as filler. Place each fact in the field it belongs to: positive (hype) facts in summary or strength; negative or lopsided facts (roast, or a team-level gap from [MEASURED OBSERVATIONS]) in weakness or coaching. Never put a positive fact in weakness, and never fill a field just to avoid leaving it empty. summary is one line about the record. overallOpinion is a short closing remark to the whole team that joins two facts into one natural sentence with a contrast or cause (예: "~했지만 ~입니다"), not a bare fact; never paste two finished sentences together with 와/과 or copy a fact sentence verbatim. Do not repeat the same fact in several fields.
 17. Style examples with placeholders (X, Y, N are measured values from the facts, never invented):
     - hype: a damage share of X% becomes "화력의 X%를 혼자 떠안은 캐리" (over-the-top praise of the number only).
     - roast: N matches with 0 wins becomes "N경기 동안 우승 0회, 트로피 진열장이 아직 비어 있습니다." (a sarcastic remark about the record only).
@@ -255,6 +261,7 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 ${tradeEvaluable ? "" : `- Backup speed is NOT evaluable for this squad (fewer than ${SQUAD_MIN_TRADE_KILLS} measured trade kills). Do NOT state any backup speed value or backup timing, do NOT compare it with the global average, and do NOT praise, blame or advise on backup timing.`}
 ${reviveEvaluable ? "" : `- Revive rate is NOT evaluable for this squad (fewer than ${SQUAD_MIN_KNOCKS} measured knocks). Do NOT state any revive rate, and do NOT compare revive counts with the global revive rate.`}
 - [MEASURED OBSERVATIONS] is the material for fault and advice. A fault may only state a metric that the block tags as the member's team-lowest and below the fair share, phrased as a recorded distribution and never as skill, intent, position or effort. An advice may only suggest a practice that would change that recorded stat (for example, taking part in more of the team's assists) and must cite the number. If a member has no such tag, leave fault and advice empty. Copy the numbers exactly. Write fault and advice as natural Korean sentences; never copy a bracket tag or its label text. Describe how the stat is recorded, not how to play or where to stand: 딜 = damage dealt to enemies, 킬 = enemies killed, 어시스트 = damage to an enemy that a teammate then killed, 기절 = enemies knocked down. Example fault: "어시스트 비중 5%로 팀에서 가장 낮습니다." Example advice pattern: "<stat> 비중 N%를 올리려면 <how that stat is recorded>를 늘려 보세요."
+- [ANALYSIS SCOPE] Wins and placements cover every match played together (Matches Played Together). Every other number (shares, knocks, revives, smoke rescues, rates) covers only Matches Used For Stats, which are the best-scoring matches, so they look better than the squad's overall record. Never describe the stats as covering all of the latest matches. When you cite a stat from Matches Used For Stats, name that scope once in Korean (for example "점수 상위 5경기 기준"), and write 최근 N경기 only for wins and placements. Never put 점수 상위 N경기 in a sentence about wins or placements, and never combine the two scopes in one clause.
 - Do not infer player intent, communication, safety, or actions from absent evidence.
 - Squad isolation, backup and recovery metrics describe the entire team. roleProfiles contain NO individual position, isolation, backup, smoke or revive evidence. Never blame an individual for a team metric, infer front/back positioning, or infer kill-stealing intent from kill/assist shares.
 - ${teamMode === "duo" ? 'This is a DUO team of exactly two players. Call it 듀오, never 스쿼드 or 4인. Do not mention third or fourth members, and do not compare against squad-sized teams.' : 'This is a SQUAD team.'}

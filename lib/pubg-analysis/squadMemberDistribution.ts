@@ -104,11 +104,12 @@ export function buildSquadObservationBlock(input: SquadObservationInput): string
 
   const analyzed = Number(input.analyzedMatchCount);
   const total = Number(input.totalMatchCount);
+  // 팀 지표는 함께 뛴 최근 경기 중 점수가 높은 경기만 골라 계산한다. 범위를 숨기면 평균이 실제보다 좋아 보인다.
   const scope = Number.isInteger(analyzed) && analyzed > 0
     ? Number.isInteger(total) && total > analyzed
-      ? `함께 뛴 ${total}경기 중 상세 분석된 ${analyzed}경기 기준`
-      : `상세 분석된 ${analyzed}경기 기준`
-    : "상세 분석된 경기 기준";
+      ? `함께 뛴 최근 ${total}경기 중 점수가 높은 ${analyzed}경기 기준`
+      : `함께 뛴 ${analyzed}경기 기준`
+    : "분석 경기 기준";
 
   return `[MEASURED OBSERVATIONS]
 (${scope}. 기록된 비중의 분포일 뿐이며 실력, 의도, 위치, 역할 수행을 뜻하지 않습니다. 숫자는 그대로 옮깁니다.)

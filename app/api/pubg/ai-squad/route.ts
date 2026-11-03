@@ -20,7 +20,7 @@ import {
   SQUAD_AI_TOO_FEW_MATCHES_ERROR_CODE,
 } from "@/lib/pubg-analysis/squadAiContract";
 
-import { applySquadEvidencePolicy, hasSquadObservations } from "@/lib/pubg-analysis/squadAiEvidence";
+import { applySquadEvidencePolicy, hasSquadObservations, listReplacedSquadFields } from "@/lib/pubg-analysis/squadAiEvidence";
 import { expiredMatchDetailResponse, isMatchDetailExpired } from "@/lib/pubg-analysis/matchRetention.server";
 
 // 응답 기준 전체 예산(요약 route의 50초 route deadline과 같은 여유를 둔다).
@@ -506,7 +506,7 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
           canonicalGrade,
           canonicalScores,
           canonicalRoleProfiles,
-          { coachingStyle: policyCoachingStyle },
+          { coachingStyle: policyCoachingStyle, benchmarkStats: canonicalBenchmarkStats },
         ));
       }
     } catch (dbErr) {
@@ -588,14 +588,18 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     let resultJson: unknown;
     try {
       const validJsonString = extractValidJson(generation.text);
+      const rawResult = JSON.parse(validJsonString);
       resultJson = applySquadEvidencePolicy(
-        sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), policyCoachingStyle),
+        sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(structuredClone(rawResult)), policyCoachingStyle),
         canonicalStats,
         canonicalGrade,
         canonicalScores,
         canonicalRoleProfiles,
-        { coachingStyle: policyCoachingStyle },
+        { coachingStyle: policyCoachingStyle, benchmarkStats: canonicalBenchmarkStats },
       );
+      // 정책이 모델 문장을 바꾼 칸 수를 남긴다. 문장 내용은 남기지 않는다. 보류가 얼마나 잦은지 운영에서 볼 수 있게 한다.
+      const replacedFields = listReplacedSquadFields(rawResult, resultJson);
+      if (replacedFields.length > 0) console.info(`[AI-SQUAD] evidence policy replaced ${replacedFields.length} field(s): ${replacedFields.join(", ")}`);
     } catch {
       // 파싱 오류 문구에는 모델 원문 일부가 들어갈 수 있어 길이만 남긴다.
       console.warn(`[AI-SQUAD] Generated response could not be parsed (length=${generation.text.length})`);
