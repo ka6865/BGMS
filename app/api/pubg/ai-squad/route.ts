@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonSchema, Output, streamText, type Schema } from "ai";
+import { Output, streamText, type Schema } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { jsonrepair } from "jsonrepair";
 import { withAuthGuard } from "@/utils/supabase/guard";
@@ -13,13 +13,14 @@ import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
 import { sanitizeAiCoachingLanguage } from "@/lib/pubg-analysis/aiCoachingQuality";
 import { sanitizeSquadAbilityClaims } from "@/lib/pubg-analysis/squadAiPolicy";
+import { buildSquadOutputSchema, type SquadAiRawOutput } from "@/lib/pubg-analysis/squadAiSchema";
 import {
   SQUAD_AI_FACTS_ONLY_ERROR_CODE,
   SQUAD_AI_MIN_MATCH_COUNT,
   SQUAD_AI_TOO_FEW_MATCHES_ERROR_CODE,
 } from "@/lib/pubg-analysis/squadAiContract";
 
-import { applySquadEvidencePolicy, hasSquadObservations } from "@/lib/pubg-analysis/squadAiEvidence";
+import { applySquadEvidencePolicy, hasSquadObservations, listReplacedSquadFields } from "@/lib/pubg-analysis/squadAiEvidence";
 import { expiredMatchDetailResponse, isMatchDetailExpired } from "@/lib/pubg-analysis/matchRetention.server";
 
 // 응답 기준 전체 예산(요약 route의 50초 route deadline과 같은 여유를 둔다).
@@ -45,16 +46,6 @@ class SquadRequestAbortedError extends Error {
     this.name = "SquadRequestAbortedError";
   }
 }
-
-type SquadAiRawOutput = {
-  squadGrade: string | null;
-  summary: string;
-  strength: string;
-  weakness: string;
-  coaching: string;
-  memberFeedbacks: Array<{ name: string; praise: string; fault: string; advice: string }>;
-  overallOpinion: string;
-};
 
 type SquadFailureReason = "timeout" | "provider" | "aborted";
 type SquadTokenUsage = { inputTokens?: number; outputTokens?: number };
@@ -192,6 +183,7 @@ function canonicalSquadIdentity(data: any): unknown {
     latestMatchCount: data.latestMatchCount,
     bestMatchCount: data.bestMatchCount,
     matchesSummary: Array.isArray(data.matchesSummary) ? data.matchesSummary : [],
+    recordedSummary: data.recordedSummary ?? null,
     selectedMatchIds: Array.isArray(data.selectedMatchIds) ? data.selectedMatchIds : [],
     stats: data.stats,
     scores: data.scores,
@@ -200,39 +192,6 @@ function canonicalSquadIdentity(data: any): unknown {
     benchmarkStats: data.benchmarkStats,
     teamMode: data.teamMode,
   };
-}
-
-// 등급은 계산된 값만 허용한다. 관측이 부족하면 null로 보류하고 모델이 임의 등급을 만들지 못하게 한다.
-function buildSquadOutputSchema(canonicalGrade: string | null): Schema<SquadAiRawOutput> {
-  return jsonSchema<SquadAiRawOutput>({
-    type: "object",
-    properties: {
-      squadGrade: {
-        type: ["string", "null"],
-        description: canonicalGrade ? `Must be exactly "${canonicalGrade}"` : "Must be null: overall grade is withheld for missing observations",
-      },
-      summary: { type: "string", description: "One-line tactical summary of this squad" },
-      strength: { type: "string", description: "Key strength of squad collaboration" },
-      weakness: { type: "string", description: "Major vulnerability/weakness of the squad" },
-      coaching: { type: "string", description: "Practical coaching advice to improve squad synergy" },
-      memberFeedbacks: {
-        type: "array",
-        description: "Individual tactical feedback for each and every squad member in roleProfiles",
-        items: {
-          type: "object",
-          properties: {
-            name: { type: "string", description: "Nickname of the squad member" },
-            praise: { type: "string", description: "Detailed positive actions, strengths or what they did well (칭찬할 점)" },
-            fault: { type: "string", description: "Detailed vulnerabilities, mistakes, or what they did poorly (못한 점)" },
-            advice: { type: "string", description: "Detailed improvement points and tactical advice (피드백)" },
-          },
-          required: ["name", "praise", "fault", "advice"],
-        },
-      },
-      overallOpinion: { type: "string", description: "Overall coaching review and warning/encouragement addressed to the entire team (팀원 모두에게 한마디씩 총평)" },
-    },
-    required: ["squadGrade", "summary", "strength", "weakness", "coaching", "memberFeedbacks", "overallOpinion"],
-  });
 }
 
 /**
@@ -484,12 +443,14 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     const canonicalStats = squadData.stats;
     const canonicalScores = squadData.scores;
     const canonicalRoleProfiles = squadData.roleProfiles;
-    const canonicalGrade = [squadData.scores.formation, squadData.scores.backupSpeed, squadData.scores.survivalCare, squadData.scores.focusFire, squadData.scores.teamWipe]
-      .every((score) => typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 100)
-      && typeof squadData.squadGrade === "string" && squadData.squadGrade.trim() ? squadData.squadGrade : null;
+    const canonicalGrade = typeof squadData.squadGrade === "string" && squadData.squadGrade.trim() ? squadData.squadGrade : null;
     const canonicalBenchmarkStats = squadData.benchmarkStats;
     const canonicalMatchCount = squadData.matchCount;
-    const canonicalMatchesSummary = squadData.matchesSummary;
+    // 우승·순위 재료는 상세 분석 여부와 무관한 전적 기록(같은 조합, 최근 14일)을 우선한다. 기록이 부족하면 분석된 경기로 대신한다.
+    const recordedPlacements = (squadData.recordedSummary?.matches ?? []).filter((match: { winPlace: number }) => match.winPlace > 0);
+    const canonicalMatchesSummary = recordedPlacements.length >= SQUAD_AI_MIN_MATCH_COUNT
+      ? recordedPlacements.map((match: { matchId: string; winPlace: number }) => ({ matchId: match.matchId, winPlace: match.winPlace }))
+      : squadData.matchesSummary;
     // 보류 문구 치환 스타일. 프롬프트와 같이 "mild"만 다정한맛으로 보고 나머지는 매운맛으로 본다.
     const policyCoachingStyle = coachingStyle === "mild" ? "mild" : "spicy";
 
@@ -548,7 +509,7 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
           canonicalGrade,
           canonicalScores,
           canonicalRoleProfiles,
-          { coachingStyle: policyCoachingStyle },
+          { coachingStyle: policyCoachingStyle, benchmarkStats: canonicalBenchmarkStats },
         ));
       }
     } catch (dbErr) {
@@ -630,14 +591,18 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     let resultJson: unknown;
     try {
       const validJsonString = extractValidJson(generation.text);
+      const rawResult = JSON.parse(validJsonString);
       resultJson = applySquadEvidencePolicy(
-        sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), policyCoachingStyle),
+        sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(structuredClone(rawResult)), policyCoachingStyle),
         canonicalStats,
         canonicalGrade,
         canonicalScores,
         canonicalRoleProfiles,
-        { coachingStyle: policyCoachingStyle },
+        { coachingStyle: policyCoachingStyle, benchmarkStats: canonicalBenchmarkStats },
       );
+      // 정책이 모델 문장을 바꾼 칸 수를 남긴다. 문장 내용은 남기지 않는다. 보류가 얼마나 잦은지 운영에서 볼 수 있게 한다.
+      const replacedFields = listReplacedSquadFields(rawResult, resultJson);
+      if (replacedFields.length > 0) console.info(`[AI-SQUAD] evidence policy replaced ${replacedFields.length} field(s): ${replacedFields.join(", ")}`);
     } catch {
       // 파싱 오류 문구에는 모델 원문 일부가 들어갈 수 있어 길이만 남긴다.
       console.warn(`[AI-SQUAD] Generated response could not be parsed (length=${generation.text.length})`);

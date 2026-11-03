@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { COACHING_JUDGMENT_WITHHELD, sanitizeAiCoachingLanguage } from "@/lib/pubg-analysis/aiCoachingQuality";
 import { applySquadEvidencePolicy } from "@/lib/pubg-analysis/squadAiEvidence";
 import {
+  hasSquadFeedbackContent,
   isSquadWithheldCopy,
   sanitizeSquadAbilityClaims,
   sanitizeSquadAbilityText,
@@ -173,5 +174,23 @@ describe("squad evidence copy by coaching style", () => {
       expect(JSON.stringify(once)).not.toMatch(/에임|뇌 빼고|연막을 아꼈/);
       expect(once.squadGrade).toBeNull();
     }
+  });
+});
+
+describe("hasSquadFeedbackContent", () => {
+  it("비어 있거나 보류·넘김 문장뿐이면 보여줄 내용이 없다", () => {
+    expect(hasSquadFeedbackContent("")).toBe(false);
+    expect(hasSquadFeedbackContent("   ")).toBe(false);
+    expect(hasSquadFeedbackContent(undefined)).toBe(false);
+    expect(hasSquadFeedbackContent(null)).toBe(false);
+    for (const line of SQUAD_SPICY_PASS_LINES) expect(hasSquadFeedbackContent(line)).toBe(false);
+    expect(hasSquadFeedbackContent(COACHING_JUDGMENT_WITHHELD)).toBe(false);
+    expect(hasSquadFeedbackContent(squadMetricWithheldCopy("mild", "연막 구출"))).toBe(false);
+    expect(hasSquadFeedbackContent(`${SQUAD_SPICY_PASS_LINES[0]} ${SQUAD_SPICY_PASS_LINES[1]}`)).toBe(false);
+  });
+
+  it("측정값이 든 문장이 하나라도 있으면 보여준다", () => {
+    expect(hasSquadFeedbackContent("팀 딜 비중이 45%입니다.")).toBe(true);
+    expect(hasSquadFeedbackContent(`${SQUAD_SPICY_PASS_LINES[0]} 킬 비중 22%입니다.`)).toBe(true);
   });
 });

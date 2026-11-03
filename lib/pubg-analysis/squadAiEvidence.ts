@@ -1,6 +1,6 @@
 import { requiresRescueOpportunityEvidence } from './aiCoachingQuality';
 import { isSquadWithheldCopy, squadMetricWithheldCopy, squadWithheldCopy } from './squadAiPolicy';
-import { isSquadTradeLatencyEvaluable } from './squadEvidenceSamples';
+import { isSquadReviveRateEvaluable, isSquadTradeLatencyEvaluable } from './squadEvidenceSamples';
 
 // Keep absent observations out of coaching, including results read from cache.
 const metrics = [
@@ -24,6 +24,47 @@ export function hasSquadObservations(stats: Record<string, unknown>): boolean {
 export interface SquadEvidencePolicyOptions {
   // "spicy"만 넘김 문장으로 바꾼다. 그 밖의 값은 기존 보류 문구를 쓴다.
   coachingStyle?: string;
+  // 전체 팀 평균 소생률을 문장 속 퍼센트와 대조할 때 쓴다. 없으면 우리 팀 소생률만 인정한다.
+  benchmarkStats?: Record<string, unknown> | null;
+}
+
+// 생존 케어 점수가 없을 때 막는 말: 능력 평가와 근거 없는 구조 비율. 측정된 소생률 문장은 아래에서 따로 살린다.
+const RESCUE_ABILITY_PATTERN = /생존\s*케어|(?:소생|부활|연막|구출|복구).{0,20}(?:능력|우수|부족|잘하|못하|훌륭|평균\s*대비)/i;
+const RESCUE_RATE_PATTERN = /(?:소생|부활|연막|구출|복구).{0,20}(?:성공률|확률|비율|률|퍼센트|%)/i;
+
+function oneDecimal(value: number): string {
+  return (Math.round(value * 10) / 10).toFixed(1);
+}
+
+/** 문장 속 퍼센트가 모두 측정된 소생률(우리 팀·전체 팀 평균)과 같으면 true다. 소생 표본이 기준 미만이면 항상 false다. */
+function citesOnlyMeasuredReviveRate(sentence: string, stats: Record<string, unknown>, benchmarkStats: Record<string, unknown> | null | undefined): boolean {
+  if (!isSquadReviveRateEvaluable(stats)) return false;
+  const knocks = Number(stats.totalTeammateKnocks);
+  const revives = Number(stats.totalRevives);
+  const allowed = new Set<string>();
+  if (Number.isFinite(knocks) && knocks > 0 && Number.isFinite(revives)) allowed.add(oneDecimal((revives / knocks) * 100));
+  const benchmark = Number(benchmarkStats?.avgReviveRate);
+  if (benchmarkStats?.avgReviveRate !== null && benchmarkStats?.avgReviveRate !== undefined && Number.isFinite(benchmark)) allowed.add(oneDecimal(benchmark));
+  const percents = Array.from(sentence.matchAll(/(\d+(?:\.\d+)?)\s*%/g), (match) => oneDecimal(Number.parseFloat(match[1])));
+  return percents.length > 0 && percents.every((percent) => allowed.has(percent));
+}
+
+/** 모델 원본과 정책 적용 결과를 비교해 바뀐 칸 이름만 돌려준다. 문장 내용은 담지 않아 로그에 남겨도 된다. */
+export function listReplacedSquadFields(raw: unknown, processed: unknown): string[] {
+  const before = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
+  const after = (processed && typeof processed === "object" ? processed : {}) as Record<string, any>;
+  const changed: string[] = [];
+  for (const field of ["summary", "strength", "weakness", "coaching", "overallOpinion"]) {
+    if (typeof before[field] === "string" && before[field] !== after[field]) changed.push(field);
+  }
+  if (Array.isArray(before.memberFeedbacks)) {
+    before.memberFeedbacks.forEach((member: any, index: number) => {
+      for (const field of ["praise", "fault", "advice"]) {
+        if (typeof member?.[field] === "string" && member[field] !== after.memberFeedbacks?.[index]?.[field]) changed.push(`memberFeedbacks[${index}].${field}`);
+      }
+    });
+  }
+  return changed;
 }
 
 export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unknown>, grade: string | null, scores?: Record<string, unknown>, roleProfiles: Array<{ name: string; shares?: Record<string, number | null> }> = [], options: SquadEvidencePolicyOptions = {}): T {
@@ -52,8 +93,12 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
       if (unavailable) return squadMetricWithheldCopy(coachingStyle, unavailable.label);
       // Observed counts remain useful even when the knock denominator/score
       // is missing. Withhold rates and ability judgments, not the real totals.
-      if (scores !== undefined && !isObserved(scores, "survivalCare")
-        && /생존\s*케어|(?:소생|부활|연막|구출|복구).{0,20}(?:성공률|확률|비율|률|퍼센트|%|능력|우수|부족|잘하|못하|훌륭|평균\s*대비)/i.test(sentence)) {
+      // 소생 점수가 있으면 능력 표현과 점수(N점) 문장은 허용한다. 퍼센트는 점수와 헷갈리기 쉬워 항상 측정된 소생률과 대조한다.
+      const reviveScoreObserved = scores !== undefined && isObserved(scores, "survivalCare");
+      if (scores !== undefined
+        && ((!reviveScoreObserved && RESCUE_ABILITY_PATTERN.test(sentence))
+          || (RESCUE_RATE_PATTERN.test(sentence) && (!reviveScoreObserved || /%/.test(sentence))
+            && !citesOnlyMeasuredReviveRate(sentence, stats, options.benchmarkStats)))) {
         return squadMetricWithheldCopy(coachingStyle, "생존 케어");
       }
       if (!grade && /(?:종합|스쿼드|협동|전체|시너지)\s*(?:등급|평가|점수)|총점|[SABCD][+-]?\s*(?:등급|Grade|급)|\b[SABCD][+-]?(?:입니다|라고\s*평가)/i.test(sentence)) {

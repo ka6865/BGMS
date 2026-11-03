@@ -21,6 +21,8 @@ import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { toast } from "sonner";
 import SquadCauseScenes, { SquadCauseSceneCardData } from "./SquadCauseScenes";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
+import { hasSquadFeedbackContent } from "@/lib/pubg-analysis/squadAiPolicy";
+import { SQUAD_GRADE_MIN_AXES, SQUAD_SCORE_AXES, type SquadScoreKey } from "@/lib/pubg-analysis/squadScore";
 import type { StatsPlatform } from "@/types/stats-page";
 
 import { createSquadRequestCache, type SquadRequestCache } from "@/lib/stats/squadRequestCache";
@@ -58,11 +60,21 @@ interface MatchSummaryItem {
   createdAt: string;
 }
 
+const RADAR_LABEL_CLASSES = [
+  "absolute top-0 text-[10px] text-zinc-300 font-semibold",
+  "absolute right-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-right",
+  "absolute right-8 bottom-4 text-[10px] text-zinc-300 font-semibold",
+  "absolute left-8 bottom-4 text-[10px] text-zinc-300 font-semibold",
+  "absolute left-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-left",
+];
+
 interface SquadAnalysisData {
   calculationPendingMatchCount?: number;
   groupKey: string;
   teamMode?: "duo" | "squad";
   matchCount: number;
+  // 함께 뛴 최근 경기 수. 팀 지표는 이 중 상세 분석이 가능한(14일 보관 이내) matchCount경기로 계산한다.
+  latestMatchCount?: number;
   matchesSummary: MatchSummaryItem[];
   stats: {
     avgIsolation: number | null;
@@ -74,14 +86,11 @@ interface SquadAnalysisData {
     totalTeammateKnocks?: number | null;
     totalTradeKills?: number | null;
   };
-  scores: {
-    formation: number | null;
-    backupSpeed: number | null;
-    survivalCare: number | null;
-    focusFire: number | null;
-    teamWipe: number | null;
-  };
+  scores: Record<SquadScoreKey, number | null>;
   squadGrade: string | null;
+  gradeBasis?: { measuredAxes: number; totalAxes: number; score: number | null };
+  // 같은 팀원 조합의 최근 전적 기록. 상세 분석이 없는 판도 세므로 분석된 판보다 많을 수 있다.
+  recordedSummary?: { windowDays: number; total: number; analyzed: number; wins: number } | null;
   benchmarkStats?: {
     tier: string | null;
     avgIsolation: number | null;
@@ -614,30 +623,21 @@ export default function SquadAnalysisPanel({
     }, 80);
   };
 
-  // Helper to compute SVG polygon points for Radar Chart
-  const getRadarPoints = (scores: SquadAnalysisData["scores"]) => {
-    const metrics = [
-      scores.formation,    // Top
-      scores.backupSpeed,  // Right-Top
-      scores.survivalCare, // Right-Bottom
-      scores.focusFire,    // Left-Bottom
-      scores.teamWipe      // Left-Top
-    ];
-
-    // A missing score is not a zero score.  Suppress the measured-data
-    // polygon until every axis has an observed value so the chart cannot
-    // imply a collapse to the origin.
-    if (!metrics.every(isFinitePercentMetric)) return null;
-
-    return metrics.map((score, i) => {
-      const angle = (i * 72 - 90) * (Math.PI / 180);
-      const radius = 80 * (score / 100);
-      const x = 100 + radius * Math.cos(angle);
-      const y = 100 + radius * Math.sin(angle);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(" ");
+  // 레이더 꼭짓점 좌표. 측정되지 않은 축은 점을 찍지 않고, 측정된 축이 3개 이상일 때만 다각형을 그린다.
+  const radarVertex = (index: number, score: number) => {
+    const angle = (index * 72 - 90) * (Math.PI / 180);
+    const radius = 80 * (score / 100);
+    return { x: 100 + radius * Math.cos(angle), y: 100 + radius * Math.sin(angle) };
   };
-  const scoreLabel = (score: number | null) => formatObservedMetric(score);
+  const getRadarPoints = (scores: SquadAnalysisData["scores"]) => {
+    const vertices = SQUAD_SCORE_AXES.flatMap(({ key }, index) => {
+      const score = scores[key];
+      return isFinitePercentMetric(score) ? [radarVertex(index, score)] : [];
+    });
+    if (vertices.length < SQUAD_GRADE_MIN_AXES) return null;
+    return vertices.map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  };
+  const scoreLabel = (score: number | null, fallback = "측정 불가") => isFinitePercentMetric(score) ? String(score) : fallback;
   const radarPoints = analysisData ? getRadarPoints(analysisData.scores) : null;
 
   if (loadingList) {
@@ -755,6 +755,14 @@ export default function SquadAnalysisPanel({
       {analysisData && !loadingDetail && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
+          {analysisData.recordedSummary && analysisData.recordedSummary.total > 0 && (
+            <p className="lg:col-span-12 rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-xs leading-relaxed break-keep text-zinc-300">
+              최근 {analysisData.recordedSummary.windowDays}일 이 조합 {analysisData.recordedSummary.total}판 중 상세 분석된 {analysisData.recordedSummary.analyzed}판 기준입니다. 소생·백업·연막과 딜 균형은 분석된 판만, 순위 성과는 기록된 {analysisData.recordedSummary.total}판 전체로 계산합니다.
+              {analysisData.recordedSummary.total > analysisData.recordedSummary.analyzed
+                ? ` 나머지 ${analysisData.recordedSummary.total - analysisData.recordedSummary.analyzed}판은 전적 탭에서 경기 카드를 펼치면 분석에 반영됩니다.`
+                : ""}
+            </p>
+          )}
           {/* Left Panel: Synergy Radar Chart & Stats Summary */}
           <div className="lg:col-span-5 rounded-xl border border-zinc-800/60 bg-zinc-900/20 p-5 space-y-6">
             <div className="text-center">
@@ -816,23 +824,13 @@ export default function SquadAnalysisPanel({
                 )}
 
                 {/* Data Points */}
-                {radarPoints !== null && Array.from({ length: 5 }).map((_, i) => {
-                  const metrics = [
-                    analysisData.scores.formation,
-                    analysisData.scores.backupSpeed,
-                    analysisData.scores.survivalCare,
-                    analysisData.scores.focusFire,
-                    analysisData.scores.teamWipe
-                  ];
-                  const score = metrics[i];
+                {radarPoints !== null && SQUAD_SCORE_AXES.map(({ key }, i) => {
+                  const score = analysisData.scores[key];
                   if (!isFinitePercentMetric(score)) return null;
-                  const angle = (i * 72 - 90) * (Math.PI / 180);
-                  const radius = 80 * (score / 100);
-                  const x = 100 + radius * Math.cos(angle);
-                  const y = 100 + radius * Math.sin(angle);
+                  const { x, y } = radarVertex(i, score);
                   return (
                     <circle
-                      key={i}
+                      key={key}
                       cx={x}
                       cy={y}
                       r="3"
@@ -845,11 +843,9 @@ export default function SquadAnalysisPanel({
               </svg>
  
               {/* Dynamic Axis Labels */}
-              <div className="absolute top-0 text-[10px] text-zinc-300 font-semibold">대열 유지 ({scoreLabel(analysisData.scores.formation)})</div>
-              <div className="absolute right-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-right">백업 속도 ({scoreLabel(analysisData.scores.backupSpeed)})</div>
-              <div className="absolute right-8 bottom-4 text-[10px] text-zinc-300 font-semibold">생존 케어 ({scoreLabel(analysisData.scores.survivalCare)})</div>
-              <div className="absolute left-8 bottom-4 text-[10px] text-zinc-300 font-semibold">화력 집중 ({scoreLabel(analysisData.scores.focusFire)})</div>
-              <div className="absolute left-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-left">전멸 기여 ({scoreLabel(analysisData.scores.teamWipe)})</div>
+              {SQUAD_SCORE_AXES.map(({ key, label }, i) => (
+                <div key={key} className={RADAR_LABEL_CLASSES[i]}>{label} ({scoreLabel(analysisData.scores[key], "미측정")})</div>
+              ))}
             </div>
  
             {/* Synergy metrics key-value list */}
@@ -870,7 +866,9 @@ export default function SquadAnalysisPanel({
                         <InlineIconLabel icon="rank">{teamLabel} 협동 등급</InlineIconLabel>
                       </span>
                       <span className="text-purple-400 font-black text-sm tracking-wide bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/15">
-                        {analysisData.squadGrade ? `${analysisData.squadGrade} Grade` : "등급 보류"}
+                        {analysisData.squadGrade
+                          ? `${analysisData.squadGrade} Grade${analysisData.gradeBasis ? ` · 측정 ${analysisData.gradeBasis.measuredAxes}/${analysisData.gradeBasis.totalAxes}` : ""}`
+                          : "등급 보류"}
                       </span>
                     </div>
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
@@ -975,7 +973,7 @@ export default function SquadAnalysisPanel({
                           평균 {p.avgDamage === null ? "측정 불가" : `${Math.round(p.avgDamage)}딜`} / {p.avgKills === null ? "측정 불가" : `${p.avgKills}킬`}
                         </span>
                         {p.totalDamage !== undefined && p.totalKills !== undefined && (
-                          <span className="text-zinc-500 font-medium">총 {formatObservedMetric(p.totalDamage, "딜")} / {formatObservedMetric(p.totalKills, "킬")} ({formatObservedMetric(analysisData.matchCount, "판 누적")})</span>
+                          <span className="text-zinc-500 font-medium">총 {formatObservedMetric(typeof p.totalDamage === "number" && Number.isFinite(p.totalDamage) ? Math.round(p.totalDamage) : p.totalDamage, "딜")} / {formatObservedMetric(p.totalKills, "킬")} ({typeof analysisData.latestMatchCount === "number" && analysisData.latestMatchCount > analysisData.matchCount ? `최근 ${analysisData.latestMatchCount}판 중 상세 분석이 가능한 ` : ""}{formatObservedMetric(analysisData.matchCount, "판 누적")})</span>
                         )}
                       </div>
                     </div>
@@ -1063,7 +1061,7 @@ export default function SquadAnalysisPanel({
  
           {!analysisData.squadGrade && (
             <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 text-sm leading-relaxed break-keep text-amber-100/90">
-              미측정 지표가 있어 종합 등급은 보류합니다. AI 코칭은 확인된 경기 지표만으로 진행하며, 미측정 값을 0점으로 평가하지 않습니다.
+              측정된 항목이 부족해 종합 등급은 보류합니다. AI 코칭은 확인된 경기 지표만으로 진행하며, 미측정 값을 0점으로 평가하지 않습니다.
             </p>
           )}
           {aiError && (
@@ -1107,28 +1105,32 @@ export default function SquadAnalysisPanel({
                   {/* Detail Content */}
                   <div className="w-full md:col-span-9 space-y-4 min-w-0">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40">
+                      <div className={`rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40 ${hasSquadFeedbackContent(aiFeedback.weakness) ? "" : "sm:col-span-2"}`}>
                         <h5 className="text-xs font-bold text-green-400 mb-1 flex items-center gap-1.5">
                           <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
                           {teamLabel} 협동 강점
                         </h5>
                         <p className="text-xs text-zinc-200 leading-relaxed font-medium">{aiFeedback.strength}</p>
                       </div>
-                      <div className="rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40">
-                        <h5 className="text-xs font-bold text-red-400 mb-1 flex items-center gap-1.5">
-                          <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                          {teamLabel} 취약점
-                        </h5>
-                        <p className="text-xs text-zinc-200 leading-relaxed font-medium">{aiFeedback.weakness}</p>
-                      </div>
+                      {hasSquadFeedbackContent(aiFeedback.weakness) && (
+                        <div className="rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40">
+                          <h5 className="text-xs font-bold text-red-400 mb-1 flex items-center gap-1.5">
+                            <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                            {teamLabel} 취약점
+                          </h5>
+                          <p className="text-xs text-zinc-200 leading-relaxed font-medium">{aiFeedback.weakness}</p>
+                        </div>
+                      )}
                     </div>
      
-                    <div className="rounded-lg bg-purple-950/10 p-4 border border-purple-500/10">
-                      <h5 className="text-xs font-bold text-purple-300 mb-1">
-                        <InlineIconLabel icon="info" iconSize={13}>전술적 개선 코칭 제안</InlineIconLabel>
-                      </h5>
-                      <p className="text-xs text-zinc-100 leading-relaxed font-medium">{aiFeedback.coaching}</p>
-                    </div>
+                    {hasSquadFeedbackContent(aiFeedback.coaching) && (
+                      <div className="rounded-lg bg-purple-950/10 p-4 border border-purple-500/10">
+                        <h5 className="text-xs font-bold text-purple-300 mb-1">
+                          <InlineIconLabel icon="info" iconSize={13}>전술적 개선 코칭 제안</InlineIconLabel>
+                        </h5>
+                        <p className="text-xs text-zinc-100 leading-relaxed font-medium">{aiFeedback.coaching}</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* 팀원 개별 피드백 */}
@@ -1155,21 +1157,25 @@ export default function SquadAnalysisPanel({
                                 <p className="text-zinc-300 pl-1 font-medium">{member.praise}</p>
                               </div>
                               
-                              {/* 못한 점 */}
-                              <div className="text-[11px] leading-relaxed">
-                                <div className="font-bold text-red-400 flex items-center gap-1 mb-0.5">
-                                  <InlineIconLabel icon="alert" iconSize={12}>못한 점</InlineIconLabel>
+                              {/* 못한 점: 근거가 없어 넘긴 문장뿐이면 칸을 만들지 않는다 */}
+                              {hasSquadFeedbackContent(member.fault) && (
+                                <div className="text-[11px] leading-relaxed">
+                                  <div className="font-bold text-red-400 flex items-center gap-1 mb-0.5">
+                                    <InlineIconLabel icon="alert" iconSize={12}>못한 점</InlineIconLabel>
+                                  </div>
+                                  <p className="text-zinc-300 pl-1 font-medium">{member.fault}</p>
                                 </div>
-                                <p className="text-zinc-300 pl-1 font-medium">{member.fault}</p>
-                              </div>
+                              )}
                               
                               {/* 피드백 */}
-                              <div className="text-[11px] leading-relaxed">
-                                <div className="font-bold text-purple-400 flex items-center gap-1 mb-0.5">
-                                  <InlineIconLabel icon="info" iconSize={12}>개인 피드백</InlineIconLabel>
+                              {hasSquadFeedbackContent(member.advice) && (
+                                <div className="text-[11px] leading-relaxed">
+                                  <div className="font-bold text-purple-400 flex items-center gap-1 mb-0.5">
+                                    <InlineIconLabel icon="info" iconSize={12}>개인 피드백</InlineIconLabel>
+                                  </div>
+                                  <p className="text-zinc-300 pl-1 font-medium">{member.advice}</p>
                                 </div>
-                                <p className="text-zinc-300 pl-1 font-medium">{member.advice}</p>
-                              </div>
+                              )}
                             </div>
                           </div>
                         ))}

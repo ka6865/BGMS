@@ -129,14 +129,13 @@ describe("squad punchline team facts", () => {
     expect(picks.map((item) => item.id)).not.toContain("best_rank_top");
   });
 
-  it("uses the squad grade only when all five scores are measured", () => {
-    const measured = { formation: 80, backupSpeed: 70, survivalCare: 60, focusFire: 75, teamWipe: 65 };
-    const high = selectSquadPunchlines(teamInput({ squadGrade: "A", scores: measured }));
-    expect(high.find((item) => item.id === "squad_grade_high")).toMatchObject({ kind: "hype", fact: "종합 협동 등급은 A입니다." });
-    const withheld = selectSquadPunchlines(teamInput({ squadGrade: "A", scores: { ...measured, focusFire: null } }));
-    expect(withheld.map((item) => item.id)).not.toContain("squad_grade_high");
-    const notGraded = selectSquadPunchlines(teamInput({ squadGrade: null, scores: measured }));
-    expect(notGraded.map((item) => item.id)).not.toContain("squad_grade_high");
+  it("does not turn the squad grade into a joke fact", () => {
+    const measured = { survivalCare: 80, backupSpeed: 70, smokeRescue: 60, damageBalance: 75, placement: 65 };
+    for (const squadGrade of ["A", "C+", null]) {
+      const ids = selectSquadPunchlines(teamInput({ squadGrade, scores: measured })).map((item) => item.id);
+      expect(ids).not.toContain("squad_grade_high");
+      expect(ids).not.toContain("squad_grade_low");
+    }
   });
 
   it("never builds facts from unmeasured isolation, cover, or wipe metrics", () => {
@@ -169,8 +168,8 @@ describe("squad punchline team facts", () => {
     expect(first.filter((item) => item.kind === "roast").length).toBeLessThanOrEqual(SQUAD_PUNCHLINE_KIND_LIMIT);
     expect(first.filter((item) => item.kind === "hype").length).toBeLessThanOrEqual(SQUAD_PUNCHLINE_KIND_LIMIT);
     expect(first.length).toBeGreaterThanOrEqual(2);
-    // 가중치 순서: 등급(0.5) → 백업(0.47) → 딜 편차(0.46) → 구조 성공률(0.41) → 최고 순위(0.3)
-    expect(first.map((item) => item.id)).toEqual(["squad_grade_high", "backup_slow", "damage_spread", "revive_low", "best_rank_top"]);
+    // 가중치 순서: 백업(0.47) → 딜 편차(0.46) → 구조 성공률(0.41) → 최고 순위(0.3)
+    expect(first.map((item) => item.id)).toEqual(["backup_slow", "damage_spread", "revive_low", "best_rank_top"]);
   });
 
   it("does not pad the list when only one fact is measurable", () => {
@@ -254,15 +253,28 @@ describe("squad prompt punchline block", () => {
     const { systemInstruction } = promptFor("spicy");
     expect(systemInstruction).toContain("[PUNCHLINE FACTS] are the only material");
     expect(systemInstruction).toContain("Copy every number from the facts exactly");
-    expect(systemInstruction).toContain("이건 기록이 없어서 오늘은 봐드립니다.");
-    expect(systemInstruction).toContain("증거 불충분, 이번 판은 무죄 방면.");
+    // 근거 없는 칸은 넘김 문장이 아니라 빈 문자열로 둔다. 화면이 빈 칸을 숨긴다.
+    expect(systemInstruction).toContain('output an empty string ("") for that field');
+    expect(systemInstruction).not.toContain("이건 기록이 없어서 오늘은 봐드립니다.");
+    expect(systemInstruction).not.toContain("증거 불충분, 이번 판은 무죄 방면.");
     expect(systemInstruction).not.toContain("현재 기록만으로 개인의 약점을 단정하기 어렵습니다.");
+    expect(systemInstruction).not.toContain("장부");
   });
 
   it("keeps the mild persona to praise and advice from the same facts", () => {
     const { systemInstruction } = promptFor("mild");
     expect(systemInstruction).toContain("PUNCHLINE FACTS are for praise and practice advice only");
-    expect(systemInstruction).toContain("현재 기록만으로 개인의 약점을 단정하기 어렵습니다.");
+    expect(systemInstruction).toContain('output an empty string ("")');
+    expect(systemInstruction).not.toContain("현재 기록만으로 개인의 약점을 단정하기 어렵습니다.");
     expect(systemInstruction).not.toContain("증거 불충분, 이번 판은 무죄 방면.");
+  });
+
+  it("gives both personas the measured observations as the basis for fault and advice", () => {
+    for (const style of ["spicy", "mild"] as const) {
+      const { prompt, systemInstruction } = promptFor(style);
+      expect(prompt).toContain("[MEASURED OBSERVATIONS]");
+      expect(systemInstruction).toContain("[MEASURED OBSERVATIONS] is the material for fault and advice");
+      expect(systemInstruction).toContain("never copy a bracket tag");
+    }
   });
 });

@@ -77,7 +77,7 @@ describe("squad OG benchmark-unavailable state", () => {
     expect(mockImageResponse).toHaveBeenCalledOnce();
     const text = collectText(mockImageResponse.mock.calls[0][0]);
     expect(text).toContain("분석 데이터 준비 중");
-    expect(text).toContain("측정 불가");
+    expect(text).toContain("미측정");
     expect(text.filter((entry) => entry === "B")).toHaveLength(0);
     expect(text).not.toContain("50점");
   });
@@ -99,6 +99,7 @@ describe("squad OG benchmark-unavailable state", () => {
   it("keeps measured grade and scores when canonical analysis succeeds", async () => {
     mockGetSquadAnalysisData.mockResolvedValue({
       squadGrade: "A",
+      gradeBasis: { measuredAxes: 5, totalAxes: 5, score: 80 },
       matchCount: 5,
       stats: {
         avgIsolation: 1.2,
@@ -109,7 +110,7 @@ describe("squad OG benchmark-unavailable state", () => {
         totalTeamWipes: 2,
         totalTeammateKnocks: 4,
       },
-      scores: { formation: 90, backupSpeed: 85, survivalCare: 80, focusFire: 75, teamWipe: 70 },
+      scores: { survivalCare: 90, backupSpeed: 85, smokeRescue: 80, damageBalance: 75, placement: 70 },
       roleProfiles: [{ name: "Player_A" }, { name: "Teammate_B" }],
       benchmarkStats: { tier: "A", avgIsolation: 1.3, avgTradeLatency: 9000, avgReviveRate: 20, avgSmokeRate: 10, avgTeamWipes: 2 },
     });
@@ -125,7 +126,7 @@ describe("squad OG benchmark-unavailable state", () => {
     expect(text).not.toContain("분석 데이터 준비 중");
   });
 
-  it("fails closed when benchmark evidence is complete but user measurements are partial", async () => {
+  it("fails closed when the server did not report enough measured axes", async () => {
     mockGetSquadAnalysisData.mockResolvedValue({
       squadGrade: "B",
       matchCount: 5,
@@ -138,7 +139,7 @@ describe("squad OG benchmark-unavailable state", () => {
         totalTeamWipes: 2,
         totalTeammateKnocks: 4,
       },
-      scores: { formation: null, backupSpeed: 85, survivalCare: 80, focusFire: 75, teamWipe: 70 },
+      scores: { survivalCare: null, backupSpeed: 85, smokeRescue: 80, damageBalance: 75, placement: 70 },
       benchmarkStats: { tier: "B", avgIsolation: 1.3, avgTradeLatency: 9000, avgReviveRate: 20, avgSmokeRate: 10, avgTeamWipes: 2 },
       roleProfiles: [{ name: "Player_A" }],
     });
@@ -157,6 +158,7 @@ describe("squad OG benchmark-unavailable state", () => {
   it("renders a measured zero latency instead of treating it as unavailable", async () => {
     mockGetSquadAnalysisData.mockResolvedValue({
       squadGrade: "A",
+      gradeBasis: { measuredAxes: 5, totalAxes: 5, score: 90 },
       matchCount: 1,
       stats: {
         avgIsolation: 1,
@@ -167,7 +169,7 @@ describe("squad OG benchmark-unavailable state", () => {
         totalTeamWipes: 1,
         totalTeammateKnocks: 1,
       },
-      scores: { formation: 90, backupSpeed: 90, survivalCare: 90, focusFire: 90, teamWipe: 90 },
+      scores: { survivalCare: 90, backupSpeed: 90, smokeRescue: 90, damageBalance: 90, placement: 90 },
       roleProfiles: [{ name: "Player_A" }],
       benchmarkStats: { tier: "A", avgIsolation: 1.3, avgTradeLatency: 9000, avgReviveRate: 20, avgSmokeRate: 10, avgTeamWipes: 2 },
     });
@@ -178,5 +180,43 @@ describe("squad OG benchmark-unavailable state", () => {
 
     const text = collectText(mockImageResponse.mock.calls[0][0]);
     expect(text).toContain("0.00초");
+  });
+
+  const request = () => new NextRequest("http://localhost/api/og/squad?nickname=Player_A&platform=steam&groupKey=Teammate_B");
+
+  it("측정 항목이 3개 미만이면 등급이 있어도 준비 중 상태로 둔다", async () => {
+    mockGetSquadAnalysisData.mockResolvedValue({
+      squadGrade: "B",
+      gradeBasis: { measuredAxes: 2, totalAxes: 5, score: 60 },
+      matchCount: 5,
+      scores: { survivalCare: 80, backupSpeed: null, smokeRescue: null, damageBalance: 70, placement: null },
+      roleProfiles: [{ name: "Player_A" }],
+    });
+    await GET(request());
+    const text = collectText(mockImageResponse.mock.calls[0][0]);
+    expect(text).toContain("분석 데이터 준비 중");
+    expect(text.filter((entry) => entry === "B")).toHaveLength(0);
+  });
+
+  it("벤치마크와 고립도 값이 없어도 측정 4/5 항목으로 등급을 그리고 미측정 항목은 표시한다", async () => {
+    mockGetSquadAnalysisData.mockResolvedValue({
+      squadGrade: "B+",
+      gradeBasis: { measuredAxes: 4, totalAxes: 5, score: 52.1 },
+      matchCount: 6,
+      recordedSummary: { windowDays: 14, total: 19, analyzed: 6, wins: 2 },
+      stats: { avgIsolation: null, avgTradeLatency: 12409, totalRevives: 14, totalTeammateKnocks: 33 },
+      scores: { survivalCare: 71, backupSpeed: null, smokeRescue: 36, damageBalance: 24, placement: 48 },
+      roleProfiles: [{ name: "Player_A" }, { name: "B" }, { name: "C" }, { name: "D" }],
+      benchmarkStats: { tier: null },
+    });
+    await GET(request());
+    const text = collectText(mockImageResponse.mock.calls[0][0]);
+    expect(text).toContain("B+");
+    expect(text).toContain("71점");
+    expect(text).toContain("미측정");
+    expect(text).toContain("12.41초");
+    expect(text.join("")).toContain("측정 4/5 항목");
+    expect(text.join("")).toContain("최근 14일 19경기 중 상세 분석 가능한 6경기 기준");
+    expect(text).not.toContain("분석 데이터 준비 중");
   });
 });

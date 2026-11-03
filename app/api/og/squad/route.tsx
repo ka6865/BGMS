@@ -3,8 +3,8 @@
 
 import { ImageResponse } from "next/og";
 import { NextRequest } from "next/server";
-import { isCanonicalBenchmarkTier } from "@/lib/pubg-analysis/benchmarkLookup";
 import { getSquadAnalysisData } from "@/lib/pubg-analysis/squadAnalysis";
+import { SQUAD_GRADE_MIN_AXES } from "@/lib/pubg-analysis/squadScore";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 export const runtime = "nodejs";
@@ -20,65 +20,11 @@ async function loadOgFont(url: string) {
   return response.arrayBuffer();
 }
 
-const REQUIRED_BENCHMARK_STATS = [
-  "avgIsolation",
-  "avgTradeLatency",
-  "avgReviveRate",
-  "avgSmokeRate",
-  "avgTeamWipes",
-] as const;
+const SCORE_KEYS = ["survivalCare", "backupSpeed", "smokeRescue", "damageBalance", "placement"] as const;
+type ScoreKey = (typeof SCORE_KEYS)[number];
 
-const REQUIRED_USER_STATS = [
-  "avgIsolation",
-  "avgTradeLatency",
-  "totalSmokeRescues",
-  "totalRevives",
-  "avgCoverRate",
-  "totalTeamWipes",
-  "totalTeammateKnocks",
-] as const;
-
-const REQUIRED_SCORES = [
-  "formation",
-  "backupSpeed",
-  "survivalCare",
-  "focusFire",
-  "teamWipe",
-] as const;
-
-function hasCompleteBenchmarkStats(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const candidate = value as Record<string, unknown>;
-  if (!isCanonicalBenchmarkTier(candidate.tier)) return false;
-  return REQUIRED_BENCHMARK_STATS.every((field) => {
-    const metric = candidate[field];
-    return typeof metric === "number" && Number.isFinite(metric) && metric >= 0;
-  });
-}
-
-function hasFiniteNonNegative(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function hasCompleteUserEvidence(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const candidate = value as Record<string, unknown>;
-  const matchCount = candidate.matchCount;
-  if (typeof matchCount !== "number" || !Number.isInteger(matchCount) || matchCount <= 0) return false;
-
-  const stats = candidate.stats;
-  if (!stats || typeof stats !== "object" || Array.isArray(stats)) return false;
-  const statValues = stats as Record<string, unknown>;
-  if (!REQUIRED_USER_STATS.every((field) => hasFiniteNonNegative(statValues[field]))) return false;
-  if ((statValues.avgCoverRate as number) > 1) return false;
-
-  const scores = candidate.scores;
-  if (!scores || typeof scores !== "object" || Array.isArray(scores)) return false;
-  const scoreValues = scores as Record<string, unknown>;
-  return REQUIRED_SCORES.every((field) => {
-    const score = scoreValues[field];
-    return hasFiniteNonNegative(score) && score <= 100;
-  });
+function finiteScore(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null;
 }
 
 export async function GET(request: NextRequest) {
@@ -89,22 +35,19 @@ export async function GET(request: NextRequest) {
 
   let squadGrade: string | null = null;
   let matchCount = 0;
+  let recordedTotal = 0;
+  let measuredAxes = 0;
+  let totalAxes: number = SCORE_KEYS.length;
   let membersCount = 4;
-  let stats = {
-    avgIsolation: null as number | null,
-    avgTradeLatency: null as number | null,
-    totalSmokeRescues: null as number | null,
-    totalRevives: null as number | null,
-    avgCoverRate: null as number | null,
-    totalTeamWipes: null as number | null,
-    totalTeammateKnocks: null as number | null,
-  };
-  let scores = {
-    formation: null as number | null,
-    backupSpeed: null as number | null,
-    survivalCare: null as number | null,
-    focusFire: null as number | null,
-    teamWipe: null as number | null,
+  let tradeLatencyMs: number | null = null;
+  let revives: number | null = null;
+  let knocks: number | null = null;
+  let scores: Record<ScoreKey, number | null> = {
+    survivalCare: null,
+    backupSpeed: null,
+    smokeRescue: null,
+    damageBalance: null,
+    placement: null,
   };
   let hasData = false;
 
@@ -115,14 +58,19 @@ export async function GET(request: NextRequest) {
       if (privateResponse) return privateResponse;
       const data = await getSquadAnalysisData(nickname, platform, groupKey);
       if (data && !("error" in data) && !("message" in data)) {
+        // 등급은 서버가 측정된 항목으로 계산한 값만 쓴다. 항목이 모자라면 준비 중 상태로 둔다.
         const candidateGrade = typeof data.squadGrade === "string" ? data.squadGrade.trim() : "";
-        if (isCanonicalBenchmarkTier(candidateGrade)
-          && hasCompleteBenchmarkStats(data.benchmarkStats)
-          && hasCompleteUserEvidence(data)) {
+        const basis = data.gradeBasis;
+        if (/^[SABCD][+-]?$/.test(candidateGrade) && basis && basis.measuredAxes >= SQUAD_GRADE_MIN_AXES) {
           squadGrade = candidateGrade;
+          measuredAxes = basis.measuredAxes;
+          totalAxes = basis.totalAxes;
           matchCount = data.matchCount || 0;
-          stats = data.stats || stats;
-          scores = data.scores || scores;
+          recordedTotal = data.recordedSummary?.total ?? 0;
+          scores = Object.fromEntries(SCORE_KEYS.map((key) => [key, finiteScore(data.scores?.[key])])) as Record<ScoreKey, number | null>;
+          tradeLatencyMs = typeof data.stats?.avgTradeLatency === "number" ? data.stats.avgTradeLatency : null;
+          revives = typeof data.stats?.totalRevives === "number" ? data.stats.totalRevives : null;
+          knocks = typeof data.stats?.totalTeammateKnocks === "number" ? data.stats.totalTeammateKnocks : null;
           if (data.roleProfiles) {
             membersCount = data.roleProfiles.length;
           }
@@ -281,12 +229,12 @@ export async function GET(request: NextRequest) {
                 님의 {membersCount}인 고정 파티 스쿼드 리포트
               </div>
               <div style={{ display: hasData ? "flex" : "none", fontSize: "13px", color: "#6b7280", fontWeight: "600", marginTop: "2px" }}>
-                최근 스쿼드 파티 {matchCount}경기 전술 데이터 집계 결과
+                {recordedTotal > matchCount ? `최근 14일 ${recordedTotal}경기 중 상세 분석 가능한 ${matchCount}경기 기준` : `최근 14일 상세 분석 가능한 ${matchCount}경기 기준`}
               </div>
             </div>
 
-            {/* 등급 메달 배지. Benchmark-unavailable responses never render a
-                synthetic grade; they keep an explicit preparing state instead. */}
+            {/* 등급 메달 배지. 측정 항목이 부족하면 가짜 등급을 그리지 않고
+                준비 중 상태를 보여준다. */}
             {hasData ? (
               <div style={{ display: "flex", alignItems: "center", gap: "20px", marginTop: "10px" }}>
                 <div
@@ -316,14 +264,14 @@ export async function GET(request: NextRequest) {
                   <span style={{ fontSize: "12px", color: "#6b7280", fontWeight: "800", letterSpacing: "2px" }}>COOPERATIVE GRADE</span>
                   <span style={{ fontSize: "20px", color: "#e4e4e7", fontWeight: "800" }}>협동 시너지 분석 등급</span>
                   <span style={{ fontSize: "13px", color: "#a1a1aa", fontWeight: "500", maxWidth: "280px", lineHeight: "1.4" }}>
-                    대열 안정성, 백업 속도, 소생 지원 등을 종합 평가한 스쿼드 전술 티어입니다.
+                    소생·백업·연막·딜 균형·순위 성과를 고정 기준 점수로 평가한 협동 등급입니다. 측정 {measuredAxes}/{totalAxes} 항목 기준이며 다른 팀과의 순위가 아닙니다.
                   </span>
                 </div>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "10px" }}>
                 <span style={{ fontSize: "24px", color: "#e4e4e7", fontWeight: "800" }}>분석 데이터 준비 중</span>
-                <span style={{ fontSize: "14px", color: "#a1a1aa", fontWeight: "500" }}>신뢰할 수 있는 스쿼드 벤치마크 표본이 아직 충분하지 않습니다.</span>
+                <span style={{ fontSize: "14px", color: "#a1a1aa", fontWeight: "500" }}>상세 분석된 경기나 측정 항목이 아직 부족합니다. 전적 탭에서 경기를 펼쳐 분석을 쌓아 주세요.</span>
               </div>
             )}
           </div>
@@ -346,11 +294,11 @@ export async function GET(request: NextRequest) {
 
             {/* 5가지 지표 그래프 목록 */}
             {[
-              { label: "대열 유지 (Formation)", score: scores.formation, color: "#818cf8", bg: "rgba(99, 102, 241, 0.15)" },
+              { label: "소생률 (Revive Rate)", score: scores.survivalCare, color: "#34d399", bg: "rgba(52, 211, 153, 0.15)" },
               { label: "백업 속도 (Backup Speed)", score: scores.backupSpeed, color: "#f43f5e", bg: "rgba(244, 63, 148, 0.15)" },
-              { label: "생존 케어 (Survival Care)", score: scores.survivalCare, color: "#34d399", bg: "rgba(52, 211, 153, 0.15)" },
-              { label: "화력 집중 (Focus Fire)", score: scores.focusFire, color: "#fbbf24", bg: "rgba(251, 191, 36, 0.15)" },
-              { label: "전멸 기여 (Squad Wipe)", score: scores.teamWipe, color: "#c084fc", bg: "rgba(192, 132, 252, 0.15)" },
+              { label: "연막 구출 (Smoke Rescue)", score: scores.smokeRescue, color: "#818cf8", bg: "rgba(99, 102, 241, 0.15)" },
+              { label: "딜 균형 (Damage Balance)", score: scores.damageBalance, color: "#fbbf24", bg: "rgba(251, 191, 36, 0.15)" },
+              { label: "순위 성과 (Placement)", score: scores.placement, color: "#c084fc", bg: "rgba(192, 132, 252, 0.15)" },
             ].map((metric) => (
               <div
                 key={metric.label}
@@ -366,7 +314,7 @@ export async function GET(request: NextRequest) {
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: "13px", color: "#d1d5db", fontWeight: "700" }}>{metric.label}</span>
-                  <span style={{ fontSize: "15px", color: metric.color, fontWeight: "900" }}>{metric.score === null ? "측정 불가" : `${metric.score}점`}</span>
+                  <span style={{ fontSize: "15px", color: metric.color, fontWeight: "900" }}>{metric.score === null ? "미측정" : `${metric.score}점`}</span>
                 </div>
                 <div style={{ display: "flex", width: "100%", height: "8px", background: "rgba(255, 255, 255, 0.06)", borderRadius: "4px", overflow: "hidden" }}>
                   <div
@@ -387,13 +335,13 @@ export async function GET(request: NextRequest) {
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                 <span style={{ fontSize: "10px", color: "#6b7280", fontWeight: "800" }}>AVG TRADE LATENCY</span>
                 <span style={{ display: "flex", fontSize: "14px", color: "#e4e4e7", fontWeight: "800" }}>
-                  {stats.avgTradeLatency !== null && Number.isFinite(stats.avgTradeLatency) && stats.avgTradeLatency >= 0 ? `${(stats.avgTradeLatency / 1000).toFixed(2)}초` : "측정 불가"}
+                  {tradeLatencyMs !== null && Number.isFinite(tradeLatencyMs) && tradeLatencyMs >= 0 ? `${(tradeLatencyMs / 1000).toFixed(2)}초` : "측정 불가"}
                 </span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-end" }}>
-                <span style={{ fontSize: "10px", color: "#6b7280", fontWeight: "800" }}>AVG ISOLATION RATE</span>
+                <span style={{ fontSize: "10px", color: "#6b7280", fontWeight: "800" }}>REVIVES / KNOCKS</span>
                 <span style={{ display: "flex", fontSize: "14px", color: "#e4e4e7", fontWeight: "800" }}>
-                  {stats.avgIsolation === null ? "측정 불가" : `${stats.avgIsolation} (평균)`}
+                  {revives !== null && knocks !== null ? `${revives}회 / ${knocks}회` : "측정 불가"}
                 </span>
               </div>
             </div>

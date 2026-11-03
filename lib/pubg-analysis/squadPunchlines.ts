@@ -206,21 +206,7 @@ function teamCandidates(input: SquadPunchlineInput): Candidate[] {
     }
   }
 
-  // 종합 등급은 다섯 점수가 모두 측정됐을 때만 재료가 된다. 등급 보류 상태는 재료가 아니다.
-  const grade = typeof input.squadGrade === "string" ? input.squadGrade.trim() : "";
-  const scores = input.scores ?? {};
-  const scoresObserved = ["formation", "backupSpeed", "survivalCare", "focusFire", "teamWipe"]
-    .every((key) => {
-      const value = finiteNonNegative(scores[key]);
-      return value !== null && value <= 100;
-    });
-  if (grade && scoresObserved) {
-    if (/^[SAB][+-]?$/.test(grade)) {
-      candidates.push({ id: "squad_grade_high", kind: "hype", metric: "squadGrade", fact: `종합 협동 등급은 ${grade}입니다.`, weight: 0.5 });
-    } else if (/^[CD][+-]?$/.test(grade)) {
-      candidates.push({ id: "squad_grade_low", kind: "roast", metric: "squadGrade", fact: `종합 협동 등급은 ${grade}입니다.`, weight: 0.5 });
-    }
-  }
+  // 종합 등급은 화면 카드에 이미 보이므로 농담 재료로 쓰지 않는다. 같은 말을 되풀이하면 다른 칸이 비게 된다.
 
   return candidates;
 }

@@ -2,6 +2,8 @@ import { buildCalculationPendingMatch } from "./calculationAvailability";
 import { aggregateSquadObservations, SQUAD_OBSERVATION_VERSION } from './squadObservations';
 import { sumTeamBenchmarkRows, toTeamBenchmarkStats, type TeamBenchmarkRow } from "./teamBenchmark";
 import { aggregateSquadFocusFire } from "./squadFocusFire";
+import { computeSquadGrade, computeSquadScores } from "./squadScore";
+import { readRecordedSquadMatches } from "./squadRecordedMatches";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import {
   extractSquadCauseScenes,
@@ -12,7 +14,6 @@ import { hasSupportedCalculation, getValidFullResultForMatch, normalizePlatform 
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 import {
-  selectBestMatches,
   selectRecentMatches,
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
@@ -205,7 +206,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     const latestSelection = selectRecentMatches(selectCandidates(value.matches), { limit: 10 });
     const latestMatches = latestSelection.selected.map((candidate) => candidate.value);
     const supportedCandidates = latestSelection.selected.filter(candidate => !candidate.value.__calculationPending);
-    const bestMatches = selectBestMatches(selectSquadAnalysisCandidates(supportedCandidates), { limit: 5 }).map((candidate) => candidate.value);
+    const bestMatches = selectSquadAnalysisCandidates(supportedCandidates).map((candidate) => candidate.value);
     selectedGroupMatches.set(normalizedKey, latestMatches);
     bestGroupMatches.set(normalizedKey, bestMatches);
     return {
@@ -299,11 +300,6 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     });
   });
 
-  // There is no validated team isolation/wipe/cover observation or team
-  // benchmark population yet. Individual player rows cannot stand in for it.
-  // Do not fetch personal benchmarks just to discard them after two queries.
-  const scores = { formation:null, backupSpeed:null, survivalCare:null, focusFire:null, teamWipe:null };
-  const squadGrade = null;
 
   const totalStats = { damage: 0, kills: 0, assists: 0, dbnos: 0 };
   squadMemberKeys.forEach(key => {
@@ -386,6 +382,38 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     };
   });
 
+  const recordedSummary = await readRecordedSquadMatches({
+    supabase,
+    playerId: lowerNickname,
+    platform: cachePlatform,
+    teamMode: selectedGroup.teamMode,
+    teammateNames: selectedGroup.members,
+    analyzedMatchIds: new Set(analysisMatches.map(match => match.match_id)),
+  });
+
+  const teamStats = {
+    avgIsolation: null,
+    avgTradeLatency: squadObservation.avgTradeLatency === null ? null : Math.round(squadObservation.avgTradeLatency),
+    totalSmokeRescues: squadObservation.smokeRescues,
+    totalRevives: squadObservation.revives,
+    avgCoverRate: null,
+    totalTeamWipes: null,
+    totalTeammateKnocks: squadObservation.knocks,
+    totalTradeKills: squadObservation.tradeKills,
+  };
+  const scores = computeSquadScores({
+    stats: teamStats,
+    smokeRescues: squadObservation.smokeRescues,
+    knocks: squadObservation.knocks,
+    damageShares: roleProfiles.map(profile => profile.shares.damage),
+    // 순위는 상세 분석이 없어도 전적 기록으로 알 수 있다. 같은 조합의 최근 14일 기록이 3경기 이상이면 그것을 쓴다.
+    placements: (recordedSummary && recordedSummary.matches.filter(match => match.winPlace > 0).length >= 3
+      ? recordedSummary.matches.map(match => match.winPlace)
+      : targetMatches.map(match => (match.data as any)?.fullResult?.stats?.winPlace)),
+    matchCount,
+  });
+  const gradeResult = computeSquadGrade(scores);
+
   const matchesSummary = targetMatches.map(m => {
     const fullResult = (m.data as any)?.fullResult || {};
     const mapName = fullResult.mapName || "Unknown";
@@ -423,31 +451,23 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   return {
     groupKey,
     teamMode: selectedGroup.teamMode,
-    // `matchCount` is the population used by the AI/role/potential metrics
-    // (best five within the latest ten). Keep both counts explicit so UI
-    // callers can still label the complete latest-ten window accurately.
+    // `matchCount`는 팀 지표·역할·AI에 쓰는 경기 수다. 최근 10경기 중 상세 보관 기간(14일)이 남고 팀 관측이 있는 경기를 모두 쓴다.
+    // 그보다 많은 최근 경기가 있으면 `latestMatchCount`로 구분한다.
     matchCount,
     latestMatchCount: targetMatches.length,
     calculationPendingMatchCount: allTargetMatches.length - targetMatches.length,
     bestMatchCount: analysisMatches.length,
     matchesSummary,
+    recordedSummary,
     selectedMatchIds: analysisMatches.map((match) => match.match_id),
     focusFireObservation: aggregateSquadFocusFire(analysisMatches.map((match) => ({
       matchId: match.match_id, observation: match.data?.fullResult?.squadFocusFire,
     }))),
     squadObservation,
-    stats: {
-      avgIsolation: null,
-      avgTradeLatency: squadObservation.avgTradeLatency === null ? null : Math.round(squadObservation.avgTradeLatency),
-      totalSmokeRescues: squadObservation.smokeRescues,
-      totalRevives: squadObservation.revives,
-      avgCoverRate: null,
-      totalTeamWipes: null,
-      totalTeammateKnocks: squadObservation.knocks,
-      totalTradeKills: squadObservation.tradeKills,
-    },
+    stats: teamStats,
     scores,
-    squadGrade: squadGrade as string | null,
+    squadGrade: gradeResult.grade,
+    gradeBasis: { measuredAxes: gradeResult.measuredAxes, totalAxes: gradeResult.totalAxes, score: gradeResult.score },
     roleProfiles,
     causeScenes,
     benchmarkStats: teamBenchmark ?? {
