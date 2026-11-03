@@ -45,14 +45,17 @@ export function hasObservedSquadMatch(match: SquadObservationSource): boolean {
   return aggregateSquadObservations([squadObservationInput(match)]).status === "observed";
 }
 
+/** 상세 보관 기간(14일)이 지나지 않은 경기인지. 경기 시각을 알 수 없으면 기존처럼 만료로 보지 않는다. */
+export function isSquadDetailAvailable(match: { data?: { fullResult?: { createdAt?: unknown } } }, now = Date.now()): boolean {
+  return getMatchDetailRetention(match.data?.fullResult?.createdAt, now).status !== "expired";
+}
+
 /**
- * 팀 지표·AI 코칭에 쓸 후보를 고른다.
- * 1. 상세 보관 기간(14일)이 남은 경기가 있으면 그 경기만 쓴다. 만료된 경기가 하나라도 섞이면 AI 코칭이 막힌다.
- * 2. 그중 팀 관측이 있는 경기가 있으면 관측된 경기만 쓴다. 관측 이전에 분석된 경기가 섞이면 팀 지표가 모두 빈다.
+ * 팀 지표·AI 코칭에 쓸 후보를 고른다. 상세 보관 기간이 지난 경기는 스쿼드 분석에 쓰지 않는다.
+ * 보관 기간이 남은 경기 중 팀 관측이 있는 경기가 있으면 관측된 경기만 쓴다. 관측 이전에 분석된 경기가 섞이면 팀 지표가 모두 빈다.
  */
 export function selectSquadAnalysisCandidates<T extends { value: SquadObservationSource }>(candidates: readonly T[], now = Date.now()): T[] {
-  const fresh = candidates.filter((candidate) => getMatchDetailRetention(candidate.value.data?.fullResult?.createdAt, now).status !== "expired");
-  const pool = fresh.length > 0 ? fresh : [...candidates];
+  const pool = candidates.filter((candidate) => isSquadDetailAvailable(candidate.value, now));
   const observed = pool.filter((candidate) => hasObservedSquadMatch(candidate.value));
   return observed.length > 0 ? observed : pool;
 }
@@ -116,7 +119,8 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     if (mode === "duo" || mode === "duo-fpp") return "duo";
     return null;
   };
-  const squadMatches = validMatchData.filter((m) => teamModeOf(m) !== null);
+  // 상세 보관 기간이 지난 경기는 그룹 목록과 모든 집계에서 뺀다. 만료 경기로만 이뤄진 그룹은 목록에 나타나지 않는다.
+  const squadMatches = validMatchData.filter((m) => teamModeOf(m) !== null && isSquadDetailAvailable(m));
 
   if (validMatchData.length === 0) {
     return {

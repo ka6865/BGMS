@@ -678,7 +678,7 @@ export default function SquadAnalysisPanel({
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
         <ShieldAlert className="mx-auto h-12 w-12 text-zinc-600 mb-2" />
         <p className="text-zinc-400">저장된 전적 중 분석할 수 있는 듀오·스쿼드 파티 게임 기록이 없습니다.</p>
-        <p className="text-zinc-500 text-sm mt-1">솔로 경기는 제외됩니다. 팀원과 함께한 듀오·스쿼드 경기를 추가로 검색해 주세요.</p>
+        <p className="text-zinc-500 text-sm mt-1">솔로 경기와 상세 보관 기간(14일)이 지난 경기는 제외됩니다. 최근 14일 안에 팀원과 함께한 듀오·스쿼드 경기를 추가로 검색해 주세요.</p>
       </div>
     );
   }
