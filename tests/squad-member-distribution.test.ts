@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildSquadObservationBlock } from "@/lib/pubg-analysis/squadMemberDistribution";
 import { buildSquadOutputSchema } from "@/lib/pubg-analysis/squadAiSchema";
+import { hasSquadFeedbackContent, sanitizeSquadAbilityClaims } from "@/lib/pubg-analysis/squadAiPolicy";
 
 // 실제 KangHeeSung_ 4인 파티(상세 분석 5경기)의 팀원 비중이다.
 const SQUAD = [
@@ -11,21 +12,15 @@ const SQUAD = [
 ];
 
 describe("buildSquadObservationBlock", () => {
-  it("팀 내 순위와 최고·최저를 서버가 정해 적는다", () => {
+  it("팀 내 순위와 팀 최고를 서버가 정해 적고, 개인 최저는 지목하지 않는다", () => {
     const block = buildSquadObservationBlock({ roleProfiles: SQUAD, analyzedMatchCount: 5, totalMatchCount: 10 });
     expect(block).toContain("[MEASURED OBSERVATIONS]");
     expect(block).toContain("함께 뛴 최근 10경기 중 상세 분석이 가능한 5경기 기준");
     expect(block).toContain("팀 딜 비중은 최고 45%(KangHeeSung_), 최저 13%(MiaeQ_Q)로 갈렸습니다.");
     expect(block).toContain("KangHeeSung_: 딜 45%(팀 1위) · 킬 36%(팀 1위) · 어시스트 32%(팀 2위) · 기절 50%(팀 1위) [팀 최고: 딜 45%, 킬 36%, 기절 50%]");
-    expect(block).toContain("MiaeQ_Q: 딜 13%(팀 4위) · 킬 22%(팀 3위) · 어시스트 5%(팀 4위) · 기절 10%(팀 4위) [팀 최저(균등 분배 25% 미만): 어시스트 5%, 기절 10%]");
-    expect(block).toContain("Suk-Cun: 딜 15%(팀 3위) · 킬 14%(팀 4위) · 어시스트 26%(팀 3위) · 기절 15%(팀 3위) [팀 최저(균등 분배 25% 미만): 킬 14%]");
-  });
-
-  it("딜은 미애큐큐가 최저지만 숙쿤과 2%p 차이라 최저로 지목하지 않는다", () => {
-    const block = buildSquadObservationBlock({ roleProfiles: SQUAD, analyzedMatchCount: 5, totalMatchCount: 10 });
-    const miae = block.split("\n").find(line => line.startsWith("- MiaeQ_Q"))!;
-    expect(miae).not.toContain("딜 13%]");
-    expect(miae).not.toMatch(/팀 최저[^\]]*딜/);
+    expect(block).toContain("MiaeQ_Q: 딜 13%(팀 4위) · 킬 22%(팀 3위) · 어시스트 5%(팀 4위) · 기절 10%(팀 4위)");
+    expect(block).toContain("Suk-Cun: 딜 15%(팀 3위) · 킬 14%(팀 4위) · 어시스트 26%(팀 3위) · 기절 15%(팀 3위)");
+    expect(block).not.toContain("팀 최저(");
   });
 
   it("측정된 팀원이 2명 미만이면 빈 문자열이다", () => {
@@ -42,7 +37,7 @@ describe("buildSquadObservationBlock", () => {
       ],
     });
     expect(block).toContain("A: 딜 70%(팀 1위)");
-    expect(block).not.toMatch(/팀 최고:|팀 최저/);
+    expect(block).not.toMatch(/팀 최고:/);
   });
 
   it("값이 같으면 같은 순위로 세고, 범위를 벗어난 값은 측정값으로 보지 않는다", () => {
@@ -64,13 +59,34 @@ describe("buildSquadObservationBlock", () => {
 });
 
 describe("buildSquadOutputSchema", () => {
-  it("못한 점과 조언은 근거가 없으면 빈 문자열을 허용한다고 알린다", () => {
+  it("못한 점과 조언은 비중을 근거로 삼지 않고 빈 문자열을 허용한다고 알린다", () => {
     const schema = buildSquadOutputSchema(null).jsonSchema as any;
     const member = schema.properties.memberFeedbacks.items.properties;
     expect(member.fault.description).toContain('Empty string ""');
     expect(member.advice.description).toContain('Empty string ""');
     expect(schema.properties.weakness.description).toContain('Empty string ""');
     expect(schema.properties.coaching.description).toContain('Empty string ""');
+    expect(member.fault.description).toContain("Share, rank or team-lowest");
     expect(member.fault.description).not.toMatch(/Detailed vulnerabilities, mistakes/);
+  });
+});
+
+describe("sanitizeSquadAbilityClaims share blame", () => {
+  const input = {
+    memberFeedbacks: [
+      { name: "MiaeQ_Q", praise: "팀 딜 비중 14%, 팀 킬 비중 24%입니다.", fault: "어시스트 비중 5%로 팀에서 가장 낮습니다.", advice: "어시스트 비중 5%를 올리려면 피해를 입힌 적을 아군이 처치하는 상황을 늘려 보세요." },
+    ],
+  };
+
+  it("fault와 advice의 비중 지목은 보류 문장으로 바꾸고 칭찬은 그대로 둔다", () => {
+    const [member] = sanitizeSquadAbilityClaims(input).memberFeedbacks;
+    expect(member.praise).toBe(input.memberFeedbacks[0].praise);
+    expect(hasSquadFeedbackContent(member.fault)).toBe(false);
+    expect(hasSquadFeedbackContent(member.advice)).toBe(false);
+  });
+
+  it("두 번 적용해도 결과가 같다", () => {
+    const once = sanitizeSquadAbilityClaims(input);
+    expect(sanitizeSquadAbilityClaims(once)).toEqual(once);
   });
 });

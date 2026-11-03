@@ -1,5 +1,5 @@
 import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
 import type { SquadObservation } from "@/lib/pubg-analysis/squadObservations";
@@ -56,6 +56,9 @@ function canonicalRow(index: number, overrides: Record<string, any> = {}) {
 }
 
 describe("strict squad analysis population and scope",()=>{
+  // 픽스처 경기는 2026-09-01이다. 상세 보관 기간(14일) 안으로 시계를 고정한다.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-09-02T00:00:00Z")); });
+  afterEach(() => { vi.useRealTimers(); });
   beforeEach(()=>{vi.resetModules();});
   it("filters non-human/non-BR rows, selects latest ten, and analyzes every observed match within that ten", async () => {
     const rowsByIndex = new Map(

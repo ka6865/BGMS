@@ -9,7 +9,7 @@
 ## 변경
 
 1. `GET /api/pubg/squad-analyze`(그룹 지정 없음, 로그인 사용자만): 최근 13일의 듀오·스쿼드 경기 중 상세 분석이 없는 것을 최신순으로 최대 4건, 동시 2건, 전체 16초·경기당 8초 안에서 `/api/pubg/match`로 분석한다. 같은 플랫폼·플레이어는 인스턴스당 10분간 다시 하지 않는다. 실패는 목록 응답을 막지 않는다. 구현: `lib/pubg-analysis/squadDetailPrefetch.server.ts`, 로그 `[SQUAD-DETAIL-PREFETCH]`.
-2. 스쿼드 AI 후보 선택(`selectSquadAnalysisCandidates`): 상세 보관 기간이 지난 경기를 먼저 제외하고, 남은 경기 중 관측 가능한 경기를 우선한다. 모두 만료됐으면 기존 후보를 그대로 쓴다.
+2. 스쿼드 AI 후보 선택(`selectSquadAnalysisCandidates`): 상세 보관 기간이 지난 경기를 먼저 제외하고, 남은 경기 중 관측 가능한 경기를 우선한다. 모두 만료됐을 때 기존 후보를 쓰던 예외는 `2026-11-03-squad-exclude-expired.md`에서 없앴다.
 3. 성과 작업: `scripts/refresh_pubg_performance.ts` 실행당 30건, 하루 150건 요청. `claim_pubg_performance_job`의 상한을 100에서 300으로 올리고, 경기의 최신 `played_at` 내림차순으로 고른다. 동시 1건 처리, lease, 예산 차감 계약은 그대로다.
 
 ## 부담
