@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { APICallError, streamText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { dominantTierScope, tierScopeOfMode, type TierScope } from "@/lib/pubg-analysis/tierAveraging";
 import { classifyRole, countRoleEvidenceMatches } from "@/lib/pubg-analysis/roleClassifier";
@@ -1165,11 +1165,6 @@ export async function POST(request: Request) {
     const isCompetitiveFocus = summaryStats.rankedCount >= summaryStats.normalCount;
     const isSoloSquadFocus = mainModeName.includes('solo-squad') || mainModeName.includes('solo-duo');
 
-    const MAP_DISPLAY_NAMES: Record<string, string> = {
-      Baltic_Main: '에란겔', Desert_Main: '미라마', Savage_Main: '사녹',
-      Tiger_Main: '태이고', Neon_Main: '론도', Kiki_Main: '데스턴',
-      Summerland_Main: '칼린도', Heaven_Main: '헤이븐'
-    };
     const mapGroups: Record<string, any[]> = {};
     selectedMatches.forEach((m: any) => {
       const mapKey = m.mapName || 'Unknown';
@@ -1182,7 +1177,7 @@ export async function POST(request: Request) {
         const s = aggregateMatches(matches);
         return {
           mapName,
-          displayName: MAP_DISPLAY_NAMES[mapName] || mapName,
+          displayName: MAP_NAMES[mapName] || mapName,
           matchCount: matches.length,
           avgDamage: Number.isFinite(s.avgDamage) ? Math.round(s.avgDamage) : 0,
           avgKills: Number.isFinite(s.avgKills) ? Number(s.avgKills.toFixed(1)) : 0,

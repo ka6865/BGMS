@@ -45,11 +45,11 @@ const CATEGORY_MATCHERS: Array<{
   },
   {
     category: "SR",
-    ids: ["awm", "kar98", "m24", "winchester", "win94", "win1894", "lynx", "l6", "mosin"]
+    ids: ["awm", "kar98", "m24", "win94", "win1894", "lynx", "l6", "mosin"]
   },
   {
     category: "샷건",
-    ids: ["shotgun", "s12k", "saiga12", "dbs", "dp12", "o12", "origins12", "s686", "berreta686", "beretta686", "s1897", "sawedoff", "sawnoff"]
+    ids: ["shotgun", "s12k", "saiga12", "dbs", "dp12", "o12", "origins12", "s686", "berreta686", "beretta686", "s1897", "winchester", "sawedoff", "sawnoff"]
   },
   {
     category: "LMG",

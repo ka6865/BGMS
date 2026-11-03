@@ -64,6 +64,7 @@ const MAP_NAME_KO: Record<string, string> = {
   Summerland_Main: '카라킨',
   Savage_Main: '사녹',
   Chimera_Main: '파라모',
+  Heaven_Main: '헤이븐',
   Range_Main: '훈련장',
 };
 

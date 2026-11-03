@@ -1,3 +1,5 @@
+import { resolveMapIdFromSlug, type SupportedMapId } from "@/lib/map-ids";
+
 export const SUPPORTED_3D_MAP_IDS = [
   "Erangel",
   "Miramar",
@@ -48,6 +50,17 @@ const aliases: Record<string, Supported3DMapId> = {
 export function resolve3DMapCapability(mapName: string): Replay3DMapCapability | null {
   const mapId = aliases[mapName.trim()];
   return mapId ? capabilities[mapId] : null;
+}
+
+// 2D 리플레이는 /maps/[mapId] 라우트가 지원하는 지도만 연다. 지원 목록 밖의 맵은 404가 되므로 null을 돌려준다.
+export function resolve2DReplayMapId(mapName: string): SupportedMapId | null {
+  const mapId = aliases[mapName.trim()];
+  return mapId ? resolveMapIdFromSlug(mapId) : null;
+}
+
+export function get2DReplayUnsupportedMessage(mapName: string): string {
+  const displayName = mapName.trim() || "이";
+  return `${displayName} 맵은 현재 2D 리플레이를 지원하지 않습니다.`;
 }
 
 export function get3DReplayUnsupportedMessage(mapName: string): string {

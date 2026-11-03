@@ -31,7 +31,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { MatchData, MatchTeamMember } from "@/types/stat";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
-import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
+import { getWeaponDisplayName } from "@/lib/pubg-analysis/constants";
 export { MatchPerformancePanel } from "./MatchPerformancePanel";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { BOT_SHARE_LEVEL_LABELS, buildBotShare } from "@/lib/pubg-analysis/botShare";
@@ -42,7 +42,7 @@ import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
-import { resolve3DMapCapability } from "@/lib/replay/mapCapabilities";
+import { get2DReplayUnsupportedMessage, resolve2DReplayMapId, resolve3DMapCapability } from "@/lib/replay/mapCapabilities";
 import { isCanonicalMatchId } from "@/lib/pubg-analysis/telemetryIdentity";
 import type { StatsPlatform } from "@/types/stats-page";
 import {
@@ -511,7 +511,8 @@ export const ExpandedMatchDetails = ({
       "Tiger_Main": "Taego",
       "Kiki_Main": "Deston",
       "Neon_Main": "Rondo",
-      "Chimera_Main": "Paramo"
+      "Chimera_Main": "Paramo",
+      "Heaven_Main": "Haven"
     };
     const mapped = mapping[name];
     if (mapped) return mapped;
@@ -522,10 +523,12 @@ export const ExpandedMatchDetails = ({
   };
 
   const mapId = getMapId(matchData?.mapName || "");
+  // /maps/[mapId]가 열 수 있는 지도만 2D 리플레이로 이동한다(지원 밖 맵은 404).
+  const replayMapId = resolve2DReplayMapId(matchData?.mapName || "");
 
   const handleInternalReplay = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (getMatchDetailRetention(matchDate).status !== "available") return;
+    if (!replayMapId || getMatchDetailRetention(matchDate).status !== "available") return;
     trackEvent({
       name: "feature_consumption",
       params: {
@@ -534,15 +537,15 @@ export const ExpandedMatchDetails = ({
       }
     });
     const query = new URLSearchParams({ playback: matchId, nickname, platform, playedAt: matchDate });
-    router.push(`/maps/${mapId}?${query.toString()}`);
+    router.push(`/maps/${replayMapId}?${query.toString()}`);
   };
 
   // 경기 흐름의 교전 줄에서 그 교전 직전부터 2D 리플레이를 연다.
   const openReplayAt = (seconds: number) => {
-    if (getMatchDetailRetention(matchDate).status !== "available") return;
+    if (!replayMapId || getMatchDetailRetention(matchDate).status !== "available") return;
     trackEvent({ name: "feature_consumption", params: { feature_name: "2d-replay", status: "start" } });
     const query = new URLSearchParams({ playback: matchId, nickname, platform, playedAt: matchDate, t: String(seconds) });
-    router.push(`/maps/${mapId}?${query.toString()}`);
+    router.push(`/maps/${replayMapId}?${query.toString()}`);
   };
 
 
@@ -1047,7 +1050,7 @@ export const ExpandedMatchDetails = ({
             ["헤드샷", value(matchData.stats.headshotKills)],
           ].map(([label, record]) => <div key={label}><dt className="text-xs text-white/50">{label}</dt><dd className="mt-1 text-lg font-bold text-white">{record}</dd></div>)}
         </dl>
-        <button type="button" onClick={handleInternalReplay} className="mt-4 min-h-11 rounded-lg border border-white/20 px-4 text-sm font-bold text-white">2D 리플레이 열기</button>
+        <button type="button" onClick={handleInternalReplay} disabled={!replayMapId} title={!replayMapId ? get2DReplayUnsupportedMessage(matchData.mapName || "") : undefined} className="mt-4 min-h-11 rounded-lg border border-white/20 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-45">2D 리플레이 열기</button>
         <Link className="inline-flex min-h-11 items-center rounded-xl border border-white/10 px-4 text-xs font-bold text-white/70" href={`/stats/${platform}/${encodeURIComponent(nickname)}/encounters?matchId=${encodeURIComponent(matchId)}`}>이 경기 상대 보기</Link>
       </div>
     );
@@ -1156,7 +1159,7 @@ export const ExpandedMatchDetails = ({
             >
               <MatchFlowContent
                 report={matchReport}
-                canReplay={getMatchDetailRetention(matchDate).status === "available"}
+                canReplay={replayMapId !== null && getMatchDetailRetention(matchDate).status === "available"}
                 onReplayAt={openReplayAt}
               />
             </CollapsibleDetailSection>
@@ -1313,7 +1316,7 @@ export const ExpandedMatchDetails = ({
 
                             <div className="flex justify-between items-start mb-3 relative z-10">
                               <div>
-                                <h5 className="text-white font-black text-[15px] tracking-tight">{getTranslatedWeaponName(wName)}</h5>
+                                <h5 className="text-white font-black text-[15px] tracking-tight">{getWeaponDisplayName(wName)}</h5>
                                 <span className="text-[9px] text-gray-400 font-bold uppercase">
                                   {wStat.holdingTime ? `파지 ${Math.round(wStat.holdingTime)}초` : '주무기'}
                                 </span>
@@ -1414,7 +1417,7 @@ export const ExpandedMatchDetails = ({
                               {sWeapons.map((sw, sIdx) => (
                                 <div key={sIdx} className="flex flex-col gap-1 text-[10px]">
                                   <div className="flex justify-between items-center text-gray-400">
-                                    <span className="font-bold">{getTranslatedWeaponName(sw.weapon)}</span>
+                                    <span className="font-bold">{getWeaponDisplayName(sw.weapon)}</span>
                                     <span className="font-black text-white/80">
                                       {Math.round(sw.damage)}딜 <span className="text-gray-500 font-medium">({sw.accuracy}%)</span>
                                     </span>
@@ -1861,7 +1864,9 @@ export const ExpandedMatchDetails = ({
                   <p className="text-[10px] text-gray-400 mt-1 leading-normal font-medium font-sans">
                     {is3DReplaySupported
                       ? "3D 홀로그램 전술 작전판에서 실시간 킬로그 피드, 총탄 궤적, 입체 고도 및 카메라 추적으로 정밀 분석합니다."
-                      : "이 맵은 3D 지형 자산 준비 전입니다. 2D 미니 리플레이를 이용해 주세요."}
+                      : replayMapId
+                        ? "이 맵은 3D 지형 자산 준비 전입니다. 2D 미니 리플레이를 이용해 주세요."
+                        : "이 맵은 3D 지형 자산 준비 전입니다."}
                   </p>
                 </div>
               </button>
@@ -1875,7 +1880,9 @@ export const ExpandedMatchDetails = ({
                   setShowReplayModal(false);
                   handleInternalReplay(e);
                 }}
-                className="w-full text-left p-4 bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 rounded-2xl transition-all flex gap-3.5 items-center cursor-pointer group hover:scale-[1.01]"
+                disabled={!replayMapId}
+                title={!replayMapId ? get2DReplayUnsupportedMessage(matchData.mapName || "") : undefined}
+                className="w-full text-left p-4 bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 rounded-2xl transition-all flex gap-3.5 items-center cursor-pointer group hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:scale-100 disabled:hover:bg-white/3 disabled:hover:border-white/5"
               >
                 <div className="w-10 h-10 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-400 shrink-0">
                   <MapIcon size={20} className="group-hover:scale-110 transition-transform" />
@@ -1883,7 +1890,9 @@ export const ExpandedMatchDetails = ({
                 <div className="flex-1 min-w-0">
                   <span className="text-white font-black text-sm font-sans">2D 리플레이</span>
                   <p className="text-[10px] text-gray-400 mt-1 leading-normal font-medium font-sans">
-                    모든 선수의 이동·교전·자기장을 지도에서 재생합니다. 아군이 전멸한 경기는 재생 화면에서 경기 끝까지 이어 볼 수 있습니다.
+                    {replayMapId
+                      ? "모든 선수의 이동·교전·자기장을 지도에서 재생합니다. 아군이 전멸한 경기는 재생 화면에서 경기 끝까지 이어 볼 수 있습니다."
+                      : get2DReplayUnsupportedMessage(matchData.mapName || "")}
                   </p>
                 </div>
               </button>

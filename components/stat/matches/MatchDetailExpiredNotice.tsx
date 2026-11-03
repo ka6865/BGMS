@@ -1,6 +1,6 @@
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import type { MatchData } from "@/types/stat";
-import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
+import { getWeaponDisplayName } from "@/lib/pubg-analysis/constants";
 import { MatchPerformancePanel } from "./MatchPerformancePanel";
 
 type RetainedMatchData = MatchSummaryData & {
@@ -107,7 +107,7 @@ export function MatchDetailExpiredNotice({
               <h4 className="text-[11px] font-bold text-white/60">무기 기록</h4>
               {weapons.map(([weapon, stats]) => (
                 <div key={weapon} className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-xs text-white/70">
-                  <span className="break-words">{getTranslatedWeaponName(weapon)}</span>
+                  <span className="break-words">{getWeaponDisplayName(weapon)}</span>
                   <span>킬 {display(stats.kills)} · 피해량 {display(stats.damage)} · 명중 {display(stats.hits)}</span>
                 </div>
               ))}

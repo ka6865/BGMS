@@ -158,8 +158,7 @@ export function buildDailyLifeStateAt(events: Event[], startMs: number) {
 export const dailyWeaponName = (raw: unknown) => {
   if (typeof raw !== "string" || !raw) return "무기 확인 불가";
   const weaponId = raw.startsWith("Item_Weapon_") ? `Weap${raw.slice("Item_Weapon_".length)}` : raw;
-  const normalized = weaponId === "WeapThompson_C" ? "WeapTommyGun_C" : weaponId;
-  const translated = getTranslatedWeaponName(normalized);
+  const translated = getTranslatedWeaponName(weaponId);
   return /^(Item_|Weap|Proj|Damage_)/.test(translated) ? "무기 확인 불가" : translated;
 };
 const weaponName = dailyWeaponName;

@@ -54,8 +54,9 @@ export const MAP_NAMES: Record<string, string> = {
   "Erangel_Main": "에란겔", // 🎯 에란겔 메인 맵 한글명 보완
   "Savage_Main": "사녹", 
   "Desert_Main": "미라마",
-  "Summerland_Main": "카라킨", 
-  "Chimera_Main": "파라모", 
+  "Summerland_Main": "카라킨",
+  "Heaven_Main": "헤이븐",
+  "Chimera_Main": "파라모",
   "Tiger_Main": "태이고",
   "Kiki_Main": "데스턴", 
   "Neon_Main": "론도",
@@ -97,7 +98,8 @@ export const WEAPON_NAMES: Record<string, string> = {
   "WeapBerylM762_C": "베릴 M762", "BerylM762": "베릴 M762", "Beryl": "베릴 M762",
   "WeapM16A4_C": "M16A4", "M16A4": "M16A4", "WeapMk47Mutant_C": "뮤턴트", "Mk47Mutant": "뮤턴트", "Mutant": "뮤턴트",
   "WeapG36C_C": "G36C", "G36C": "G36C", "WeapK2_C": "K2", "K2": "K2", "WeapACE32_C": "ACE32", "ACE32": "ACE32",
-  "WeapAUG_C": "AUG", "AUG": "AUG", "WeapGroza_C": "그로자", "Groza": "그로자", "WeapFAMAS_C": "파마스", "FAMAS": "파마스",
+  "WeapQBZ95_C": "QBZ95", "QBZ95": "QBZ95",
+  "WeapAUG_C": "AUG", "AUG": "AUG","WeapGroza_C": "그로자", "Groza": "그로자", "WeapFAMAS_C": "파마스", "FAMAS": "파마스",
   
   // SR
   "WeapKar98k_C": "Kar98k", "Kar98k": "Kar98k", "WeapM24_C": "M24", "M24": "M24", 
@@ -114,23 +116,37 @@ export const WEAPON_NAMES: Record<string, string> = {
   // SMG
   "WeapUZI_C": "마이크로 UZI", "UZI": "마이크로 UZI", "MicroUZI": "마이크로 UZI", 
   "WeapUMP45_C": "UMP45", "WeapUMP_C": "UMP45", "UMP45": "UMP45", "UMP": "UMP45",
-  "WeapVector_C": "벡터", "Vector": "벡터", "WeapTommyGun_C": "토미건", "TommyGun": "토미건", 
+  "WeapVector_C": "벡터", "Vector": "벡터", "WeapTommyGun_C": "토미건", "TommyGun": "토미건",
+  "WeapThompson_C": "토미건", "Thompson": "토미건",
+  "WeapBizonPP19_C": "PP-19 비존", "BizonPP19": "PP-19 비존",
   "WeapMP5K_C": "MP5K", "MP5K": "MP5K", "WeapP90_C": "P90", "P90": "P90", "WeapJS9_C": "JS9", "JS9": "JS9",
   
   // SG
   "WeapS12K_C": "S12K", "S12K": "S12K", "WeapS1897_C": "S1897", "S1897": "S1897", 
-  "WeapS686_C": "S686", "S686": "S686", "WeapDBS_C": "DBS", "DBS": "DBS", 
+  "WeapS686_C": "S686", "S686": "S686", "WeapDBS_C": "DBS", "DBS": "DBS",
+  "WeapSaiga12_C": "S12K", "Saiga12": "S12K", "WeapBerreta686_C": "S686", "Berreta686": "S686",
+  "WeapWinchester_C": "S1897", "Winchester": "S1897", "WeapSawnoff_C": "소드오프", "Sawnoff": "소드오프",
   
   // LMG / Others
   "WeapM249_C": "M249", "M249": "M249", "WeapRPD_C": "RPD", "RPD": "RPD", "Item_Weapon_RPD_C": "RPD", "WeapDP28_C": "DP-28", "DP28": "DP-28", "DP-28": "DP-28",
   "WeapMG3_C": "MG3", "MG3": "MG3", "WeapOriginS12_C": "O12", "OriginS12": "O12", "O12": "O12",
-  "WeapPanzerFaust100M_C": "판처파우스트", "PanzerFaust100M_Projectile_C": "판처파우스트", "PanzerFaust100M_Projectile": "판처파우스트", "Panzerfaust": "판처파우스트", "PANZERFAUST100M": "판처파우스트", "PANZERFAUST100M_C": "판처파우스트", "PANZERFAUST": "판처파우스트", "WeapMortar_C": "박격포", "WeapCrossbow_C": "석궁",
+  "WeapPanzerFaust100M_C": "판처파우스트", "WeapPanzerFaust100M1_C": "판처파우스트", "PanzerFaust100M1": "판처파우스트","PanzerFaust100M_Projectile_C": "판처파우스트", "PanzerFaust100M_Projectile": "판처파우스트", "Panzerfaust": "판처파우스트", "PANZERFAUST100M": "판처파우스트", "PANZERFAUST100M_C": "판처파우스트", "PANZERFAUST": "판처파우스트", "WeapMortar_C": "박격포", "WeapCrossbow_C": "석궁",
 
   // Pistols
   "WeapP18C_C": "P18C", "P18C": "P18C", "WeapG18_C": "P18C", "G18": "P18C", "G18C": "P18C", "P18C_C": "P18C",
   "WeapP92_C": "P92", "P92": "P92", "WeapP1911_C": "P1911", "P1911": "P1911", "WeapR45_C": "R45", "R45": "R45",
+  "WeapM1911_C": "P1911", "M1911": "P1911", "WeapRhino_C": "R45", "Rhino": "R45",
+  "WeapNagantM1895_C": "R1895", "NagantM1895": "R1895",
   "WeapR1895_C": "R1895", "R1895": "R1895", "WeapDesertEagle_C": "디글", "Deagle": "디글", "DEAGLE": "디글", "DesertEagle": "디글",
   
+  // 근접·특수 (공식 api-assets 기준 ID)
+  "WeapSickle_C": "낫", "Sickle": "낫", "WeapMacheteProjectile_C": "마체테", "WeapMachete_C": "마체테", "Machete": "마체테",
+  "WeapFlareGun_C": "플레어 건", "FlareGun": "플레어 건",
+  "PlayerMale_A_C": "맨손", "PlayerFemale_A_C": "맨손", "Buff_FireDOT_C": "화염 피해",
+  "BP_FireEffectController_C": "화염병 화염", "BP_MolotovFireDebuff_C": "화염병 화염 피해",
+  "Bluezonebomb_EffectActor_C": "블루존 수류탄", "Buff_DecreaseBreathInApnea_C": "익사",
+  "TslGameModeBase_BattleRoyaleBP_C": "자기장", "WeapFamasG2_C": "파마스", "FamasG2": "파마스",
+
   // Damage Types
   "Damage_BlueZone": "자기장", "Damage_Falling": "낙사", "Damage_Drowning": "익사", "Damage_Groggy": "출혈(기절)", "Damage_Gunshot": "총기", "Damage_Explosion": "폭발",
   
@@ -225,8 +241,18 @@ export function getTranslatedWeaponName(wId: string): string {
   if (wLower.includes("blanc")) return "블랑";
   if (wLower.includes("pillar")) return "필라 차량";
   if (wLower.includes("vehicle")) return "차량";
-  
+
   return wId;
+}
+
+/**
+ * 화면 표시용 무기 이름. 번역표에 없는 무기는 내부 접두사(Item_Weapon_, Weap)와 접미사(_C)를 뗀 이름으로 보여줘
+ * 내부 ID가 그대로 노출되지 않게 한다.
+ */
+export function getWeaponDisplayName(wId: string): string {
+  const translated = getTranslatedWeaponName(wId);
+  if (translated !== wId) return translated;
+  return wId.replace(/^(Item_Weapon_|Weap)/, "").replace(/_C$/, "") || wId;
 }
 
 /**
