@@ -278,9 +278,10 @@ describe("squad cause scene experiment", () => {
 
     const isolation = scenes.find(scene => scene.type === "isolation_death");
     expect(isolation?.confidence).toBe("medium");
-    expect(isolation?.title).toContain("경기 평균");
+    expect(isolation?.title).toMatch(/^\S+ (기절|사망)$/);
+    expect(isolation?.reason).toContain("이 경기의 평균 아군 거리");
     expect(isolation?.reason).toContain("사건 시점 거리는 측정하지 않았습니다");
-    expect(isolation?.facts.join(" ")).toContain("매치 단위");
+    expect(isolation?.facts.join(" ")).toContain("엄폐물, 시야, 지형");
     expect(isolation?.facts.join(" ")).toContain("팀 간격 위험도");
     expect(isolation?.facts.join(" ")).toContain("BGMS 파생 지표");
     expect(isolation?.facts.join(" ")).not.toContain("기절/사망");
@@ -400,7 +401,7 @@ describe("squad cause scene experiment", () => {
     const isolationScene = scenes.find(scene => scene.type === "isolation_death");
 
     expect(isolationScene?.severity).toBe("warning");
-    expect(isolationScene?.facts.join(" ")).toContain("경기 평균 아군 거리는 위험 기준 이내");
+    expect(isolationScene?.facts.join(" ")).toContain("평균 거리가 위험 기준 이내");
     expect(isolationScene?.facts.join(" ")).toContain("30초 안에 소생 성공 이벤트 확인");
   });
 
@@ -425,10 +426,13 @@ describe("squad cause scene experiment", () => {
     for (const scene of scenes) {
       expect(scene.metricSnapshot.minDistanceM).toBe(minDist);
       expect(scene.metricSnapshot.minDistanceDangerMeters).toBe(80);
-      expect(scene.title).toContain("경기 평균");
-      expect(scene.reason).toContain("경기 평균");
+      // 제목은 사건만 말하고 평균 거리 숫자를 담지 않는다. 평균은 사유 한 번과 거리 칩 한 번으로만 알린다.
+      expect(scene.title).toMatch(/^\S+ (기절|사망)$/);
+      expect(scene.title).not.toMatch(/\d+m|평균/);
+      expect(scene.reason).toContain("이 경기의 평균 아군 거리");
       expect(scene.reason).toContain("사건 시점 거리는 측정하지 않았습니다");
-      expect(scene.facts.join(" ")).toContain(`경기 평균 아군 거리 ${minDist}m`);
+      expect(scene.facts.join(" ")).toContain(`평균 아군 거리 ${minDist}m`);
+      expect(scene.facts.join(" ").match(/경기 평균/g) ?? []).toHaveLength(0);
       expect(scene.aiBrief).toContain("경기 평균");
       expect(scene.aiBrief).toContain("사건 시점 거리");
       expect([scene.title, scene.reason, scene.aiBrief].join(" ")).not.toMatch(/떨어진 상태|즉시 백업이나 소생 각이 늦어질 수 있는 거리 조건/);

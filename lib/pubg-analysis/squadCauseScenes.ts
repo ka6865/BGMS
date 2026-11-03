@@ -615,25 +615,23 @@ export function extractSquadCauseScenes(
         const outcome = getCriticalEventOutcome(event);
         const facts = [
           `${base.displayTime}에 ${targetName} ${getCriticalEventLabel(event)} 발생`,
-          `경기 평균 아군 거리 ${roundedDistanceM}m / 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m`,
+          `평균 아군 거리 ${roundedDistanceM}m / 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m`,
           `팀 간격 위험도 ${deathIsolation.toFixed(2)} / 위험 기준 ${resolvedOptions.isolationDangerThreshold}`,
           "팀 간격 위험도는 팀원과의 거리/대열 상태를 요약한 BGMS 파생 지표",
-          "매치 단위 추정이며 사건 시점 거리, 엄폐물, 시야, 지형 원인은 확인할 수 없음"
+          "엄폐물, 시야, 지형 원인은 확인할 수 없음"
         ];
         if (!isDistanceRisk) {
-          facts.push("경기 평균 아군 거리는 위험 기준 이내라 거리만으로 고립 원인을 단정하지 않음");
+          facts.push("평균 거리가 위험 기준 이내라 거리만으로 고립 원인을 단정하지 않음");
         }
         if (reviveWithin30s) {
           facts.push("30초 안에 소생 성공 이벤트 확인");
         }
         pushUnique(scenes, {
           ...base,
-          title: isDistanceRisk
-            ? `${outcome} · 경기 평균 아군 거리 ${roundedDistanceM}m`
-            : `${outcome} · 경기 평균 팀 간격 위험 신호`,
+          title: `${targetName} ${outcome}`,
           reason: isDistanceRisk
-            ? `경기 평균 아군 거리가 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m 이상인 경기입니다. 사건 시점 거리는 측정하지 않았습니다.`
-            : "경기 평균 아군 거리는 위험 기준 이내이며, 팀 간격 위험도는 매치 단위 보조 지표입니다. 사건 시점 거리는 측정하지 않았습니다.",
+            ? `이 경기의 평균 아군 거리는 ${roundedDistanceM}m로 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m 이상입니다. 사건 시점 거리는 측정하지 않았습니다.`
+            : `이 경기의 평균 아군 거리는 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m 이내이고, 팀 간격 위험도는 경기 단위 보조 지표입니다. 사건 시점 거리는 측정하지 않았습니다.`,
           severity: isRecoveredKnock ? "warning" : "danger",
           confidence: "medium",
           facts,
