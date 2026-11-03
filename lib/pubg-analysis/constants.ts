@@ -28,7 +28,7 @@ export const TELEMETRY_VERSION = 63.0; // [V63.0] 리플레이 위치·탑승 �
 export const AI_CACHE_VERSION = "2026-10-28.first-reply-evidence-v6"; // 적격 반격 소요 시간의 표현·근거 정책
 // 단일 경기 코칭만의 프롬프트 버전. 가장 가까운 아군 거리 표기를 바꿨으므로 단일 경기 캐시만 새로 만든다(스쿼드는 유지).
 export const AI_MATCH_PROMPT_VERSION = `${AI_CACHE_VERSION}.nearest-teammate-v1`;
-export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v12`; // 개인 못한 점·조언에서 딜·킬·어시스트 비중 지목 제거
+export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v13`; // 기절·사망 시점 팀원 거리 후보 추가
 export const AI_SUMMARY_CACHE_VERSION = "2026-11-02.calc5-comparison-guard-v33"; // 계산 5에서 의미가 바뀐 지표는 이전 계산 경기가 섞인 개인 값에 비교 평균을 붙이지 않는다(프롬프트·카드)
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache

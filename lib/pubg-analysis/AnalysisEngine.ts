@@ -56,6 +56,7 @@ export class AnalysisEngine {
       myVictimDamage: new Map(),
       weaponStats: new Map(),
       playerLocations: new Map(),
+      playerLocationTs: new Map(),
       playerAliveStatus: new Map(),
       teamMapping: new Map(),
       teamAliveMembers: new Map(),
@@ -173,6 +174,8 @@ export class AnalysisEngine {
       wipeEvidence: [],
       myRosterSize: null,
       aliveTeammatesAtMyDeath: null,
+      myKnockSample: null,
+      deathContext: null,
       firstReplyWithin3sCount: 0,
       firstReplyLatencySumMs: 0
     };
@@ -576,6 +579,7 @@ export class AnalysisEngine {
         myRosterSize: this.state.myRosterSize,
         aliveTeammatesAtMyDeath: this.state.aliveTeammatesAtMyDeath
       },
+      deathContext: this.state.deathContext,
       initiative_rate: initiativeRate,
       initiativeSampleCount: pData.total,
       duelStats: {

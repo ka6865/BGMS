@@ -1,6 +1,8 @@
 import { FirstReplyEvidenceCollector } from "../firstReply";
-import { AnalysisState, WipeContributionKind } from "../types";
+import { AnalysisState, DeathContextSample, WipeContributionKind } from "../types";
 import { normalizeName, calcDist3D, scaleCoordinate } from "../utils";
+import { normalizeTelemetryLocation } from "../telemetryContract";
+import { measureTeammateProximity } from "../deathContext";
 import { WEAPON_NAMES, IGNORE_WEAPONS, IGNORE_WEAPON_PATTERNS, TACTICAL_THRESHOLDS, WIPE_CONTRIBUTION_WINDOW_MS } from "../constants";
 import { BaseHandler } from "./BaseHandler";
 import {
@@ -296,6 +298,8 @@ export class CombatHandler extends BaseHandler {
       this.state.playerAliveStatus.set(this.state.lowerNickname, true);
       this.state.playerAliveStatus.set(this.state.myAccountId, true);
       this.state.myDeathTime = null;
+      this.state.myKnockSample = null;
+      this.state.deathContext = null;
       markMyStanding(this.state);
     }
     const rosterId = this.rosterOf(actor);
@@ -591,6 +595,7 @@ export class CombatHandler extends BaseHandler {
     }
 
     if (isMeVictim) {
+      this.state.myKnockSample = this.sampleMyProximity(e, ts);
       this.state.myDownedIntervals.push({ start: ts, end: null });
       if (!this.isSameSideOrSelf(attacker, e.victim)) this.updateDuelOutcome(attacker, e.victim);
       this.state.timeline.push({
@@ -875,6 +880,26 @@ export class CombatHandler extends BaseHandler {
     }
   }
 
+  /** 내가 기절하거나 사망한 순간 가장 가까운 생존 팀원과의 거리. 내 위치는 이벤트의 피해자 위치를 우선한다. */
+  private sampleMyProximity(e: any, ts: number): DeathContextSample {
+    const me = normalizeTelemetryLocation(actorLocation(e.victim))
+      ?? this.state.playerLocations.get(this.state.lowerNickname)
+      ?? this.state.playerLocations.get(this.state.myAccountId)
+      ?? null;
+    const teammates = [...this.state.teamNames]
+      .filter(name => name !== this.state.lowerNickname)
+      .map(name => {
+        const accountId = this.actorIdsByName.get(name);
+        const status = this.statusOf(name, accountId);
+        return {
+          alive: status !== false && status !== "groggy",
+          location: this.state.playerLocations.get(name) ?? (accountId ? this.state.playerLocations.get(accountId) ?? null : null),
+          locationTs: this.state.playerLocationTs.get(name) ?? (accountId ? this.state.playerLocationTs.get(accountId) ?? null : null),
+        };
+      });
+    return { atMs: ts - this.state.matchStartTime, ...measureTeammateProximity({ me, ts, teammates }) };
+  }
+
   /** 사망 상태 전이: 생존 상태·roster 생존 명단·구조 사건·내 사망 기록을 한 번만 갱신한다. */
   private applyDeathTransition(e: any, victimName: string, ts: number) {
     const victimKey = this.actorKey(e.victim);
@@ -896,6 +921,7 @@ export class CombatHandler extends BaseHandler {
         if (this.statusOf(name, this.actorIdsByName.get(name)) !== false) aliveTeammates++;
       }
       this.state.aliveTeammatesAtMyDeath = aliveTeammates;
+      this.state.deathContext = { atKnock: this.state.myKnockSample, atDeath: this.sampleMyProximity(e, ts) };
     }
 
     const rosterId = this.rosterOf(e.victim);
@@ -953,6 +979,7 @@ export class CombatHandler extends BaseHandler {
     if (e.victim?.accountId) this.state.playerAliveStatus.set(e.victim.accountId, true);
     if (isMeVictim) {
       this.state.playerAliveStatus.set(this.state.lowerNickname, true);
+      this.state.myKnockSample = null;
       markMyStanding(this.state);
     }
 

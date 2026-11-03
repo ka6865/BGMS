@@ -3,6 +3,7 @@
 // 비중은 합이 100%인 분배라 누군가는 반드시 최저가 되고 역할 차이도 반영한다. 그래서 개인 "못한 점"과 "개인 피드백"의 근거가 아니라 칭찬과 팀 분포 설명에만 쓴다.
 // 개인 못한 점은 squadMemberRecords가 고정 기준으로 정한 "못한 점 후보"에서만 나온다.
 
+import { TEAMMATE_FAR_DISTANCE_M } from "./deathContext";
 import { squadFaultCandidates, type SquadMemberRecords } from "./squadMemberRecords";
 
 export interface SquadObservationMember {
@@ -99,6 +100,7 @@ export function buildSquadObservationBlock(input: SquadObservationInput): string
     const recordParts = [
       member.records?.firstDeaths ? `팀에서 가장 먼저 사망 ${member.records.firstDeaths.count}/${member.records.firstDeaths.matches}경기` : "",
       member.records?.initiative ? `선제 타격 ${member.records.initiative.attempts}회 중 ${member.records.initiative.successes}회 성공` : "",
+      member.records?.farFromTeam ? `기절·사망 시점 가장 가까운 생존 팀원 ${TEAMMATE_FAR_DISTANCE_M}m 이상 ${member.records.farFromTeam.count}/${member.records.farFromTeam.measured}경기` : "",
     ].filter(Boolean);
     const candidates = faultCandidates.get(member.name) ?? [];
     return [

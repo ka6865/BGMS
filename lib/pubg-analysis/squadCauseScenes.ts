@@ -1,3 +1,4 @@
+import { TEAMMATE_FAR_DISTANCE_M } from "./deathContext";
 import { MAP_NAMES } from "./constants";
 import { TimelineEvent } from "./types";
 import { normalizeName } from "./utils";
@@ -132,7 +133,7 @@ const DEFAULT_OPTIONS = {
   maxScenes: 5,
   benchmarkTradeLatencyMs: 12000,
   isolationDangerThreshold: 2.5,
-  minDistanceDangerMeters: 80,
+  minDistanceDangerMeters: TEAMMATE_FAR_DISTANCE_M,
   tradeWindowMs: 30000,
   smokeWindowMs: 15000,
   reviveWindowMs: 30000

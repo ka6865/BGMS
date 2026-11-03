@@ -1,17 +1,22 @@
+import { TEAMMATE_FAR_DISTANCE_M } from "./deathContext";
+
 // 스쿼드 팀원 개인 기록. 저장된 상세 분석 결과에서 개인 단위로 셀 수 있는 값만 모은다. 순수 함수만 둔다.
-// 선제 타격은 검색한 본인 시점에서만 측정되므로 본인에게만 붙인다. 사망 시점 팀원 거리는 측정하지 않아 다루지 않는다.
+// 선제 타격과 기절·사망 시점 팀원 거리는 검색한 본인 시점에서만 측정되므로 본인에게만 붙인다.
 
 export interface SquadMemberRecords {
   // 팀에서 가장 먼저 사망한 경기 수와 비교 가능했던 경기 수. 측정할 수 없으면 null.
   firstDeaths: { count: number; matches: number } | null;
   // 검색한 본인의 선제 타격 성공·시도. 팀원에게는 붙지 않는다.
   initiative: { successes: number; attempts: number; matches: number } | null;
+  // 검색한 본인이 쓰러지거나 사망한 순간 가장 가까운 생존 팀원이 멀리 있던 경기 수와 측정된 경기 수.
+  farFromTeam: { count: number; measured: number } | null;
 }
 
 export interface SquadRecordMatch {
   team?: ReadonlyArray<{ name?: unknown; timeSurvived?: unknown }> | null;
   initiative_rate?: unknown;
   initiativeSampleCount?: unknown;
+  deathContext?: unknown;
 }
 
 // 개인 못한 점 후보의 고정 기준이다. 다른 사람의 성적과 상관없이 같은 기록은 같은 판정을 받는다.
@@ -20,9 +25,29 @@ export const SQUAD_INITIATIVE_MIN_ATTEMPTS = 6;
 export const SQUAD_INITIATIVE_FAULT_RATE = 0.5;
 export const SQUAD_FIRST_DEATH_MIN_COUNT = 3;
 export const SQUAD_FIRST_DEATH_MIN_RATE = 0.4;
+// 기절·사망 시점에 가장 가까운 생존 팀원이 TEAMMATE_FAR_DISTANCE_M 이상 떨어진 경기가 측정된 경기의 절반 이상이고 3경기 이상일 때 후보가 된다.
+export const SQUAD_FAR_MIN_MEASURED = 3;
+export const SQUAD_FAR_MIN_RATE = 0.5;
 
 function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+type DeathContextSampleLike = { nearestAliveTeammateM?: unknown; aliveTeammateCount?: unknown };
+
+/**
+ * 한 경기의 기절·사망 시점 거리. 소생 가능성이 있는 기절 시점을 우선하고, 쓸 수 있는 값이 없으면 사망 시점을 쓴다.
+ * 생존 팀원이 없었거나 위치 샘플이 오래돼 거리를 못 만든 경기는 측정되지 않은 경기이며 null이다.
+ */
+function measuredNearestM(deathContext: unknown): number | null {
+  if (!deathContext || typeof deathContext !== "object") return null;
+  const { atKnock, atDeath } = deathContext as { atKnock?: DeathContextSampleLike | null; atDeath?: DeathContextSampleLike | null };
+  for (const sample of [atKnock, atDeath]) {
+    const distance = sample?.nearestAliveTeammateM;
+    const alive = sample?.aliveTeammateCount;
+    if (finite(distance) && distance >= 0 && finite(alive) && alive >= 1) return distance;
+  }
+  return null;
 }
 
 /** 한 경기에서 가장 먼저 죽은 팀원의 키. 동시 사망이거나 측정 팀원이 2명 미만이면 null이고, 비교 불가면 undefined다. */
@@ -54,6 +79,7 @@ export function buildSquadMemberRecords(input: {
   const firstDeathCounts = new Map<string, number>(input.memberKeys.map(key => [key, 0]));
   let comparedMatches = 0;
   let initiative = { successes: 0, attempts: 0, matches: 0 };
+  let far = { count: 0, measured: 0 };
 
   for (const match of input.matches) {
     const first = firstDeathKey(Array.isArray(match.team) ? match.team : [], memberKeys, input.keyOf);
@@ -61,6 +87,9 @@ export function buildSquadMemberRecords(input: {
       comparedMatches += 1;
       if (first !== null) firstDeathCounts.set(first, (firstDeathCounts.get(first) ?? 0) + 1);
     }
+
+    const nearestM = measuredNearestM(match.deathContext);
+    if (nearestM !== null) far = { count: far.count + (nearestM >= TEAMMATE_FAR_DISTANCE_M ? 1 : 0), measured: far.measured + 1 };
 
     const attempts = match.initiativeSampleCount;
     const rate = match.initiative_rate;
@@ -77,6 +106,7 @@ export function buildSquadMemberRecords(input: {
   return new Map(input.memberKeys.map(key => [key, {
     firstDeaths: comparedMatches > 0 ? { count: firstDeathCounts.get(key) ?? 0, matches: comparedMatches } : null,
     initiative: key === input.selfKey && initiative.attempts > 0 ? initiative : null,
+    farFromTeam: key === input.selfKey && far.measured > 0 ? far : null,
   }]));
 }
 
@@ -101,6 +131,12 @@ export function squadFaultCandidates(
     if (initiative && initiative.attempts >= SQUAD_INITIATIVE_MIN_ATTEMPTS
       && initiative.successes / initiative.attempts < SQUAD_INITIATIVE_FAULT_RATE) {
       result.get(member.name)?.push(`선제 타격 시도 ${initiative.attempts}회 중 ${initiative.successes}회만 성공했습니다.`);
+    }
+  }
+  for (const member of members) {
+    const far = member.records?.farFromTeam;
+    if (far && far.measured >= SQUAD_FAR_MIN_MEASURED && far.count / far.measured >= SQUAD_FAR_MIN_RATE) {
+      result.get(member.name)?.push(`기절하거나 사망한 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 이상 떨어져 있던 경기가 측정된 ${far.measured}경기 중 ${far.count}경기입니다.`);
     }
   }
   return result;
