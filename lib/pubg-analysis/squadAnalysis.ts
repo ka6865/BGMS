@@ -16,7 +16,7 @@ import {
   selectRecentMatches,
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
-import { isSupportedAnalysisCalculationVersion, RESULT_VERSION, SUPPORTED_ANALYSIS_CALCULATION_VERSIONS } from "@/lib/pubg-analysis/constants";
+import { isSupportedAnalysisCalculationVersion, MAP_NAMES, RESULT_VERSION, SUPPORTED_ANALYSIS_CALCULATION_VERSIONS } from "@/lib/pubg-analysis/constants";
 import { getMatchDetailRetention } from "@/lib/pubg-analysis/matchRetention";
 // Invalid/legacy rows are filtered after hydration. Fetch a bounded window
 // larger than the ten rows we ultimately expose so stale, custom, or
@@ -386,17 +386,6 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     };
   });
 
-  const MAP_DISPLAY_NAMES: Record<string, string> = {
-    Baltic_Main: "에란겔",
-    Desert_Main: "미라마",
-    Savage_Main: "사녹",
-    Tiger_Main: "태이고",
-    Neon_Main: "론도",
-    Kiki_Main: "데스턴",
-    Summerland_Main: "칼린도",
-    Heaven_Main: "헤이븐"
-  };
-
   const matchesSummary = targetMatches.map(m => {
     const fullResult = (m.data as any)?.fullResult || {};
     const mapName = fullResult.mapName || "Unknown";
@@ -406,7 +395,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       matchId: m.match_id,
       calculationVersion: fullResult.calculationVersion,
       mapName,
-      mapDisplayName: MAP_DISPLAY_NAMES[mapName] || mapName,
+      mapDisplayName: MAP_NAMES[mapName] || mapName,
       winPlace,
       createdAt: fullResult.createdAt || m.updated_at
     };
@@ -419,7 +408,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       matchId: m.match_id,
       calculationVersion: fullResult.calculationVersion,
       mapName,
-      mapDisplayName: MAP_DISPLAY_NAMES[mapName] || mapName,
+      mapDisplayName: MAP_NAMES[mapName] || mapName,
       winPlace: fullResult.stats?.winPlace || 0,
       createdAt: fullResult.createdAt || m.updated_at,
       fullResult

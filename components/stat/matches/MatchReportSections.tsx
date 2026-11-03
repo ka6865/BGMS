@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { PlayCircle } from "lucide-react";
 import type { MatchReport } from "@/lib/pubg-analysis/matchReport";
-import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
+import { getWeaponDisplayName } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import type { MatchDamageSource, MatchMyKill, MatchVersusCounts } from "@/lib/pubg-analysis/matchReport";
 import {
@@ -20,7 +20,7 @@ import {
 const TEAM_PREVIEW = 10;
 const BOT_PREVIEW = 12;
 
-const weaponLabel = (weapon: string | null) => (weapon ? getTranslatedWeaponName(weapon) : null);
+const weaponLabel = (weapon: string | null) => (weapon ? getWeaponDisplayName(weapon) : null);
 const partLabel = (part: string | null) => (part ? BODY_PART_LABELS[part] ?? null : null);
 
 function versusText(counts: MatchVersusCounts) {
