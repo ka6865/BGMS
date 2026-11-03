@@ -14,6 +14,7 @@
     "test": "jest",
     "test:unit": "vitest run",
     "test:ai:gemini": "RUN_REAL_GEMINI=true vitest run tests/ai-coaching-gemini.integration.test.ts --testTimeout=60000",
+    "test:ai:squad-persona": "RUN_REAL_GEMINI=true vitest run tests/squad-persona-preview.integration.test.ts --testTimeout=300000",
     "test:ai:report": "tsx scripts/check_ai_coaching_report.ts --require-default-suite --require-raw-quality",
     "test:ai:report:real": "tsx scripts/check_ai_coaching_report.ts --file tmp/ai-coaching-real-data-report.json --require-real-suite --require-raw-quality",
     "test:ai:real-data": "tsx scripts/audit_ai_coaching_real_data.ts",

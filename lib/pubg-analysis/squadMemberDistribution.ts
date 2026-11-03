@@ -1,10 +1,10 @@
 // 스쿼드 AI 평가에 줄 측정 분포 사실을 만든다. 순수 함수만 둔다.
 // 개인 딜·킬·어시스트·기절 비중의 팀 내 순위와 최고·최저만 다룬다. 실력, 의도, 위치는 말하지 않는다.
 // 비중은 합이 100%인 분배라 누군가는 반드시 최저가 되고 역할 차이도 반영한다. 그래서 개인 "못한 점"과 "개인 피드백"의 근거가 아니라 칭찬과 팀 분포 설명에만 쓴다.
-// 개인 못한 점은 squadMemberRecords가 고정 기준으로 정한 "못한 점 후보"에서만 나온다.
+// 개인 못한 점과 조언은 모델이 아니라 squadMemberRecords가 고정 기준으로 정해 서버가 문장까지 쓴다(squadAiEvidence).
 
 import { TEAMMATE_FAR_DISTANCE_M } from "./deathContext";
-import { squadFaultCandidates, type SquadMemberRecords } from "./squadMemberRecords";
+import type { SquadMemberRecords } from "./squadMemberRecords";
 
 export interface SquadObservationMember {
   name?: unknown;
@@ -90,7 +90,6 @@ export function buildSquadObservationBlock(input: SquadObservationInput): string
     if (top.value - second.value >= MIN_EXTREME_GAP) memberHighs.get(top.name)?.push(`${label} ${top.value}%`);
   }
 
-  const faultCandidates = squadFaultCandidates(members);
   const memberLines = members.map(member => {
     const parts = METRICS.flatMap(({ key, label }) => {
       const value = member.values[key];
@@ -102,11 +101,9 @@ export function buildSquadObservationBlock(input: SquadObservationInput): string
       member.records?.initiative ? `선제 타격 ${member.records.initiative.attempts}회 중 ${member.records.initiative.successes}회 성공` : "",
       member.records?.farFromTeam ? `기절·사망 시점 가장 가까운 생존 팀원 ${TEAMMATE_FAR_DISTANCE_M}m 이상 ${member.records.farFromTeam.count}/${member.records.farFromTeam.measured}경기` : "",
     ].filter(Boolean);
-    const candidates = faultCandidates.get(member.name) ?? [];
     return [
       `- ${member.name}: ${parts.join(" · ")}${highs.length ? ` [팀 최고: ${highs.join(", ")}]` : ""}`,
       recordParts.length ? `  개인 기록: ${recordParts.join(" · ")}` : "",
-      ...candidates.map(text => `  못한 점 후보: ${text}`),
     ].filter(Boolean).join("\n");
   });
 

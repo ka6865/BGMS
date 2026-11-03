@@ -110,11 +110,48 @@ export function buildSquadMemberRecords(input: {
   }]));
 }
 
-/** 못한 점 후보 문장 재료. 서버가 기준을 정하고 모델은 문장만 다듬는다. */
-export function squadFaultCandidates(
-  members: ReadonlyArray<{ name: string; records?: SquadMemberRecords | null }>,
-): Map<string, string[]> {
-  const result = new Map<string, string[]>(members.map(member => [member.name, []]));
+export type SquadFaultTone = "mild" | "spicy";
+type FaultKind = "far" | "firstDeath" | "initiative";
+type FaultItem = { kind: FaultKind; text: string };
+
+// 문장은 서버가 말투별로 쓴다. 모델은 지시해도 말투를 못 내거나 없는 기준을 만들어 넣는다.
+// 매운맛의 한마디는 기록된 숫자만 놀리고 실력·의도·원인은 말하지 않으며, 같은 문장 안에 붙여 나열처럼 읽히지 않게 한다.
+const FAULT_TEXT: Record<FaultKind, Record<SquadFaultTone, (a: number, b: number) => string>> = {
+  far: {
+    mild: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기입니다.`,
+    spicy: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기, 서로 안부 묻기엔 먼 거리였습니다.`,
+  },
+  firstDeath: {
+    mild: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다입니다.`,
+    spicy: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다, 박수는 못 드리는 1위입니다.`,
+  },
+  initiative: {
+    mild: (attempts, successes) => `선제 타격 시도 ${attempts}회 중 ${successes}회만 성공했습니다.`,
+    spicy: (attempts, successes) => `선제 타격 ${attempts}회 시도에 ${successes}회 성공, 선제권은 아직 상대 몫이었습니다.`,
+  },
+};
+
+// 조언은 후보 종류마다 하나뿐인 조건부 확인 문장이다. 기준을 새로 만들거나 원인을 말하지 않는다.
+const ADVICE: Record<FaultKind, string> = {
+  far: "다음 교전 전에 가장 가까운 아군의 위치를 확인해 보세요.",
+  firstDeath: "다음 교전에서는 아군이 함께 사격할 수 있는지 확인한 뒤 들어가 보세요.",
+  initiative: "먼저 사격할 수 있는 각도와 상대 위치를 확인해 보세요.",
+};
+
+type FaultMember = { name: string; records?: SquadMemberRecords | null };
+
+function faultItems(members: ReadonlyArray<FaultMember>, tone: SquadFaultTone): Map<string, FaultItem[]> {
+  const result = new Map<string, FaultItem[]>(members.map(member => [member.name, []]));
+  const add = (name: string, kind: FaultKind, a: number, b: number) =>
+    result.get(name)?.push({ kind, text: FAULT_TEXT[kind][tone](a, b) });
+
+  // 사건 시점 거리가 가장 구체적이라 먼저 둔다. 조언은 맨 앞 후보로 쓴다.
+  for (const member of members) {
+    const far = member.records?.farFromTeam;
+    if (far && far.measured >= SQUAD_FAR_MIN_MEASURED && far.count / far.measured >= SQUAD_FAR_MIN_RATE) {
+      add(member.name, "far", far.measured, far.count);
+    }
+  }
 
   const firstDeathLeaders = members.flatMap(member => member.records?.firstDeaths ? [{ name: member.name, ...member.records.firstDeaths }] : []);
   const maxCount = Math.max(0, ...firstDeathLeaders.map(entry => entry.count));
@@ -122,7 +159,7 @@ export function squadFaultCandidates(
   if (leaders.length === 1) {
     const [leader] = leaders;
     if (leader.count >= SQUAD_FIRST_DEATH_MIN_COUNT && leader.count / leader.matches >= SQUAD_FIRST_DEATH_MIN_RATE) {
-      result.get(leader.name)?.push(`팀에서 가장 먼저 사망한 경기가 비교한 ${leader.matches}경기 중 ${leader.count}경기로 팀 최다입니다.`);
+      add(leader.name, "firstDeath", leader.matches, leader.count);
     }
   }
 
@@ -130,14 +167,21 @@ export function squadFaultCandidates(
     const initiative = member.records?.initiative;
     if (initiative && initiative.attempts >= SQUAD_INITIATIVE_MIN_ATTEMPTS
       && initiative.successes / initiative.attempts < SQUAD_INITIATIVE_FAULT_RATE) {
-      result.get(member.name)?.push(`선제 타격 시도 ${initiative.attempts}회 중 ${initiative.successes}회만 성공했습니다.`);
-    }
-  }
-  for (const member of members) {
-    const far = member.records?.farFromTeam;
-    if (far && far.measured >= SQUAD_FAR_MIN_MEASURED && far.count / far.measured >= SQUAD_FAR_MIN_RATE) {
-      result.get(member.name)?.push(`기절하거나 사망한 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 이상 떨어져 있던 경기가 측정된 ${far.measured}경기 중 ${far.count}경기입니다.`);
+      add(member.name, "initiative", initiative.attempts, initiative.successes);
     }
   }
   return result;
+}
+
+/** 못한 점 후보 문장. 서버가 기준과 말투를 정한다. */
+export function squadFaultCandidates(members: ReadonlyArray<FaultMember>, tone: SquadFaultTone = "mild"): Map<string, string[]> {
+  return new Map([...faultItems(members, tone)].map(([name, items]) => [name, items.map(item => item.text)]));
+}
+
+/** 화면에 나가는 개인 못한 점과 조언. 후보가 없으면 둘 다 빈 문자열이다. */
+export function squadMemberFaultFeedback(members: ReadonlyArray<FaultMember>, tone: SquadFaultTone): Map<string, { fault: string; advice: string }> {
+  return new Map([...faultItems(members, tone)].map(([name, items]) => [name, {
+    fault: items.map(item => item.text).join(" "),
+    advice: items.length > 0 ? ADVICE[items[0].kind] : "",
+  }]));
 }

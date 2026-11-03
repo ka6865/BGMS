@@ -269,13 +269,14 @@ describe("squad prompt punchline block", () => {
     expect(systemInstruction).not.toContain("증거 불충분, 이번 판은 무죄 방면.");
   });
 
-  it("gives both personas shares for praise only and fault only from server-selected candidates", () => {
+  it("tells both personas that fault and advice are written by the server and records are neutral facts", () => {
     for (const style of ["spicy", "mild"] as const) {
       const { prompt, systemInstruction } = promptFor(style);
       expect(prompt).toContain("[MEASURED OBSERVATIONS]");
-      expect(systemInstruction).toContain("NEVER write fault or advice from a share, rank or team-lowest value");
-      expect(systemInstruction).toContain('A fault may only restate a "못한 점 후보" line');
-      expect(systemInstruction).toContain("Never copy a bracket tag");
+      expect(systemInstruction).toContain("Use shares for praise only");
+      expect(systemInstruction).toContain('Always output an empty string ("") for both fault and advice');
+      expect(systemInstruction).toContain("Individual records are neutral facts");
+      expect(systemInstruction).not.toContain("못한 점 후보");
     }
   });
 });
