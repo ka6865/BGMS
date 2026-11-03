@@ -3,6 +3,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import type { MatchData } from "@/types/stat";
@@ -1011,5 +1012,67 @@ describe("재계산 대기 경기의 기본 기록", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     fireEvent.click(within(panel).getByRole("button", {name: "2D 리플레이 열기"}));
     expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("playback=match-detail-1"));
+  });
+});
+
+describe("상세 기록의 결측과 실제 0", () => {
+  beforeEach(() => { vi.spyOn(Date, "now").mockReturnValue(TEST_NOW); });
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it.each([undefined, null, NaN, 0])("개인·팀원 수치 %s를 0과 구분한다", async (value) => {
+    const data = detail();
+    Object.assign(data.stats, { headshotKills: value, assists: value, DBNOs: value, timeSurvived: value });
+    data.team = [Object.assign({ ...data.team[0], name: "MissingTeammate" }, {
+      kills: value, assists: value, DBNOs: value, damageDealt: value,
+    })];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
+    renderCard();
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    await screen.findByRole("button", { name: /팀원 교전 성적/ });
+    const missing = value == null || Number.isNaN(value);
+    for (const label of ["헤드샷", "어시스트", "기절시킴", "생존시간"]) {
+      expect(screen.getByText(label).parentElement?.lastElementChild).toHaveTextContent(
+        missing ? "—" : label === "생존시간" ? "0분" : "0",
+      );
+    }
+    fireEvent.click(screen.getByRole("button", { name: /팀원 교전 성적/ }));
+    for (const label of ["Kills", "Assists", "DBNOs", "Damage"]) {
+      expect(screen.getByText(label).parentElement?.lastElementChild).toHaveTextContent(missing ? "—" : "0");
+    }
+  });
+
+  it("기본 요약의 호환용 0 대신 관측값을 초기 렌더에 표시한다", async () => {
+    const { buildBasicMatchSummary } = await import("@/lib/pubg-analysis/matchSummary");
+    for (const observed of [null, 0]) {
+      const basic = buildBasicMatchSummary({
+        match_id: "match-detail-1", player_id: "playerone", platform: "steam",
+        played_at: "2026-08-09T12:00:00.000Z", kills: 0, damage: 0, win_place: 5,
+        knocks: observed, survival_time: observed,
+      });
+      const html = renderToStaticMarkup(createElement(ExpandedMatchDetails, {
+        matchId: basic.matchId, nickname: "PlayerOne", platform: "steam", summary: basic,
+      }));
+      const container = document.createElement("div");
+      container.innerHTML = html;
+      for (const label of ["헤드샷", "어시스트", "기절시킴", "생존시간"]) {
+        const cell = within(container).getByText(label).parentElement?.lastElementChild;
+        expect(cell).toHaveTextContent(observed === null || label === "헤드샷" || label === "어시스트"
+          ? "—" : label === "생존시간" ? "0분" : "0");
+      }
+    }
+  });
+
+  it("중복 팀원 합산에서도 결측을 0으로 만들지 않는다", async () => {
+    const data = detail();
+    data.team = [undefined, 0].map(value => Object.assign({ ...data.team[0], name: "SameTeammate" }, {
+      kills: value, assists: value, DBNOs: value, damageDealt: value,
+    }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(data)));
+    renderCard();
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    fireEvent.click(await screen.findByRole("button", { name: /팀원 교전 성적/ }));
+    for (const label of ["Kills", "Assists", "DBNOs", "Damage"]) {
+      expect(screen.getByText(label).parentElement?.lastElementChild).toHaveTextContent("—");
+    }
   });
 });

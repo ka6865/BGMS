@@ -4,6 +4,7 @@ import { ChevronDown, Flame } from "lucide-react";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
 import { getNextTierInfo } from "@/lib/pubg-analysis/benchmarkScore";
 import { firstReplyLatencyMs } from "@/lib/pubg-analysis/firstReply";
+import { getObservedBasicMatchStat, type MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import type { MatchData } from "@/types/stat";
 
 const ScoreBar = ({ label, score, max, color, compact = false }: { label: string, score: number, max: number, color: string, compact?: boolean }) => (
@@ -89,7 +90,7 @@ const getOpportunityRate = (success?: number, total?: number) => {
   };
 };
 
-const buildTierEvidence = (matchData: MatchData) => {
+const buildTierEvidence = (matchData: MatchSummaryData) => {
   const stats = matchData.stats;
   const tradeStats = matchData.tradeStats;
   const totalTeammateKnocks = tradeStats?.teammateKnocks;
@@ -98,8 +99,12 @@ const buildTierEvidence = (matchData: MatchData) => {
   const survivalBase = matchData.totalTeams || matchData.totalPlayers;
   const survivalRankPct = survivalBase && survivalBase > 0 ? stats.winPlace / survivalBase : null;
   const isActualDeath = Boolean(stats.deathType && stats.deathType !== "alive");
-  const isEarlyDeath = (stats.timeSurvived || 0) < 600 || (isActualDeath && (matchData.deathPhase ?? 99) <= 3);
-  const isHardEarlyDeath = (stats.timeSurvived || 0) < 300;
+  const timeSurvived = matchData.summarySource === "pubg_player_matches" && matchData.isSummary !== false
+    ? getObservedBasicMatchStat(matchData, "timeSurvived")
+    : isFiniteNumber(stats.timeSurvived) ? stats.timeSurvived : null;
+  const isEarlyDeath = timeSurvived === null ? null : timeSurvived < 600 || (isActualDeath && (matchData.deathPhase ?? 99) <= 3);
+  const isHardEarlyDeath = timeSurvived === null ? null : timeSurvived < 300;
+  const isolationIndex = matchData.isolationData?.isolationIndex;
   const smokeRate = getOpportunityRate(tradeStats?.smokeRescues, totalTeammateKnocks);
   const reviveRate = getOpportunityRate(tradeStats?.revCount, totalTeammateKnocks);
   const tradeRate = getOpportunityRate(tradeStats?.tradeKills, totalTeammateKnocks);
@@ -204,7 +209,7 @@ const buildTierEvidence = (matchData: MatchData) => {
       accent: "bg-emerald-500",
       value: joinEvidenceSummary([
         `순위 ${survivalRankValue}`,
-        isHardEarlyDeath ? "5분 미만 0점 룰" : isEarlyDeath ? "조기 탈락 보정" : "보정 없음"
+        isEarlyDeath === null ? "기록 없음" : isHardEarlyDeath ? "5분 미만 0점 룰" : isEarlyDeath ? "조기 탈락 보정" : "보정 없음"
       ], "생존 샘플 측정 불가")
     }
   ];
@@ -255,10 +260,10 @@ const buildTierEvidence = (matchData: MatchData) => {
         },
         {
           label: "고립 페널티",
-          value: (matchData.isolationData?.isolationIndex ?? 0) >= 3.5 ? "적용 가능" : "미적용",
-          note: isFiniteNumber(matchData.isolationData?.isolationIndex)
-            ? `고립 지수 ${matchData.isolationData.isolationIndex.toFixed(1)}`
-            : "응답 필드 없음"
+          value: isFiniteNumber(isolationIndex) ? isolationIndex >= 3.5 ? "적용 가능" : "미적용" : "기록 없음",
+          note: isFiniteNumber(isolationIndex)
+            ? `고립 지수 ${isolationIndex.toFixed(1)}`
+            : undefined
         }
       ]
     },
@@ -278,13 +283,13 @@ const buildTierEvidence = (matchData: MatchData) => {
         },
         {
           label: "조기 탈락 보정",
-          value: isEarlyDeath ? "적용" : "미적용",
-          note: isEarlyDeath ? "10분 미만 또는 3페이즈 이하 사망" : "정상 생존 구간"
+          value: isEarlyDeath === null ? "기록 없음" : isEarlyDeath ? "적용" : "미적용",
+          note: isEarlyDeath === null ? undefined : isEarlyDeath ? "10분 미만 또는 3페이즈 이하 사망" : "정상 생존 구간"
         },
         {
           label: "5분 미만 0점 룰",
-          value: isHardEarlyDeath ? "적용" : "미적용",
-          note: `${Math.floor((stats.timeSurvived || 0) / 60)}분 생존`
+          value: isHardEarlyDeath === null ? "기록 없음" : isHardEarlyDeath ? "적용" : "미적용",
+          note: timeSurvived === null ? undefined : `${Math.floor(timeSurvived / 60)}분 생존`
         }
       ]
     }
