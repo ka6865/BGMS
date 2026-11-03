@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
-import { selectSquadMemberPunchlines, selectSquadPunchlines, SQUAD_PUNCHLINE_KIND_LIMIT, SQUAD_PUNCHLINE_LIMIT } from "@/lib/pubg-analysis/squadPunchlines";
+import { formatSquadPunchlineBlock, selectSquadMemberPunchlines, selectSquadPunchlines, SQUAD_PUNCHLINE_KIND_LIMIT, SQUAD_PUNCHLINE_LIMIT } from "@/lib/pubg-analysis/squadPunchlines";
 
 // 테스트 입력은 필요한 값만 바꿔 쓰므로 느슨한 타입을 쓴다.
 type LooseInput = Record<string, any>;
@@ -278,5 +278,51 @@ describe("squad prompt punchline block", () => {
       expect(systemInstruction).toContain("Individual records are neutral facts");
       expect(systemInstruction).not.toContain("못한 점 후보");
     }
+  });
+});
+
+describe("매운맛 한마디", () => {
+  const team = [
+    { id: "backup_slow", kind: "roast" as const, metric: "avgTradeLatency", fact: "백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느립니다." },
+    { id: "unknown_id", kind: "hype" as const, metric: "x", fact: "알 수 없는 재료입니다." },
+  ];
+  const members = [
+    { name: "A", id: "member_damage_carry", kind: "hype" as const, metric: "damageShare", fact: "팀 딜 비중이 73%입니다." },
+    { name: "B", id: "member_low_damage", kind: "roast" as const, metric: "damageShare", fact: "팀 딜 비중은 5%입니다." },
+  ];
+
+  it("매운맛은 재료 뒤에 서버가 쓴 한마디를 붙이고, 사실 문장은 그대로 둔다", () => {
+    const block = formatSquadPunchlineBlock(team, members, { jabs: true });
+    expect(block).toContain("backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느립니다. → 한마디: 아군이 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었습니다.");
+    expect(block).toContain("A [hype] member_damage_carry: 팀 딜 비중이 73%입니다. → 한마디: 화력 지분을 혼자 쓸어 담은 캐리입니다.");
+  });
+
+  it("한마디가 없는 재료와 낮은 딜 비중에는 붙이지 않는다", () => {
+    const block = formatSquadPunchlineBlock(team, members, { jabs: true });
+    const lines = block.split("\n");
+    expect(lines).toContain("- [hype] unknown_id: 알 수 없는 재료입니다.");
+    expect(lines).toContain("- B [roast] member_low_damage: 팀 딜 비중은 5%입니다.");
+  });
+
+  it("옵션이 없으면 한마디 없이 기존 모양 그대로다", () => {
+    expect(formatSquadPunchlineBlock(team, members)).not.toContain("한마디");
+  });
+
+  it("프롬프트는 매운맛에만 한마디를 싣는다", () => {
+    const promptFor = (coachingStyle: "spicy" | "mild") => buildSquadAiCoachingPrompt({
+      groupKey: "KangHeeSung_",
+      stats: { avgIsolation: null, avgTradeLatency: 15300, totalTradeKills: 4, totalTeammateKnocks: 10, totalRevives: 1, totalSmokeRescues: 0, avgCoverRate: null, totalTeamWipes: null },
+      scores: { formation: null, backupSpeed: null, survivalCare: null, focusFire: null, teamWipe: null },
+      roleProfiles: duoProfiles.map((profile) => ({ ...profile, role: "메인 딜러", roleDesc: "주력 화력" })),
+      nickname: "KangHeeSung_",
+      coachingStyle,
+      squadGrade: null,
+      benchmarkStats: { avgTradeLatency: 10400, avgReviveRate: 17, avgSmokeRate: 3.6, avgIsolation: null, avgTeamWipes: null, sampleCount: 900, scope: "team_population", teamMode: "duo", tier: null },
+      matchCount: 5,
+      teamMode: "duo",
+    });
+    expect(promptFor("spicy").prompt).toContain("→ 한마디:");
+    expect(promptFor("mild").prompt).not.toContain("한마디");
+    expect(promptFor("spicy").systemInstruction).toContain("must contain that 한마디");
   });
 });

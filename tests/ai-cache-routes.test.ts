@@ -6662,7 +6662,9 @@ describe("AI cache route stabilization", () => {
     expect(response.status).toBe(200);
     const json = await response.json();
     expect(json.summary).toBe(generated.summary);
-    expect(json.memberFeedbacks[0].praise).toBe(generated.memberFeedbacks[0].praise);
+    // 매운맛 칭찬은 서버가 측정 비중과 한마디로 확정한다. 모델의 칭찬 문장은 쓰지 않는다.
+    expect(json.memberFeedbacks[0].praise).toContain("팀 딜 비중 55%");
+    expect(json.memberFeedbacks[0].praise).not.toContain(generated.memberFeedbacks[0].praise);
     expect(json.memberFeedbacks[0].fault).toMatch(squadWithheldWording);
     expect(json.memberFeedbacks[0].advice).toMatch(squadWithheldWording);
     expect(json.memberFeedbacks[1].praise).toMatch(squadWithheldWording);

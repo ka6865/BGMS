@@ -269,13 +269,64 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
   });
 }
 
+// 매운맛의 비꼬는 한마디는 서버가 정한다. 약한 모델은 사실 문장만 주면 농담을 만들지 못한다.
+// 한마디는 기록된 지표만 놀리거나 띄우고, 숫자와 실력·의도·원인을 말하지 않는다(숫자는 사실 문장이 담는다).
+// 개인 딜·킬 비중이 낮은 쪽(member_low_damage)은 비중을 못한 점으로 읽히지 않게 한마디를 붙이지 않는다.
+const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
+  backup_slow: ["아군이 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었습니다."],
+  backup_fast: ["백업만큼은 배달 앱보다 빨랐습니다."],
+  revive_high: ["일으켜 세우는 손만큼은 평균을 가볍게 넘겼습니다."],
+  revive_low: ["일으켜 세우기엔 평균보다 손이 한참 모자랐습니다."],
+  smoke_rescue_many: ["연막 구출 기록이 또렷하게 남았습니다. 연막 장인 인정입니다."],
+  smoke_rescue_zero: ["연막 구출 성공 칸은 아직 공란이라 기록부가 심심해합니다."],
+  damage_spread: ["화력 분포가 한쪽으로 쏠린 편향 스코어보드입니다."],
+  wins_zero: ["우승 트로피 진열장은 아직 비어 있습니다."],
+  wins_some: ["치킨 기록이 있다는 건 부인할 수 없는 사실입니다."],
+  best_rank_top: ["최고 순위만큼은 포디움에 올랐습니다."],
+  member_kill_log: ["킬로그 배달부 기록입니다."],
+  member_damage_carry: ["화력 지분을 혼자 쓸어 담은 캐리입니다.", "화력 지분을 쓸어 담은 팀의 엔진입니다."],
+  member_kill_share: ["킬 지분을 쓸어 담은 해결사 포스입니다.", "킬 마무리 지분을 챙겨 간 해결사입니다."],
+  member_steady: ["딜도 킬도 흠잡을 데 없이 꾸준해서 얄밉습니다.", "눈에 띄는 약점이 기록에 없어 놀릴 거리가 없습니다.", "평범해 보이지만 기록상 빈틈은 없습니다."],
+};
+
+/** 같은 시드면 같은 한마디다(팀원 이름을 시드로 쓰면 같은 재료여도 팀원마다 한마디가 달라진다). */
+function squadPunchlineJab(id: string, seed: string): string | null {
+  const variants = SQUAD_PUNCHLINE_JABS[id];
+  if (!variants || variants.length === 0) return null;
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash ^ seed.charCodeAt(index)) >>> 0;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return variants[hash % variants.length];
+}
+
+/**
+ * 매운맛 개인 칭찬 문장. 개인 딜·킬 비중이 높거나 꾸준한 팀원에게만 만든다. 낮은 딜 비중(member_low_damage)에는 만들지 않는다.
+ * 사실 문장의 끝맺음을 떼어 한마디와 한 문장으로 잇는다.
+ */
+export function squadSpicyMemberPraise(punchline: Pick<SquadMemberPunchline, "name" | "id" | "kind" | "fact">): string | null {
+  if (punchline.kind !== "hype" && punchline.id !== "member_kill_log") return null;
+  const jab = squadPunchlineJab(punchline.id, punchline.name);
+  if (!jab) return null;
+  return `${punchline.fact.replace(/입니다\.$/, "")}, ${jab}`;
+}
+
 /** 매운맛 프롬프트에 넣을 재료 블록. 재료가 없으면 빈 칸을 명시해 모델이 수치를 만들지 않게 한다. */
-export function formatSquadPunchlineBlock(team: readonly SquadPunchline[], members: readonly SquadMemberPunchline[]): string {
+export function formatSquadPunchlineBlock(
+  team: readonly SquadPunchline[],
+  members: readonly SquadMemberPunchline[],
+  options: { jabs?: boolean } = {},
+): string {
+  const jab = (id: string, seed: string) => {
+    const line = options.jabs ? squadPunchlineJab(id, seed) : null;
+    return line ? ` → 한마디: ${line}` : "";
+  };
   const teamLines = team.length > 0
-    ? team.map((item) => `- [${item.kind}] ${item.id}: ${item.fact}`).join("\n")
+    ? team.map((item) => `- [${item.kind}] ${item.id}: ${item.fact}${jab(item.id, item.id)}`).join("\n")
     : "- 측정 가능한 팀 재료가 없습니다.";
   const memberLines = members.length > 0
-    ? members.map((item) => `- ${item.name} [${item.kind}] ${item.id}: ${item.fact}`).join("\n")
+    ? members.map((item) => `- ${item.name} [${item.kind}] ${item.id}: ${item.fact}${jab(item.id, item.name)}`).join("\n")
     : "- 측정 가능한 개인 재료가 없습니다.";
   return `[PUNCHLINE FACTS]
 (Only these facts and numbers may be used for jokes, exaggeration, metaphors and nicknames. Copy each number exactly.)

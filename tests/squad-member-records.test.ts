@@ -3,6 +3,7 @@ import { buildSquadMemberRecords, squadFaultCandidates, squadMemberFaultFeedback
 import { buildSquadObservationBlock } from "@/lib/pubg-analysis/squadMemberDistribution";
 import { sanitizeSquadAbilityClaims } from "@/lib/pubg-analysis/squadAiPolicy";
 import { applySquadEvidencePolicy } from "@/lib/pubg-analysis/squadAiEvidence";
+import { squadSpicyMemberPraise } from "@/lib/pubg-analysis/squadPunchlines";
 
 const keyOf = (name: string) => name.toLowerCase();
 const KEYS = ["a", "b", "c"];
@@ -241,5 +242,38 @@ describe("서버가 쓰는 개인 못한 점과 조언", () => {
     const legacy = roleProfiles.map(({ name, shares }) => ({ name, shares }));
     const result: any = applySquadEvidencePolicy(modelResult, stats, "B", undefined, legacy, { coachingStyle: "mild" });
     expect(result.memberFeedbacks[0].fault).toBe("선제권 확보가 저조했습니다.");
+  });
+});
+
+describe("매운맛 개인 칭찬", () => {
+  const punch = (id: string, kind: "hype" | "roast", fact: string, name = "A") => ({ name, id, kind, fact });
+
+  it("높은 비중과 꾸준한 팀원에게만 사실 문장과 한마디를 한 문장으로 잇는다", () => {
+    expect(squadSpicyMemberPraise(punch("member_damage_carry", "hype", "팀 딜 비중이 73%입니다."))).toMatch(/^팀 딜 비중이 73%, .+입니다\.$/);
+    expect(squadSpicyMemberPraise(punch("member_kill_log", "roast", "팀 딜 비중은 5%인데 팀 킬 비중은 60%입니다."))).toBe("팀 딜 비중은 5%인데 팀 킬 비중은 60%, 킬로그 배달부 기록입니다.");
+    expect(squadSpicyMemberPraise(punch("member_low_damage", "roast", "팀 딜 비중은 5%입니다."))).toBeNull();
+  });
+
+  it("같은 재료여도 팀원 이름에 따라 한마디가 달라지고, 같은 이름은 항상 같다", () => {
+    const names = ["KangHeeSung_", "ckadmfdls__", "MiaeQ_Q", "Suk-Cun", "Player_A", "Player_B"];
+    const lines = names.map(name => squadSpicyMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다.", name)));
+    expect(new Set(lines).size).toBeGreaterThan(1);
+    expect(squadSpicyMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다.", "MiaeQ_Q"))).toBe(lines[2]);
+  });
+
+  it("정책은 매운맛에서만 칭찬을 서버 문장으로 확정하고 다정한맛은 모델 문장을 둔다", () => {
+    const profiles = [
+      { name: "A", totalKills: 8, shares: { damage: 75, kill: 75, assist: 50, dbno: 75 }, records: null },
+      { name: "B", totalKills: 6, shares: { damage: 25, kill: 25, assist: 50, dbno: 25 }, records: null },
+    ];
+    const result = { summary: "요약", strength: "", weakness: "", coaching: "", overallOpinion: "총평",
+      memberFeedbacks: [{ name: "A", praise: "모델이 쓴 평범한 칭찬입니다.", fault: "", advice: "" }, { name: "B", praise: "모델이 쓴 칭찬입니다.", fault: "", advice: "" }] };
+    const stats = { avgTradeLatency: 9000, totalTradeKills: 12, totalTeammateKnocks: 41, totalRevives: 19 };
+    const spicy: any = applySquadEvidencePolicy(result, stats, "B", undefined, profiles, { coachingStyle: "spicy" });
+    expect(spicy.memberFeedbacks[0].praise).toContain("팀 딜 비중이 75%");
+    expect(spicy.memberFeedbacks[0].praise).not.toContain("모델이 쓴");
+    expect(applySquadEvidencePolicy(spicy, stats, "B", undefined, profiles, { coachingStyle: "spicy" })).toEqual(spicy);
+    const mild: any = applySquadEvidencePolicy(result, stats, "B", undefined, profiles, { coachingStyle: "mild" });
+    expect(mild.memberFeedbacks[0].praise).toBe("모델이 쓴 평범한 칭찬입니다.");
   });
 });

@@ -179,6 +179,7 @@ ${benchmarkContext}
   const punchlineBlock = formatSquadPunchlineBlock(
     teamPunchlines,
     selectSquadMemberPunchlines({ roleProfiles }),
+    { jabs: !isMild },
   );
   // 못한 점과 개인 피드백의 근거가 되는 측정 분포. 펀치라인 재료와 달리 농담용이 아니다.
   const observationBlock = buildSquadObservationBlock({
@@ -237,6 +238,7 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
     Do NOT tease aim, brain, fingers, focus, judgment, mentality or any ability, and do NOT attribute intent or unrecorded actions.
     Use the term 킬로그 배달부 only for a member whose fact id is member_kill_log, because that fact is the only measured condition for it.
 18. When a point has no measured fact or its metric is unavailable, output an empty string ("") for that field. The screen hides empty fields. Do NOT write a dry verdict such as "판단을 보류합니다", an in-character pass line, or any padding in weakness, coaching, fault or advice.
+19. Each [PUNCHLINE FACTS] line may end with "→ 한마디:". Whenever you use such a fact in summary, strength, weakness, coaching, praise or overallOpinion, write it together with its 한마디 in the same sentence, keeping the 한마디 wording and its bite (you may shorten it, never soften it, and never replace it with a plain verdict). A field built from a fact that has a 한마디 must contain that 한마디. overallOpinion must carry at least one 한마디 when any fact has one. Pair a 한마디 only with its own fact and connect them in the same direction (a hype 한마디 after a hype fact, a roast 한마디 after a roast fact); never glue a hype 한마디 onto a fact you contrast with using 하지만. Member praise lines are written by the server, so keep praise to one short sentence.
       `.trim();
 
   const prompt = `

@@ -2,6 +2,7 @@ import { requiresRescueOpportunityEvidence } from './aiCoachingQuality';
 import { isSquadWithheldCopy, squadMetricWithheldCopy, squadWithheldCopy } from './squadAiPolicy';
 import { isSquadReviveRateEvaluable, isSquadTradeLatencyEvaluable } from './squadEvidenceSamples';
 import { squadMemberFaultFeedback, type SquadMemberRecords } from './squadMemberRecords';
+import { selectSquadMemberPunchlines, squadSpicyMemberPraise } from './squadPunchlines';
 
 // Keep absent observations out of coaching, including results read from cache.
 const metrics = [
@@ -68,7 +69,7 @@ export function listReplacedSquadFields(raw: unknown, processed: unknown): strin
   return changed;
 }
 
-export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unknown>, grade: string | null, scores?: Record<string, unknown>, roleProfiles: Array<{ name: string; shares?: Record<string, number | null>; records?: SquadMemberRecords | null }> = [], options: SquadEvidencePolicyOptions = {}): T {
+export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unknown>, grade: string | null, scores?: Record<string, unknown>, roleProfiles: Array<{ name: string; shares?: Record<string, number | null>; totalKills?: number | null; records?: SquadMemberRecords | null }> = [], options: SquadEvidencePolicyOptions = {}): T {
   if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("Invalid squad coaching result");
   const coachingStyle = options.coachingStyle;
   // 백업 속도는 복수 표본이 기준 미만이면 관측되지 않은 것으로 보고, 해당 문장을 보류한다.
@@ -129,6 +130,13 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
     // 모델이 없는 기준을 만들거나 비꼬는 말투를 지우는 일을 막고, 후보가 없는 팀원은 빈 칸으로 둔다.
     const recordsAware = roleProfiles.length > 0 && roleProfiles.every(profile => profile.records !== undefined);
     const fixedFeedback = recordsAware ? squadMemberFaultFeedback(roleProfiles, coachingStyle === "spicy" ? "spicy" : "mild") : null;
+    // 매운맛 칭찬도 같은 이유로 서버가 쓴다. 모델이 한마디를 빼면 네 명 모두 똑같은 평범한 칭찬이 된다.
+    const spicyPraise = coachingStyle === "spicy"
+      ? new Map(selectSquadMemberPunchlines({ roleProfiles }).flatMap(punchline => {
+        const praise = squadSpicyMemberPraise(punchline);
+        return praise ? [[punchline.name, praise] as const] : [];
+      }))
+      : null;
     output.memberFeedbacks = data.memberFeedbacks.map((member) => {
       const profile = roleProfiles.find(profile => profile.name.toLowerCase() === String(member.name).toLowerCase());
       const checkShare = (value: unknown) => {
@@ -145,8 +153,9 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
           .replace(/(킬|기절|녹다운|어시스트|딜량|데미지|대미지|피해량)\s*(?:지분|비중|기여도)\s*(\d+(?:\.\d+)?)%/g, reconcile);
       };
       const fixed = profile ? fixedFeedback?.get(profile.name) : undefined;
-      if (fixed) return { ...member, praise: checkShare(member.praise), fault: fixed.fault, advice: fixed.advice };
-      return { ...member, praise: checkShare(member.praise), fault: checkShare(member.fault), advice: checkShare(member.advice) };
+      const praise = profile && spicyPraise?.get(profile.name) ? spicyPraise.get(profile.name) : checkShare(member.praise);
+      if (fixed) return { ...member, praise, fault: fixed.fault, advice: fixed.advice };
+      return { ...member, praise, fault: checkShare(member.fault), advice: checkShare(member.advice) };
     });
   }
   return output as T;
