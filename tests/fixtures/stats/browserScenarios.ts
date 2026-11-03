@@ -69,6 +69,7 @@ export type StatsBrowserScenarioName =
   | "rate-limit"
   | "summary-retry"
   | "detail-retry"
+  | "missing-stats"
   | "squad"
   | "expired"
   | "autocomplete-abort"
@@ -508,10 +509,19 @@ export function createStatsBrowserScenario(input: {
         expiresAt: new Date(Date.parse(input.clock.daysAgo([13, 15, 91][expiredIndex] as 13 | 15 | 91)) + 14 * DAY_MS).toISOString(),
       });
     }
-    return jsonResponse(200, cloneMatchDetailForRequest({ matchId, nickname, clock: input.clock,
+    const detail = cloneMatchDetailForRequest({ matchId, nickname, clock: input.clock,
       playedAt: input.name === "expired" && expiredIndex >= 0
         ? input.clock.daysAgo([13, 15, 91][expiredIndex] as 13 | 15 | 91) : undefined,
-    }));
+    });
+    if (input.name === "missing-stats") {
+      Object.assign(detail.stats, { headshotKills: null, assists: 0, DBNOs: undefined, timeSurvived: null });
+      Object.assign(detail.isolationData, { isolationIndex: undefined });
+      detail.team = [null, 0].map(value => Object.assign({ ...detail.team[0] }, {
+        name: value === null ? "MissingTeammate" : "ZeroTeammate",
+        kills: value, assists: value, DBNOs: value, damageDealt: value,
+      }));
+    }
+    return jsonResponse(200, detail);
   };
 
   const resolveSquad = (request: StatsApiRequest): MockHttpResponse => {

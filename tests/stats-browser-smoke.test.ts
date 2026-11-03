@@ -933,6 +933,48 @@ describeBrowser("stats browser smoke", () => {
     }
   }, 30_000);
 
+  it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('missing stats remain distinct from zero at $width x $height', async (viewport) => {
+    await withStatsBrowserPage({ browser, baseUrl, scenarioName: 'missing-stats', clock, viewport,
+      run: async ({ page, dispatcher }) => {
+        await goToPlayer(page, dispatcher, baseUrl, 'steam', 'FixturePlayer');
+        await waitForSummarySuccess(dispatcher, 'FixturePlayer', 'steam');
+        await page.click('[data-compact-match-id="match-fixture-1"] button[aria-label="매치 상세 펼치기"]');
+        await waitForDetailSuccess(dispatcher, 'FixturePlayer', 'steam');
+        await clickButtonText(page, '팀원 교전 성적');
+        const detail = await page.$eval('[data-testid="expanded-match-details"]', (root) => {
+          const labels = ['헤드샷', '어시스트', '기절시킴', '생존시간', 'Kills', 'Assists', 'DBNOs', 'Damage'];
+          return Array.from(root.querySelectorAll('span')).filter(node => labels.includes(node.textContent || '')).map(label => {
+            const cell = label.parentElement!;
+            const value = cell.lastElementChild!;
+            const box = cell.getBoundingClientRect();
+            const text = value.getBoundingClientRect();
+            return { label: label.textContent, value: value.textContent,
+              fits: text.left >= box.left - 1 && text.right <= box.right + 1 && text.bottom <= box.bottom + 1 };
+          });
+        });
+        expect(detail.slice(0, 4).map(cell => cell.value)).toEqual(['—', '0', '—', '—']);
+        expect(detail.slice(4, 8).map(cell => cell.value)).toEqual(Array(4).fill('—'));
+        expect(detail.slice(8).map(cell => cell.value)).toEqual(Array(4).fill('0'));
+        expect(detail.every(cell => cell.fits)).toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: screenshotPath('missing-stats-detail', viewport), fullPage: true });
+        await page.click('[data-compact-match-id="match-fixture-1"] button[aria-haspopup="dialog"]');
+        await waitForStatsSelector({ dispatcher, page, selector: 'section[aria-label="매치 성과 및 티어 근거"]' });
+        if (viewport.width < 768) await clickButtonText(page, '상세 근거 보기');
+        const evidence = await page.$eval('[data-testid="match-tier-tooltip"]', root => {
+          const labels = ['고립 페널티', '조기 탈락 보정', '5분 미만 0점 룰'];
+          return Array.from(root.querySelectorAll('span')).filter(node => labels.includes(node.textContent || '')).map(node => node.parentElement!.textContent);
+        });
+        expect(evidence).toHaveLength(3);
+        expect(evidence.every(text => text?.includes('기록 없음') && !text.includes('0분 생존'))).toBe(true);
+        await page.$eval('[data-testid="match-tier-tooltip"]', root => { root.scrollTop = root.scrollHeight; });
+        await page.screenshot({ path: screenshotPath('missing-stats-evidence', viewport), fullPage: true });
+        dispatcher.ledger.assertNoUnexpected();
+        dispatcher.ledger.assertNoUnauthenticatedAi();
+      },
+    });
+  }, 60_000);
+
   it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('phase1 glossary definitions at $width x $height', async (viewport) => {
     await withStatsBrowserPage({browser,baseUrl,scenarioName:'ready',clock,viewport,
       run:async ({page,dispatcher})=>{
