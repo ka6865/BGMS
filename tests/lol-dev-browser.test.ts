@@ -866,7 +866,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       const selector = entry === "card" ? '[data-testid="lol-match-player"]'
         : entry === "detail" ? '[data-testid="lol-player-row"] button' : '[aria-label="함께 플레이한 소환사"] [data-testid="lol-peer"] button';
       await page.$$eval(selector, (buttons) => {
-        const button = buttons.find((item) => item.textContent?.trim() === "blue1#KR1");
+        const button = buttons.find((item) => item.getAttribute("aria-label") === "blue1#KR1 전적 검색" || item.textContent?.trim() === "blue1#KR1");
         if (!button) throw new Error("참가자 버튼을 찾을 수 없습니다");
         (button as HTMLButtonElement).click();
       });

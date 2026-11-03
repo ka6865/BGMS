@@ -122,6 +122,10 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     expect(page.url()).toBe(`${base}/lol/kr/${encodeURIComponent("홍길동-KR1")}`);
     await page.click('button[aria-label="경기 상세 보기"]');
     await page.waitForSelector('[data-testid="lol-player-row"]');
+    expect(await page.$$eval('[data-testid="lol-player-row"] button', buttons => buttons.every(button =>
+      button.getBoundingClientRect().height >= 44 && parseFloat(getComputedStyle(button).fontSize) >= 13))).toBe(true);
+    expect(await page.$$eval('[data-testid="lol-player-row"] [aria-label^="챔피언 피해"]', cells => cells.every(cell =>
+      parseFloat(getComputedStyle(cell).fontSize) >= 12 && cell.scrollWidth <= cell.clientWidth + 1))).toBe(true);
     expect(await page.$eval('[data-testid="lol-match-insights"]', element => element.textContent)).toContain("시야 점수");
     expect(await page.$eval('[data-testid="lol-recent-trends"]', element => element.textContent)).toContain("최근 9경기");
     const challengeText = await page.$eval('[data-testid="lol-challenge-profile"]', element => element.textContent ?? "");
@@ -246,13 +250,22 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     await page.waitForSelector('[aria-label="검색 결과"]');
     await page.waitForSelector('[aria-label="검색 기록"] li');
     expect(await page.$eval('[aria-label="검색 기록"]', element => element.textContent)).toContain("홍길동#KR1");
-    await page.waitForFunction(() => [...document.querySelectorAll("button")].some(button => button.textContent?.includes("현재 계정 즐겨찾기")));
-    await page.$$eval("button", buttons => (buttons.find(button => button.textContent?.includes("현재 계정 즐겨찾기")) as HTMLButtonElement).click());
+    expect(await page.$eval('[aria-label="검색 기록"] details', element => (element as HTMLDetailsElement).open)).toBe(false);
+    expect(await page.$eval('[aria-label="검색 기록"]', element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(48);
+    expect(await page.$eval('[data-testid="lol-profile-favorite"]', element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+    await page.click('[data-testid="lol-profile-favorite"]');
+    await page.waitForFunction(() => document.querySelector('[data-testid="lol-profile-favorite"]')?.getAttribute("aria-pressed") === "true");
     expect(await page.$eval('[aria-label="검색 기록"]', element => element.textContent)).toContain("즐겨찾기");
+    // 접힌 기록은 키보드로 펼칠 수 있고 계정 검색 상태를 보존한다.
+    await page.focus('[aria-label="검색 기록"] summary');
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => (document.querySelector('[aria-label="검색 기록"] details') as HTMLDetailsElement).open);
+    expect(await page.$eval('[aria-label="검색 결과"] h2', element => element.textContent)).toContain("홍길동");
     expect(await page.$$eval('[aria-label="검색 기록"] button', buttons => buttons.every(button => button.getBoundingClientRect().height >= 44))).toBe(true);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
     await page.waitForSelector('[aria-label="홍길동#KR1 즐겨찾기 해제"]');
+    await page.click('[aria-label="검색 기록"] summary');
     await page.click('button[aria-label="홍길동#KR1 최근 검색에서 삭제"]');
     expect(await page.$('button[aria-label="홍길동#KR1 최근 검색에서 삭제"]')).toBeNull();
     await page.$$eval('[aria-label="검색 기록"] li button', buttons => (buttons.find(button => button.textContent?.trim() === "홍길동#KR1") as HTMLButtonElement).click());

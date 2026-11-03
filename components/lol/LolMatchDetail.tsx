@@ -43,7 +43,7 @@ function TeamComparison({ teams }: { teams: Team[] }) {
   const [blue, red] = teams;
 
   return (
-    <div aria-label="총킬·골드 비교" className="grid gap-2 text-[10px]">
+    <div aria-label="총킬·골드 비교" className="grid gap-2 text-xs">
       <ComparisonBar
         label="총 킬"
         left={blue.totalKills}
@@ -88,7 +88,7 @@ function ComparisonBar({
 
 function TeamObjectives({ team }: { team: Team }) {
   return (
-    <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-[10px] sm:flex sm:flex-wrap sm:justify-end sm:gap-x-3">
+    <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-xs sm:flex sm:flex-wrap sm:justify-end sm:gap-x-3">
       {OBJECTIVES.map(([key, label]) => {
         const objective = team.objectives?.[key];
         const title = `${label} ${objective?.kills ?? "미제공"}회${objective?.first ? " · 첫 획득" : ""}`;
@@ -154,7 +154,7 @@ function DamageBar({
     <div
       aria-label={`${label === "가한 피해" ? "챔피언 피해" : label} ${formatMetric(value)}`}
       title={`${label}: ${formatMetric(value)}`}
-      className="min-w-0 text-[10px] leading-tight text-zinc-400 @min-[860px]/history:text-xs @min-[860px]/history:text-zinc-300"
+      className="min-w-0 text-xs leading-tight text-zinc-300"
     >
       <div className="flex justify-between gap-1 @min-[860px]/history:justify-center">
         <span className="shrink-0 @min-[860px]/history:hidden">{shortLabel}</span>
@@ -272,25 +272,26 @@ function PlayerRow({
       <div role="cell" className="min-w-0">
         <button
           type="button"
+          aria-label={`${player.riotId} 전적 검색`}
           onClick={() => onSearch(player.riotId, player.ref)}
           disabled={player.riotId === "Riot ID 미제공"}
-          className={`block min-h-6 max-w-full truncate text-left text-[11px] disabled:cursor-default @min-[860px]/history:text-[13px] ${isOwn ? "font-bold text-amber-300" : "text-zinc-200 hover:text-white"}`}
+          className={`flex min-h-11 w-full min-w-0 flex-col justify-center text-left text-[13px] disabled:cursor-default focus-visible:outline-2 focus-visible:outline-amber-400 ${isOwn ? "font-bold text-amber-300" : "text-zinc-200 hover:text-white"}`}
         >
-          {player.riotId}
+          <span className="block max-w-full truncate">{player.riotId}</span>
+          <span className="flex max-w-full min-w-0 items-center gap-1 text-xs font-normal text-zinc-400">
+            <span className="truncate">{player.championNameKo}</span>
+            {/* 넓은 표에서는 점수를 별도 열에 둔다. */}
+            <span className="@min-[860px]/history:hidden"><LolScoreBadge player={player} /></span>
+          </span>
         </button>
-        <span className="flex min-w-0 items-center gap-1 text-[10px] text-zinc-500 @min-[860px]/history:text-[11px]">
-          <span className="truncate">{player.championNameKo}</span>
-          {/* 넓은 표에서는 점수를 별도 열에 둔다. */}
-          <span className="@min-[860px]/history:hidden"><LolScoreBadge player={player} /></span>
-        </span>
       </div>
       <ScoreCell player={player} />
-      <div role="cell" className="text-center text-[10px] tabular-nums @min-[860px]/history:text-xs">
+      <div role="cell" className="text-center text-xs tabular-nums">
         <span className="block @min-[860px]/history:text-zinc-300">
           <b className="@min-[860px]/history:font-normal">{player.kills ?? "—"}/{player.deaths ?? "—"}/{player.assists ?? "—"}</b>
           <span className="hidden text-zinc-400 @min-[860px]/history:inline"> ({formatPercent(player.killParticipationPct)})</span>
         </span>
-        <span className="block text-zinc-500 @min-[860px]/history:hidden">
+        <span className="block text-zinc-400 @min-[860px]/history:hidden">
           ({formatPercent(player.killParticipationPct)}){" "}
           {formatKdaRatio(player.kills, player.deaths, player.assists)}
         </span>
@@ -299,12 +300,12 @@ function PlayerRow({
         </b>
       </div>
 
-      <div className="col-span-4 grid min-w-0 grid-cols-[minmax(0,1fr)_72px_34px_124px] items-center gap-1 @min-[860px]/history:col-span-1 @min-[860px]/history:contents">
+      <div className="col-span-4 grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-2 @min-[860px]/history:col-span-1 @min-[860px]/history:contents">
         <DamageBars player={player} maxDealt={maxDealt} maxTaken={maxTaken} />
         <div
           role="cell"
           title={`제어와드 ${formatMetric(player.detectorWardsPlaced)} · 와드 설치 ${formatMetric(player.wardsPlaced)} · 제거 ${formatMetric(player.wardsKilled)}`}
-          className="text-center text-[10px] leading-tight text-zinc-300 @min-[860px]/history:text-xs"
+          className="text-right text-xs leading-tight text-zinc-300 @min-[860px]/history:text-center"
         >
           <span className="block">
             <span className="@min-[860px]/history:hidden">제어와드 </span>{formatMetric(player.detectorWardsPlaced)}
@@ -315,9 +316,9 @@ function PlayerRow({
             {formatMetric(player.wardsKilled)}
           </span>
         </div>
-        <div role="cell" className="text-center text-[10px] @min-[860px]/history:text-xs">
-          {formatMetric(player.cs)}
-          <span className="block text-zinc-500 @min-[860px]/history:text-zinc-400">
+        <div role="cell" className="text-xs @min-[860px]/history:text-center">
+          <span className="@min-[860px]/history:hidden">CS </span>{formatMetric(player.cs)}
+          <span className="ml-1 text-zinc-400 @min-[860px]/history:ml-0 @min-[860px]/history:block">
             <span className="hidden @min-[860px]/history:inline">분당 </span>{csPerMinute}<span className="@min-[860px]/history:hidden">/분</span>
           </span>
         </div>
@@ -383,7 +384,7 @@ export default function LolMatchDetail({
                 aria-selected={tab === key}
                 aria-controls={`${tabId}-${key}`}
                 onClick={() => setTab(key)}
-                className={`min-h-10 rounded-md px-2 text-xs font-semibold transition ${tab === key ? "bg-zinc-700 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"}`}
+                className={`min-h-11 rounded-md px-2 text-xs font-semibold transition ${tab === key ? "bg-zinc-700 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"}`}
               >
                 {label}
               </button>
