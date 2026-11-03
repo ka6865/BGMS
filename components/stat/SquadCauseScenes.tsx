@@ -109,12 +109,12 @@ function buildMetricChips(scene: SquadCauseSceneCardData): string[] {
   if (tradeLatency) chips.push(`백업 ${tradeLatency}`);
   if (!tradeLatency && benchmarkTradeLatency && scene.type === "late_trade") chips.push(`기준 ${benchmarkTradeLatency}`);
   if (scene.type === "isolation_death") {
-    if (typeof metrics.minDistanceM === "number") chips.push(`팀 간격 ${Math.round(metrics.minDistanceM)}m`);
+    if (typeof metrics.minDistanceM === "number") chips.push(`경기 평균 거리 ${Math.round(metrics.minDistanceM)}m`);
     if (typeof metrics.minDistanceDangerMeters === "number") chips.push(`위험 기준 ${Math.round(metrics.minDistanceDangerMeters)}m`);
     if (typeof metrics.deathIsolation === "number") chips.push(`BGMS 고립지수 ${metrics.deathIsolation.toFixed(2)}`);
   } else {
     if (typeof metrics.deathIsolation === "number") chips.push(`BGMS 고립지수 ${metrics.deathIsolation.toFixed(2)}`);
-    if (typeof metrics.minDistanceM === "number") chips.push(`거리 ${Math.round(metrics.minDistanceM)}m`);
+    if (typeof metrics.minDistanceM === "number") chips.push(`경기 평균 거리 ${Math.round(metrics.minDistanceM)}m`);
   }
   if (metrics.smokeUsedWithin15s === true) chips.push("연막 확인");
   if (metrics.smokeUsedWithin15s === false && scene.type !== "team_wipe") chips.push("연막 미확인");

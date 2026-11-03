@@ -615,13 +615,13 @@ export function extractSquadCauseScenes(
         const outcome = getCriticalEventOutcome(event);
         const facts = [
           `${base.displayTime}에 ${targetName} ${getCriticalEventLabel(event)} 발생`,
-          `아군 평균 거리 ${roundedDistanceM}m / 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m`,
+          `경기 평균 아군 거리 ${roundedDistanceM}m / 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m`,
           `팀 간격 위험도 ${deathIsolation.toFixed(2)} / 위험 기준 ${resolvedOptions.isolationDangerThreshold}`,
           "팀 간격 위험도는 팀원과의 거리/대열 상태를 요약한 BGMS 파생 지표",
-          "매치 단위 추정이라 엄폐물, 시야, 지형 원인은 단정하지 않음"
+          "매치 단위 추정이며 사건 시점 거리, 엄폐물, 시야, 지형 원인은 확인할 수 없음"
         ];
         if (!isDistanceRisk) {
-          facts.push("아군 평균 거리는 위험 기준 이내라 거리만으로 고립 원인을 단정하지 않음");
+          facts.push("경기 평균 아군 거리는 위험 기준 이내라 거리만으로 고립 원인을 단정하지 않음");
         }
         if (reviveWithin30s) {
           facts.push("30초 안에 소생 성공 이벤트 확인");
@@ -629,11 +629,11 @@ export function extractSquadCauseScenes(
         pushUnique(scenes, {
           ...base,
           title: isDistanceRisk
-            ? `팀과 ${roundedDistanceM}m 떨어진 상태에서 ${outcome}`
-            : `팀 간격 위험 신호가 있는 ${outcome}`,
+            ? `${outcome} · 경기 평균 아군 거리 ${roundedDistanceM}m`
+            : `${outcome} · 경기 평균 팀 간격 위험 신호`,
           reason: isDistanceRisk
-            ? `아군 평균 거리가 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m를 넘어, 즉시 백업이나 소생 각이 늦어질 수 있는 거리 조건입니다.`
-            : "아군 평균 거리는 위험 기준 이내지만, 매치 단위 팀 간격 위험도가 높아 거리만으로 원인을 단정하지 않고 보조 지표로 표시합니다.",
+            ? `경기 평균 아군 거리가 위험 기준 ${resolvedOptions.minDistanceDangerMeters}m 이상인 경기입니다. 사건 시점 거리는 측정하지 않았습니다.`
+            : "경기 평균 아군 거리는 위험 기준 이내이며, 팀 간격 위험도는 매치 단위 보조 지표입니다. 사건 시점 거리는 측정하지 않았습니다.",
           severity: isRecoveredKnock ? "warning" : "danger",
           confidence: "medium",
           facts,
@@ -647,10 +647,10 @@ export function extractSquadCauseScenes(
             reviveWithin30s
           },
           aiBrief: isRecoveredKnock
-            ? `${base.displayTime} ${targetName} ${outcome} 장면은 팀 간격 위험도가 높았지만 30초 안에 소생 성공 이벤트가 확인된 복구 동반 장면입니다.`
+            ? `${base.displayTime} ${targetName} ${outcome} 후 30초 안에 소생 성공 이벤트가 확인됩니다. 경기 평균 아군 거리는 ${roundedDistanceM}m이며, 사건 시점 거리는 측정 불가입니다.`
             : isDistanceRisk
-              ? `${base.displayTime} ${targetName} ${outcome} 장면은 아군 평균 거리 ${roundedDistanceM}m로 즉시 백업이나 소생 각이 늦어질 수 있는 거리 조건입니다.`
-              : `${base.displayTime} ${targetName} ${outcome} 장면은 팀 간격 위험도가 높지만 거리만으로 원인을 단정할 수 없는 장면입니다.`
+              ? `${base.displayTime} ${targetName} ${outcome} 이벤트가 확인됩니다. 경기 평균 아군 거리는 ${roundedDistanceM}m이며, 사건 시점 거리는 측정 불가입니다.`
+              : `${base.displayTime} ${targetName} ${outcome} 이벤트가 확인됩니다. 경기 평균 아군 거리는 위험 기준 이내이며, 사건 시점 거리는 측정 불가라 거리만으로 원인을 단정할 수 없습니다.`
         });
       }
     });
@@ -869,6 +869,7 @@ ${JSON.stringify(sceneTypeCounts, null, 2)}
 - 교전 필요성이나 회피 필요성은 현재 facts만으로 단정하지 마십시오.
 - "reviveWithin30s: true"인 장면은 복구 성공 이벤트가 확인된 장면이므로 전력 손실 확정이나 복구 실패처럼 표현하지 마십시오.
 - "deathIsolation"은 위험 기준 이상이지만 "minDistanceM"이 위험 기준 이내인 장면은 "거리를 줄여라"로 처방하지 말고, 거리만으로 원인을 단정할 수 없다고 설명하십시오.
+- minDistanceM은 경기 평균 아군 거리입니다. 사건 시점 거리로 해석하지 마십시오. 같은 경기의 여러 장면에 같은 평균이 반복되며, 경기 평균으로 사건 당시 고립이나 백업 지연을 단정하지 마십시오.
 - RECALL, TEAM_RECALL, REDEPLOY는 전력 복구 성공으로 표현할 수 있지만, 별도 facts가 없으면 블루칩 회수자/회수 시점은 단정하지 마십시오.
 - 팀 전원 치명 이벤트 장면은 이후의 구조 미이행을 개인 책임으로 단정하지 말고, 교전 진입 조건과 복구 불가능성을 구분하십시오.
 - 전력 복구 장면은 적 전원 처치를 의미하지 않습니다. "적 전원 처치가 확인되었습니다", "적을 다 잡았다" 같은 표현은 적 스쿼드 전멸 기여 장면에서만 사용하십시오.
