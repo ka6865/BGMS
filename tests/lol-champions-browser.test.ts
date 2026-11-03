@@ -39,9 +39,9 @@ const statRows = [
   { team_position: "MIDDLE", champion_id: 103, games: 500, wins: 260, bans: 80, matches: 2000 },
   ...Array.from({ length: 60 }, (_, i) => ({ team_position: "TOP", champion_id: 1002 + i, games: 30 + i, wins: 15 + Math.floor(i / 2), bans: i, matches: 2000 })),
 ];
-const stats = { patch: "16.21", patches: [{ patch: "16.21", matches: 2000, timelineMatches: 1000 }], matches: 2000, rows: statRows };
+const stats = { collectionUpdatedAt: new Date().toISOString(), patch: "16.21", patches: [{ patch: "16.21", matches: 2000, timelineMatches: 1000 }], matches: 2000, rows: statRows };
 const detail = {
-  patch: "16.21", patches: stats.patches, matches: 2000, timelineMatches: 1000, bans: 120,
+  collectionUpdatedAt: stats.collectionUpdatedAt, patch: "16.21", patches: stats.patches, matches: 2000, timelineMatches: 1000, bans: 120,
   positions: [{ team_position: "TOP", games: 400, wins: 212, kills: 2000, deaths: 1800, assists: 2400, cs: 76000, gold: 4800000, damage: 9000000,
     duration_seconds: 720000, gd15_sum: 60000, gd15_count: 200 }, { team_position: "JUNGLE", games: 12, wins: 5, kills: 50, deaths: 60, assists: 70,
     cs: 2000, gold: 100000, damage: 200000, duration_seconds: 21600, gd15_sum: 0, gd15_count: 0 }],
@@ -105,7 +105,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 챔피언 공�
       if (req.url === "/client.js") { res.setHeader("Content-Type", "text/javascript"); res.end(client.outputFiles[0].text); return; }
       if (req.url === "/interactive" || req.url === "/interactive-stats") {
         const props = req.url === "/interactive" ? { champions, version: "16.21.1", error: false }
-          : { champions, version: "16.21.1", error: false, stats: { patch: stats.patch, matches: stats.matches, rows: stats.rows, tierFilter: "emerald_plus" } };
+          : { champions, version: "16.21.1", error: false, stats: { patch: stats.patch, matches: stats.matches, rows: stats.rows, tierFilter: "emerald_plus", collectionUpdatedAt: stats.collectionUpdatedAt } };
         res.setHeader("Content-Type", "text/html");
         res.end('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
           + '<link rel="stylesheet" href="/style.css"></head><body class="bg-zinc-950"><div id="champion-root">'
@@ -171,6 +171,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 챔피언 공�
 
     expect((await page.goto(`${base}/lol/kr/champions?stats&tier=diamond_plus&position=TOP`, { waitUntil: "networkidle0" }))?.status()).toBe(200);
     expect(await page.$eval("main header p", element => element.textContent)).toContain("16.21 패치 · 솔로 랭크 2,000경기");
+    expect(await page.$eval("main header", element => element.textContent)).toContain("마지막 집계");
+    expect(await page.$eval("main header", element => element.textContent)).toContain("2,000경기 표본");
     expect(await page.$eval('nav[aria-label="티어"] [aria-current="true"]', element => element.textContent)).toBe("다이아몬드+");
     const rows = await page.$$eval('section[aria-label="챔피언 통계"] tbody tr', trs => trs.map(tr => [...tr.querySelectorAll("td")].map(td => td.textContent?.trim())));
     expect(rows).toHaveLength(63);
@@ -185,6 +187,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 챔피언 공�
     expect(await page.$eval("main h1", element => element.textContent)).toBe("아트록스");
     expect(await page.$eval('[data-testid="lol-header"] [aria-current="page"]', element => element.textContent)).toBe("챔피언");
     expect(await page.$eval('nav[aria-label="포지션"] [aria-current="page"]', element => element.textContent)).toContain("탑");
+    expect(await page.$eval("main", element => element.textContent)).toContain("2,000경기 표본");
     const summary = await page.$eval('section[aria-label="요약"]', element => element.textContent);
     for (const text of ["53.0%", "20.0%", "6.0%", "400", "5.0 / 4.5 / 6.0", "6.3", "750", "+300"]) expect(summary).toContain(text);
     for (const title of ["룬", "소환사 주문", "시작 아이템", "코어 빌드", "스킬 순서", "신발", "많이 가는 아이템", "라인 상대"]) {

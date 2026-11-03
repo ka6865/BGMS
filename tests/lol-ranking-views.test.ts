@@ -21,6 +21,9 @@ describe("장인 화면", () => {
     const html = renderToStaticMarkup(LolMastersView({ champions, championsError: false, board: master, boardError: false, selectedId: 266 }));
     expect(html).toContain("조건: 이번 시즌 솔로 랭크 15판 이상, 승률 50% 이상, 판수 많은 순, 챌린저·그랜드마스터 대상");
     expect(html).toContain("챌린저·그랜드마스터 120명 중 80% 확인");
+    expect(html).toContain('role="progressbar" aria-label="장인 수집 범위 확인 진행률"');
+    expect(html).toContain('aria-valuenow="80"');
+    expect(html).toContain("마지막 관측 후 24시간 이상 지났습니다");
     expect(html).toContain("수집 중, 판수가 실제보다 적을 수 있습니다");
     expect(html).toContain("Alpha");
     expect(html).toContain("판수 20");
@@ -48,6 +51,7 @@ describe("랭킹 화면", () => {
     const html = renderToStaticMarkup(LolLadderView({ rows: [], today: "2026-10-30", ranking }));
     expect(html).toContain("솔로 랭크 순위");
     expect(html).toContain("Bravo");
+    expect(html).toContain("마지막 관측 후 24시간 이상 지났습니다");
     expect(html).toContain("aria-label=\"상위 3명\"");
     expect(html).not.toMatch(/riot_id_hmac|puuid/);
     expect(html).toContain("자체 계산 값이 아닙니다");
