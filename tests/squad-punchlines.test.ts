@@ -291,10 +291,11 @@ describe("매운맛 한마디", () => {
     { name: "B", id: "member_low_damage", kind: "roast" as const, metric: "damageShare", fact: "팀 딜 비중은 5%입니다." },
   ];
 
-  it("매운맛은 재료 뒤에 서버가 쓴 한마디를 붙이고, 사실 문장은 그대로 둔다", () => {
+  it("매운맛은 팀 재료 뒤에 서버가 쓴 한마디를 붙이고, 사실 문장은 그대로 둔다", () => {
     const block = formatSquadPunchlineBlock(team, members, { jabs: true });
     expect(block).toContain("backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느립니다. → 한마디: 아군이 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었습니다.");
-    expect(block).toContain("A [hype] member_damage_carry: 팀 딜 비중이 73%입니다. → 한마디: 화력 지분을 혼자 쓸어 담은 캐리입니다.");
+    // 개인 재료에는 한마디를 붙이지 않는다. 개인 칭찬은 서버가 따로 쓴다.
+    expect(block.split("\n")).toContain("- A [hype] member_damage_carry: 팀 딜 비중이 73%입니다.");
   });
 
   it("한마디가 없는 재료와 낮은 딜 비중에는 붙이지 않는다", () => {

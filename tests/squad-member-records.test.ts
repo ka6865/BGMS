@@ -3,7 +3,7 @@ import { buildSquadMemberRecords, squadFaultCandidates, squadMemberFaultFeedback
 import { buildSquadObservationBlock } from "@/lib/pubg-analysis/squadMemberDistribution";
 import { sanitizeSquadAbilityClaims } from "@/lib/pubg-analysis/squadAiPolicy";
 import { applySquadEvidencePolicy } from "@/lib/pubg-analysis/squadAiEvidence";
-import { squadSpicyMemberPraise } from "@/lib/pubg-analysis/squadPunchlines";
+import { squadMemberPraise } from "@/lib/pubg-analysis/squadPunchlines";
 
 const keyOf = (name: string) => name.toLowerCase();
 const KEYS = ["a", "b", "c"];
@@ -114,12 +114,12 @@ describe("squadFaultCandidates 말투", () => {
   const records = { firstDeaths: { count: 4, matches: 7 }, initiative: { successes: 7, attempts: 21, matches: 7 }, farFromTeam: { count: 4, measured: 6 } };
   const members = [{ name: "A", records }, { name: "B", records: { firstDeaths: { count: 1, matches: 7 }, initiative: null, farFromTeam: null } }];
 
-  it("다정한맛은 기록만 쓰고, 매운맛은 같은 기록 뒤에 비꼬는 한마디가 붙는다", () => {
+  it("다정한맛은 기록만 쓰고, 매운맛은 못했다는 판정과 비꼬는 한마디가 붙는다", () => {
     const mild = squadFaultCandidates(members, "mild").get("A")!;
     const spicy = squadFaultCandidates(members, "spicy").get("A")!;
     expect(mild).toHaveLength(3);
     expect(spicy).toHaveLength(3);
-    // 같은 숫자를 쓰고, 한마디는 같은 문장 안에 붙는다(문장 수는 같다).
+    // 같은 숫자를 쓰고, 매운맛은 판정과 한마디가 한 후보 안에 붙는다.
     for (const digits of [["6", "4"], ["7", "4"], ["21", "7"]]) {
       const index = [["6", "4"], ["7", "4"], ["21", "7"]].findIndex(entry => entry.join() === digits.join());
       digits.forEach(digit => { expect(mild[index]).toContain(digit); expect(spicy[index]).toContain(digit); });
@@ -128,7 +128,8 @@ describe("squadFaultCandidates 말투", () => {
     expect(spicy.join(" ")).toContain("아군은 같은 판에 있었는데 거리는 다른 판이었습니다.");
     expect(spicy.join(" ")).toContain("첫 퇴장 부문 상습 1위입니다.");
     expect(spicy.join(" ")).toContain("선제권은 상대가 더 자주 챙겨 갔습니다.");
-    spicy.forEach(text => expect(text.match(/[.!?]/g)).toHaveLength(1));
+    spicy.forEach(text => { expect(text).toMatch(/못했습니다|못 막았습니다/); expect(text.match(/[.!?]/g)).toHaveLength(2); });
+    mild.forEach(text => expect(text).not.toMatch(/못했습니다|못 막았습니다/));
   });
 
   it("후보가 없는 팀원은 말투와 상관없이 비어 있다", () => {
@@ -248,17 +249,30 @@ describe("서버가 쓰는 개인 못한 점과 조언", () => {
 describe("매운맛 개인 칭찬", () => {
   const punch = (id: string, kind: "hype" | "roast", fact: string, name = "A") => ({ name, id, kind, fact });
 
-  it("높은 비중과 꾸준한 팀원에게만 사실 문장과 한마디를 한 문장으로 잇는다", () => {
-    expect(squadSpicyMemberPraise(punch("member_damage_carry", "hype", "팀 딜 비중이 73%입니다."))).toMatch(/^팀 딜 비중이 73%, .+입니다\.$/);
-    expect(squadSpicyMemberPraise(punch("member_kill_log", "roast", "팀 딜 비중은 5%인데 팀 킬 비중은 60%입니다."))).toBe("팀 딜 비중은 5%인데 팀 킬 비중은 60%, 킬로그 배달부 기록입니다.");
-    expect(squadSpicyMemberPraise(punch("member_low_damage", "roast", "팀 딜 비중은 5%입니다."))).toBeNull();
+  it("높은 비중과 꾸준한 팀원에게만 사실 문장과 칭찬을 한 문장으로 잇는다", () => {
+    expect(squadMemberPraise(punch("member_damage_carry", "hype", "팀 딜 비중이 73%입니다."))).toMatch(/^팀 딜 비중이 73%, .+(?:입니다|습니다)\.$/);
+    expect(squadMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다."))).toContain("팀 딜 비중 28%, 팀 킬 비중 26%, ");
   });
 
-  it("같은 재료여도 팀원 이름에 따라 한마디가 달라지고, 같은 이름은 항상 같다", () => {
+  it("낮은 딜 비중과 킬로그 배달부에는 칭찬을 만들지 않는다", () => {
+    expect(squadMemberPraise(punch("member_low_damage", "roast", "팀 딜 비중은 5%입니다."))).toBeNull();
+    expect(squadMemberPraise(punch("member_kill_log", "roast", "팀 딜 비중은 5%인데 팀 킬 비중은 60%입니다."))).toBeNull();
+  });
+
+  it("칭찬은 비꼬는 말투가 아니다", () => {
+    const ids = ["member_damage_carry", "member_kill_share", "member_steady"];
+    for (const id of ids) {
+      for (const name of ["A", "B", "C", "KangHeeSung_", "MiaeQ_Q", "Suk-Cun", "Player_A"]) {
+        expect(squadMemberPraise(punch(id, "hype", "팀 딜 비중이 50%입니다.", name))).not.toMatch(/얄밉|놀릴 거리|빈틈|배달부|엄지|박수/);
+      }
+    }
+  });
+
+  it("같은 재료여도 팀원 이름에 따라 표현이 달라지고, 같은 이름은 항상 같다", () => {
     const names = ["KangHeeSung_", "ckadmfdls__", "MiaeQ_Q", "Suk-Cun", "Player_A", "Player_B"];
-    const lines = names.map(name => squadSpicyMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다.", name)));
+    const lines = names.map(name => squadMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다.", name)));
     expect(new Set(lines).size).toBeGreaterThan(1);
-    expect(squadSpicyMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다.", "MiaeQ_Q"))).toBe(lines[2]);
+    expect(squadMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다.", "MiaeQ_Q"))).toBe(lines[2]);
   });
 
   it("정책은 매운맛에서만 칭찬을 서버 문장으로 확정하고 다정한맛은 모델 문장을 둔다", () => {
@@ -275,5 +289,14 @@ describe("매운맛 개인 칭찬", () => {
     expect(applySquadEvidencePolicy(spicy, stats, "B", undefined, profiles, { coachingStyle: "spicy" })).toEqual(spicy);
     const mild: any = applySquadEvidencePolicy(result, stats, "B", undefined, profiles, { coachingStyle: "mild" });
     expect(mild.memberFeedbacks[0].praise).toBe("모델이 쓴 평범한 칭찬입니다.");
+  });
+});
+
+describe("펀치라인 라벨 정리", () => {
+  it("모델이 옮겨 적은 → 한마디: 라벨은 지우고 문장은 남긴다", () => {
+    const input = { summary: "구조 성공률 46.3%로 평균보다 높습니다. → 한마디: 일으켜 세우는 손만큼은 평균을 가볍게 넘겼습니다.", strength: "", weakness: "", coaching: "", overallOpinion: "총평", memberFeedbacks: [] };
+    const result = sanitizeSquadAbilityClaims(input);
+    expect(result.summary).toBe("구조 성공률 46.3%로 평균보다 높습니다. 일으켜 세우는 손만큼은 평균을 가볍게 넘겼습니다.");
+    expect(sanitizeSquadAbilityClaims(result)).toEqual(result);
   });
 });

@@ -33,7 +33,7 @@ export default function PrivacyPage() {
         개인정보처리방침
       </h1>
       <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.35)", marginBottom: "40px" }}>
-        최종 업데이트: 2026년 11월 3일
+        최종 업데이트: 2026년 11월 4일
       </p>
 
       <Section title="1. 개요">
@@ -384,7 +384,7 @@ export default function PrivacyPage() {
           변경 시 서비스 내 공지사항 또는 본 페이지를 통해 사전 고지합니다.
         </p>
         <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)" }}>
-          시행일: 2026년 10월 30일
+          시행일: 2026년 11월 4일
         </p>
       </Section>
 

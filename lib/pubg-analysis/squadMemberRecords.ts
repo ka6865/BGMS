@@ -115,19 +115,19 @@ type FaultKind = "far" | "firstDeath" | "initiative";
 type FaultItem = { kind: FaultKind; text: string };
 
 // 문장은 서버가 말투별로 쓴다. 모델은 지시해도 말투를 못 내거나 없는 기준을 만들어 넣는다.
-// 매운맛의 한마디는 기록된 숫자만 놀리고 실력·의도·원인은 말하지 않으며, 같은 문장 안에 붙여 나열처럼 읽히지 않게 한다.
+// 매운맛은 기준에 못 미친 기록을 "못했습니다"라고 분명히 말하고 한마디를 붙인다. 판정은 측정된 기록과 고정 기준에만 근거하며 실력·의도·원인은 말하지 않는다.
 const FAULT_TEXT: Record<FaultKind, Record<SquadFaultTone, (a: number, b: number) => string>> = {
   far: {
     mild: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기입니다.`,
-    spicy: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기, 아군은 같은 판에 있었는데 거리는 다른 판이었습니다.`,
+    spicy: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기, 아군과의 거리 유지는 못했습니다. 아군은 같은 판에 있었는데 거리는 다른 판이었습니다.`,
   },
   firstDeath: {
     mild: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다입니다.`,
-    spicy: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다, 첫 퇴장 부문 상습 1위입니다.`,
+    spicy: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다, 먼저 쓰러지는 건 못 막았습니다. 첫 퇴장 부문 상습 1위입니다.`,
   },
   initiative: {
     mild: (attempts, successes) => `선제 타격 시도 ${attempts}회 중 ${successes}회만 성공했습니다.`,
-    spicy: (attempts, successes) => `선제 타격 ${attempts}회 시도에 ${successes}회 성공, 선제권은 상대가 더 자주 챙겨 갔습니다.`,
+    spicy: (attempts, successes) => `선제 타격 ${attempts}회 시도에 ${successes}회 성공, 먼저 치는 건 못했습니다. 선제권은 상대가 더 자주 챙겨 갔습니다.`,
   },
 };
 

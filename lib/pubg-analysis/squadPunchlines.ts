@@ -271,7 +271,7 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
 
 // 매운맛의 비꼬는 한마디는 서버가 정한다. 약한 모델은 사실 문장만 주면 농담을 만들지 못한다.
 // 한마디는 기록된 지표만 놀리거나 띄우고, 숫자와 실력·의도·원인을 말하지 않는다(숫자는 사실 문장이 담는다).
-// 개인 딜·킬 비중이 낮은 쪽(member_low_damage)은 비중을 못한 점으로 읽히지 않게 한마디를 붙이지 않는다.
+// 개인 재료에는 한마디를 붙이지 않는다. 개인 칭찬과 못한 점은 서버가 따로 쓴다.
 const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
   backup_slow: ["아군이 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었습니다."],
   backup_fast: ["백업만큼은 배달 앱보다 빨랐습니다."],
@@ -283,15 +283,17 @@ const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
   wins_zero: ["우승 트로피 진열장은 아직 비어 있습니다."],
   wins_some: ["치킨 기록이 있다는 건 부인할 수 없는 사실입니다."],
   best_rank_top: ["최고 순위만큼은 포디움에 올랐습니다."],
-  member_kill_log: ["킬로그 배달부 기록입니다."],
-  member_damage_carry: ["화력 지분을 혼자 쓸어 담은 캐리입니다.", "화력 지분을 쓸어 담은 팀의 엔진입니다."],
-  member_kill_share: ["킬 지분을 쓸어 담은 해결사 포스입니다.", "킬 마무리 지분을 챙겨 간 해결사입니다."],
-  member_steady: ["딜도 킬도 흠잡을 데 없이 꾸준해서 얄밉습니다.", "눈에 띄는 약점이 기록에 없어 놀릴 거리가 없습니다.", "평범해 보이지만 기록상 빈틈은 없습니다."],
+};
+
+// 개인 칭찬은 비꼬지 않는다. 진짜 칭찬 문장을 서버가 쓰고, 같은 재료여도 팀원 이름에 따라 표현이 달라진다.
+const SQUAD_MEMBER_PRAISE: Readonly<Record<string, readonly string[]>> = {
+  member_damage_carry: ["화력의 중심을 잡은 캐리입니다.", "팀 화력을 가장 크게 책임졌습니다.", "팀의 화력 엔진 역할을 해냈습니다."],
+  member_kill_share: ["킬을 가장 많이 책임진 해결사입니다.", "교전을 마무리 짓는 몫을 크게 해냈습니다."],
+  member_steady: ["딜과 킬 모두 안정적으로 제 몫을 해냈습니다.", "꾸준하게 팀 화력을 받쳐 주었습니다.", "무리 없이 팀의 교전에 보탬이 되었습니다."],
 };
 
 /** 같은 시드면 같은 한마디다(팀원 이름을 시드로 쓰면 같은 재료여도 팀원마다 한마디가 달라진다). */
-function squadPunchlineJab(id: string, seed: string): string | null {
-  const variants = SQUAD_PUNCHLINE_JABS[id];
+function pickVariant(variants: readonly string[] | undefined, seed: string): string | null {
   if (!variants || variants.length === 0) return null;
   let hash = 0x811c9dc5;
   for (let index = 0; index < seed.length; index += 1) {
@@ -301,15 +303,18 @@ function squadPunchlineJab(id: string, seed: string): string | null {
   return variants[hash % variants.length];
 }
 
+function squadPunchlineJab(id: string, seed: string): string | null {
+  return pickVariant(SQUAD_PUNCHLINE_JABS[id], seed);
+}
+
 /**
- * 매운맛 개인 칭찬 문장. 개인 딜·킬 비중이 높거나 꾸준한 팀원에게만 만든다. 낮은 딜 비중(member_low_damage)에는 만들지 않는다.
- * 사실 문장의 끝맺음을 떼어 한마디와 한 문장으로 잇는다.
+ * 매운맛 개인 칭찬 문장. 개인 딜·킬 비중이 높거나 꾸준한 팀원에게만 만든다. 낮은 딜 비중과 킬로그 배달부에는 만들지 않는다.
+ * 사실 문장의 끝맺음을 떼어 칭찬과 한 문장으로 잇는다.
  */
-export function squadSpicyMemberPraise(punchline: Pick<SquadMemberPunchline, "name" | "id" | "kind" | "fact">): string | null {
-  if (punchline.kind !== "hype" && punchline.id !== "member_kill_log") return null;
-  const jab = squadPunchlineJab(punchline.id, punchline.name);
-  if (!jab) return null;
-  return `${punchline.fact.replace(/입니다\.$/, "")}, ${jab}`;
+export function squadMemberPraise(punchline: Pick<SquadMemberPunchline, "name" | "id" | "kind" | "fact">): string | null {
+  const praise = pickVariant(SQUAD_MEMBER_PRAISE[punchline.id], punchline.name);
+  if (!praise || punchline.kind !== "hype") return null;
+  return `${punchline.fact.replace(/입니다\.$/, "")}, ${praise}`;
 }
 
 /** 매운맛 프롬프트에 넣을 재료 블록. 재료가 없으면 빈 칸을 명시해 모델이 수치를 만들지 않게 한다. */
