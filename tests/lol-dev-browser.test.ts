@@ -824,19 +824,19 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       expect(await page.evaluate(() => history.length)).toBe(historyLength);
       expect(searches).toBe(1);
       await page.reload({ waitUntil: "domcontentloaded" });
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "강 희-성#5955");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "강 희-성#5955");
       expect(await page.$eval('select[aria-label="큐 필터"]', (select) => (select as HTMLSelectElement).value)).toBe("flex");
       expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.length)).toBe(2);
       await page.$$eval('[data-testid="lol-match-player"]', (buttons) => {
         (buttons.find((button) => button.textContent?.trim() === "blue1#KR1") as HTMLButtonElement).click();
       });
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "blue1#KR1");
       expect(page.url()).toBe(`${baseUrl}/admin/lol/kr/blue1-KR1?queue=flex`);
       await page.goBack();
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "강 희-성#5955");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "강 희-성#5955");
       expect(new URL(page.url()).searchParams.get("queue")).toBe("flex");
       await page.goForward();
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "blue1#KR1");
       expect(searches).toBe(5);
       await page.close();
     });
@@ -846,7 +846,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await search(page, "blue0#KR1");
       await showView(page, "stats");
       await page.click('[aria-label="함께 플레이한 소환사"] [data-testid="lol-peer"] button');
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "blue1#KR1");
       expect(page.url()).toBe(`${baseUrl}/admin/lol/kr/blue1-KR1`);
       // 다른 소환사로 이동하면 모바일 보기는 전적 탭으로 돌아간다.
       expect(await page.$eval("#lol-view-matches-tab", (tab) => tab.getAttribute("aria-selected"))).toBe("true");
@@ -884,7 +884,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await page.waitForSelector('[role="alert"]');
       const path = page.url();
       await page.click('form button[type="submit"]');
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "searchretry#kr1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "searchretry#kr1");
       expect(page.url()).toBe(path);
       expect(searches).toBe(2);
       await page.close();
@@ -915,10 +915,10 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       ).toBe("fast#kr1");
       await page.click('form button[type="submit"]');
       await page.waitForFunction(
-        () => document.querySelector("h2")?.textContent === "fast#kr1",
+        () => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "fast#kr1",
       );
       await new Promise((resolve) => setTimeout(resolve, 350));
-      expect(await page.$eval("h2", (element) => element.textContent)).toBe(
+      expect(await page.$eval('[aria-label="검색 결과"] h2', (element) => element.textContent)).toBe(
         "fast#kr1",
       );
       await page.close();
@@ -980,7 +980,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         const button = buttons.find((element) => element.textContent?.trim() === "blue1#KR1");
         (button as HTMLButtonElement).click();
       });
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "blue1#KR1");
       expect(await page.$$eval('[data-testid="lol-match-player"]', (buttons) =>
         buttons.filter((button) => button.classList.contains("text-amber-300"))
           .every((button) => button.textContent?.trim() === "blue1#KR1"),

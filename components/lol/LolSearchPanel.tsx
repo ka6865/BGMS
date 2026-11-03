@@ -14,6 +14,8 @@ import LolLegalNotice from "./LolLegalNotice";
 import LolLiveGamePanel from "./LolLiveGamePanel";
 import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH } from "@/lib/lol/keyNotice";
 import { nextPendingMatchIds } from "@/lib/lol/limits";
+import { emptyLolSearchHistory, loadLolSearchHistory, recordLolSearch, removeLolRecent, saveLolSearchHistory, toggleLolFavorite, type LolSearchHistory } from "@/lib/lol/searchHistory";
+import LolSearchHistoryPanel from "./LolSearchHistory";
 
 type QueueFilter = "all" | "solo" | "flex" | "aram";
 
@@ -61,6 +63,8 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const [riotId, setRiotId] = useState(initialRiotId ?? "");
   const [result, setResult] = useState<LolSearchResult | null>(null);
   const [error, setError] = useState<string | null>(initialError ?? null);
+  const [searchHistory, setSearchHistory] = useState<LolSearchHistory>(emptyLolSearchHistory);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [openMatchId, setOpenMatchId] = useState<string | null>(null);
   const [liveOpen, setLiveOpen] = useState(false);
@@ -86,6 +90,22 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const activeSearch = useRef<string | null>(null);
   const busyAction = useRef<string | null>(null);
   const mainRef = useRef<HTMLElement>(null);
+  const searchHistoryRef = useRef(searchHistory);
+
+  useEffect(() => {
+    const restored = loadLolSearchHistory();
+    if (restored) {
+      searchHistoryRef.current = restored;
+      setSearchHistory(restored);
+    }
+    else setHistoryError("검색 기록을 브라우저 저장소에서 읽지 못했습니다.");
+  }, []);
+
+  function persistSearchHistory(next: LolSearchHistory) {
+    searchHistoryRef.current = next;
+    setSearchHistory(next);
+    setHistoryError(saveLolSearchHistory(next) ? null : "검색 기록을 저장하지 못했습니다. 브라우저 저장소 설정과 여유 공간을 확인해 주세요.");
+  }
 
   useEffect(() => {
     setNow(Date.now());
@@ -133,6 +153,8 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
       if (currentRequest === requestId.current) {
         const updatedAt = Date.now();
         setResult(payload as LolSearchResult);
+        const accountId = `${payload.account?.gameName ?? ""}#${payload.account?.tagLine ?? ""}`;
+        persistSearchHistory(recordLolSearch(searchHistoryRef.current, accountId));
         setHasNextPage(payload.matchIds?.length === 20);
         lastAutoOffset.current = -1;
         setRestoreTarget(readLoadedCount(`${payload.account?.gameName}#${payload.account?.tagLine}`));
@@ -193,6 +215,15 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     navigateTo(riotId);
+  }
+
+  function toggleFavorite(riotId: string) {
+    const next = toggleLolFavorite(searchHistoryRef.current, riotId);
+    if (!next) {
+      setHistoryError("즐겨찾기는 최대 20개까지 저장할 수 있습니다.");
+      return;
+    }
+    persistSearchHistory(next);
   }
 
   function searchParticipant(target: string, ref?: string) {
@@ -425,6 +456,15 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
         <p className="mt-2 text-xs text-zinc-500">
           한국 서버 전적을 조회합니다. Riot ID와 태그를 입력하세요.
         </p>
+        <LolSearchHistoryPanel
+          history={searchHistory}
+          currentRiotId={result ? `${result.account.gameName}#${result.account.tagLine}` : ""}
+          onSearch={navigateTo}
+          onRemove={(riotId) => persistSearchHistory(removeLolRecent(searchHistoryRef.current, riotId))}
+          onClear={() => persistSearchHistory({ ...searchHistoryRef.current, recent: [] })}
+          onToggleFavorite={toggleFavorite}
+        />
+        {historyError && <p role="alert" className="mt-3 rounded-lg border border-amber-900 bg-zinc-900 p-3 text-sm text-amber-200">{historyError}</p>}
 
         {loading && (
           <p role="status" className="mt-5 rounded-lg bg-zinc-900 p-4 text-sm">
