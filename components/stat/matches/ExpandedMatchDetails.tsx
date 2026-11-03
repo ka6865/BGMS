@@ -30,7 +30,7 @@ import { MatchTimeline } from "@/components/stat/MatchTimeline";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { MatchData, MatchTeamMember } from "@/types/stat";
-import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
+import { getObservedBasicMatchStat, type MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { getWeaponDisplayName } from "@/lib/pubg-analysis/constants";
 export { MatchPerformancePanel } from "./MatchPerformancePanel";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
@@ -325,6 +325,13 @@ function isAbortError(error: unknown) {
     : Boolean(error && typeof error === "object" && "name" in error && error.name === "AbortError");
 }
 
+const displayStat = (value: unknown, format: (value: number) => string | number = String) =>
+  typeof value === "number" && Number.isFinite(value) ? format(value) : "—";
+
+// 중복 팀원의 일부 기록이 없으면 합계도 미관측으로 남긴다.
+const sumObservedStat = (left: number, right: number) =>
+  Number.isFinite(left) && Number.isFinite(right) ? left + right : NaN;
+
 function getMatchStatusBorder(summary?: MatchSummaryData | MatchData | null): string {
   if (!summary) return "border-l-white/20";
   const mode = (summary.gameMode || "").toLowerCase();
@@ -356,7 +363,7 @@ export const ExpandedMatchDetails = ({
   onRecovery,
 }: ExpandedMatchDetailsProps) => {
   const ownerIdentity = matchOwnerIdentity(platform, nickname, matchId);
-  const [matchData, setMatchData] = useState<MatchData | null>(initialMatchData || null);
+  const [matchData, setMatchData] = useState<MatchSummaryData | null>(initialMatchData || null);
   const [loading, setLoading] = useState(false);
   const [detailState, setDetailState] = useState<MatchDetailState>({ status: "summary" });
   const [openDetailSections, setOpenDetailSections] = useState({
@@ -434,10 +441,10 @@ export const ExpandedMatchDetails = ({
       }
       memberMap.set(key, {
         ...existing,
-        kills: (existing.kills || 0) + (member.kills || 0),
-        assists: (existing.assists || 0) + (member.assists || 0),
-        damageDealt: (existing.damageDealt || 0) + (member.damageDealt || 0),
-        DBNOs: (existing.DBNOs || 0) + (member.DBNOs || 0),
+        kills: sumObservedStat(existing.kills, member.kills),
+        assists: sumObservedStat(existing.assists, member.assists),
+        damageDealt: sumObservedStat(existing.damageDealt, member.damageDealt),
+        DBNOs: sumObservedStat(existing.DBNOs, member.DBNOs),
         revives: (existing.revives || 0) + (member.revives || 0),
         deaths: (existing.deaths || 0) + (member.deaths || 0),
         deathType: existing.deathType || member.deathType
@@ -1079,6 +1086,7 @@ export const ExpandedMatchDetails = ({
                      !(matchData.gameMode || "").includes("ai-match")
                    ));
   const isWin = matchData.stats.winPlace === 1;
+  const isBasicSummary = matchData.summarySource === "pubg_player_matches" && matchData.isSummary !== false;
 
   return (
     <div className={`relative overflow-hidden rounded-b-2xl border border-t-0 border-l-4 ${statusBorder} transition-all duration-300 shadow-xl ${
@@ -1125,10 +1133,10 @@ export const ExpandedMatchDetails = ({
       <div className="p-3 md:p-6 pt-0 border-t border-white/10 animate-in slide-in-from-top-4 duration-500 bg-transparent rounded-b-2xl relative z-10">
           {/* Detailed Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-            <StatBox icon={<Crosshair size={16} />} label="헤드샷" value={Number(matchData!.stats.headshotKills) || 0} color="text-red-400" />
-            <StatBox icon={<Zap size={16} />} label="어시스트" value={Number(matchData!.stats.assists) || 0} color="text-indigo-400" />
-            <StatBox icon={<Shield size={16} />} label="기절시킴" value={Number(matchData!.stats.DBNOs) || 0} color="text-yellow-400" />
-            <StatBox icon={<Clock size={16} />} label="생존시간" value={`${Math.floor((Number(matchData!.stats.timeSurvived) || 0) / 60)}분`} color="text-green-400" />
+            <StatBox icon={<Crosshair size={16} />} label="헤드샷" value={displayStat(isBasicSummary ? null : matchData.stats.headshotKills)} color="text-red-400" />
+            <StatBox icon={<Zap size={16} />} label="어시스트" value={displayStat(isBasicSummary ? null : matchData.stats.assists)} color="text-indigo-400" />
+            <StatBox icon={<Shield size={16} />} label="기절시킴" value={displayStat(isBasicSummary ? getObservedBasicMatchStat(matchData, "DBNOs") : matchData.stats.DBNOs)} color="text-yellow-400" />
+            <StatBox icon={<Clock size={16} />} label="생존시간" value={displayStat(isBasicSummary ? getObservedBasicMatchStat(matchData, "timeSurvived") : matchData.stats.timeSurvived, value => `${Math.floor(value / 60)}분`)} color="text-green-400" />
           </div>
 
           {botShare && (
@@ -1764,19 +1772,19 @@ export const ExpandedMatchDetails = ({
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
                         <span className="text-[9px] text-gray-400 font-bold uppercase">Kills</span>
-                        <span className="text-sm font-black text-red-400">{Number(member.kills) || 0}</span>
+                        <span className="text-sm font-black text-red-400">{displayStat(member.kills)}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
                         <span className="text-[9px] text-gray-400 font-bold uppercase">Assists</span>
-                        <span className="text-sm font-black text-indigo-400">{Number(member.assists) || 0}</span>
+                        <span className="text-sm font-black text-indigo-400">{displayStat(member.assists)}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
                         <span className="text-[9px] text-gray-400 font-bold uppercase">DBNOs</span>
-                        <span className="text-sm font-black text-yellow-500">{Number(member.DBNOs) || 0}</span>
+                        <span className="text-sm font-black text-yellow-500">{displayStat(member.DBNOs)}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
                         <span className="text-[9px] text-gray-400 font-bold uppercase">Damage</span>
-                        <span className="text-sm font-black text-white">{Math.floor(Number(member.damageDealt) || 0)}</span>
+                        <span className="text-sm font-black text-white">{displayStat(member.damageDealt, Math.floor)}</span>
                       </div>
                     </div>
                   </div>
