@@ -123,10 +123,10 @@ describe("squadFaultCandidates 말투", () => {
       const index = [["6", "4"], ["7", "4"], ["21", "7"]].findIndex(entry => entry.join() === digits.join());
       digits.forEach(digit => { expect(mild[index]).toContain(digit); expect(spicy[index]).toContain(digit); });
     }
-    expect(mild.join("")).not.toContain("박수는 못 드리는");
-    expect(spicy.join(" ")).toContain("서로 안부 묻기엔 먼 거리였습니다.");
-    expect(spicy.join(" ")).toContain("박수는 못 드리는 1위입니다.");
-    expect(spicy.join(" ")).toContain("선제권은 아직 상대 몫이었습니다.");
+    expect(mild.join("")).not.toContain("상습 1위");
+    expect(spicy.join(" ")).toContain("아군은 같은 판에 있었는데 거리는 다른 판이었습니다.");
+    expect(spicy.join(" ")).toContain("첫 퇴장 부문 상습 1위입니다.");
+    expect(spicy.join(" ")).toContain("선제권은 상대가 더 자주 챙겨 갔습니다.");
     spicy.forEach(text => expect(text.match(/[.!?]/g)).toHaveLength(1));
   });
 
@@ -224,9 +224,9 @@ describe("서버가 쓰는 개인 못한 점과 조언", () => {
 
   it("매운맛은 서버가 붙인 한마디까지 그대로 나가고 두 번 적용해도 같다", () => {
     const once: any = applySquadEvidencePolicy(modelResult, stats, "B", undefined, roleProfiles, { coachingStyle: "spicy" });
-    expect(once.memberFeedbacks[0].fault).toContain("서로 안부 묻기엔 먼 거리였습니다.");
-    expect(once.memberFeedbacks[0].fault).toContain("박수는 못 드리는 1위입니다.");
-    expect(once.memberFeedbacks[0].fault).toContain("선제권은 아직 상대 몫이었습니다.");
+    expect(once.memberFeedbacks[0].fault).toContain("아군은 같은 판에 있었는데 거리는 다른 판이었습니다.");
+    expect(once.memberFeedbacks[0].fault).toContain("첫 퇴장 부문 상습 1위입니다.");
+    expect(once.memberFeedbacks[0].fault).toContain("선제권은 상대가 더 자주 챙겨 갔습니다.");
     expect(applySquadEvidencePolicy(once, stats, "B", undefined, roleProfiles, { coachingStyle: "spicy" })).toEqual(once);
   });
 

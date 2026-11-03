@@ -119,15 +119,15 @@ type FaultItem = { kind: FaultKind; text: string };
 const FAULT_TEXT: Record<FaultKind, Record<SquadFaultTone, (a: number, b: number) => string>> = {
   far: {
     mild: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기입니다.`,
-    spicy: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기, 서로 안부 묻기엔 먼 거리였습니다.`,
+    spicy: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기, 아군은 같은 판에 있었는데 거리는 다른 판이었습니다.`,
   },
   firstDeath: {
     mild: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다입니다.`,
-    spicy: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다, 박수는 못 드리는 1위입니다.`,
+    spicy: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다, 첫 퇴장 부문 상습 1위입니다.`,
   },
   initiative: {
     mild: (attempts, successes) => `선제 타격 시도 ${attempts}회 중 ${successes}회만 성공했습니다.`,
-    spicy: (attempts, successes) => `선제 타격 ${attempts}회 시도에 ${successes}회 성공, 선제권은 아직 상대 몫이었습니다.`,
+    spicy: (attempts, successes) => `선제 타격 ${attempts}회 시도에 ${successes}회 성공, 선제권은 상대가 더 자주 챙겨 갔습니다.`,
   },
 };
 
