@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 
 const { mockCreateClient } = vi.hoisted(() => ({ mockCreateClient: vi.fn() }));
@@ -63,6 +63,10 @@ beforeEach(() => {
 });
 
 describe("PUBG Squad Synergy Analysis Tests", () => {
+  // 픽스처 경기는 2026-09-01이다. 상세 보관 기간(14일) 안으로 시계를 고정한다.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-09-02T00:00:00Z")); });
+  afterEach(() => { vi.useRealTimers(); });
+
   it("groups squad matches by teammate composition and keeps the first-seen nickname casing", async () => {
     configureRows([
       matchRow(1, [{ name: "MiaeQ_Q" }, { name: "PlayerC" }, { name: "PlayerD" }]),
@@ -78,6 +82,33 @@ describe("PUBG Squad Synergy Analysis Tests", () => {
       members: ["MiaeQ_Q", "PlayerC", "PlayerD"],
       matchCount: 2,
     });
+  });
+
+  it("상세 보관 기간(14일)이 지난 경기는 그룹 목록과 경기 수에서 뺀다", async () => {
+    const stale = matchRow(3, [{ name: "Old_One" }, { name: "PlayerC" }, { name: "PlayerD" }]);
+    stale.data.fullResult.createdAt = "2026-08-01T00:00:00.000Z";
+    configureRows([
+      matchRow(1, [{ name: "MiaeQ_Q" }, { name: "PlayerC" }, { name: "PlayerD" }]),
+      matchRow(2, [{ name: "MiaeQ_Q" }, { name: "PlayerC" }, { name: "PlayerD" }]),
+      stale,
+    ]);
+    const getSquadAnalysisData = await loadSquadAnalysis();
+
+    const result: any = await getSquadAnalysisData("Player_A", "steam");
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0]).toMatchObject({ groupKey: "MiaeQ_Q, PlayerC, PlayerD", matchCount: 2 });
+  });
+
+  it("모든 경기가 14일을 넘기면 그룹이 나타나지 않는다", async () => {
+    configureRows([
+      matchRow(1, [{ name: "MiaeQ_Q" }, { name: "PlayerC" }, { name: "PlayerD" }]),
+      matchRow(2, [{ name: "MiaeQ_Q" }, { name: "PlayerC" }, { name: "PlayerD" }]),
+    ]);
+    const getSquadAnalysisData = await loadSquadAnalysis();
+
+    vi.setSystemTime(new Date("2026-09-20T00:00:00Z"));
+    const result: any = await getSquadAnalysisData("Player_A", "steam");
+    expect(result.groups).toEqual([]);
   });
 
   it("keeps nicknames that differ only by special characters as different teammates", async () => {

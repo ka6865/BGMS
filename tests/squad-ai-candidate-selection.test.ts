@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { selectSquadAnalysisCandidates } from "@/lib/pubg-analysis/squadAnalysis";
+import { isSquadDetailAvailable, selectSquadAnalysisCandidates } from "@/lib/pubg-analysis/squadAnalysis";
 import {
   prefetchRecentTeamMatchDetails,
   resetSquadDetailPrefetchCooldown,
@@ -29,11 +29,16 @@ describe("스쿼드 AI 후보 선택", () => {
     expect(picked.map(c => c.id)).toEqual(["fresh-observed"]);
   });
 
-  it("보관 기간이 남은 경기에 관측이 없으면 그 경기들을 그대로 쓰고, 모두 만료면 전체를 쓴다", () => {
+  it("보관 기간이 남은 경기에 관측이 없으면 그 경기들을 그대로 쓰고, 모두 만료면 아무것도 쓰지 않는다", () => {
     expect(selectSquadAnalysisCandidates([candidate("old-observed", 20, true), candidate("fresh-plain", 1, false)], NOW)
       .map(c => c.id)).toEqual(["fresh-plain"]);
-    expect(selectSquadAnalysisCandidates([candidate("old-a", 20, true), candidate("old-b", 30, false)], NOW)
-      .map(c => c.id)).toEqual(["old-a"]);
+    expect(selectSquadAnalysisCandidates([candidate("old-a", 20, true), candidate("old-b", 30, false)], NOW)).toEqual([]);
+  });
+
+  it("정확히 14일이 지난 경기는 만료로 보고, 경기 시각을 모르면 만료로 보지 않는다", () => {
+    expect(isSquadDetailAvailable(candidate("m", 13.9, true).value, NOW)).toBe(true);
+    expect(isSquadDetailAvailable(candidate("m", 14, true).value, NOW)).toBe(false);
+    expect(isSquadDetailAvailable({ data: { fullResult: {} } }, NOW)).toBe(true);
   });
 });
 
