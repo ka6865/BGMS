@@ -12,6 +12,7 @@ import {
 } from "@/lib/pubg-analysis/squadCauseScenes";
 import { hasSupportedCalculation, getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { buildSquadMemberRecords } from "@/lib/pubg-analysis/squadMemberRecords";
 import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 import {
   selectRecentMatches,
@@ -344,6 +345,17 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     }
   });
 
+  const memberRecords = buildSquadMemberRecords({
+    matches: analysisMatches.map(match => ({
+      team: match.data?.fullResult?.team,
+      initiative_rate: match.data?.fullResult?.initiative_rate,
+      initiativeSampleCount: match.data?.fullResult?.initiativeSampleCount,
+    })),
+    memberKeys: squadMemberKeys,
+    selfKey: normalizeName(nickname),
+    keyOf: normalizeName,
+  });
+
   const roleProfiles = squadMemberKeys.map(key => {
     const name = memberNameByKey.get(key) || key;
     const stats = playerAccumStats[key];
@@ -382,7 +394,8 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       avgDbnos: matchCount > 0 ? Number((stats.dbnos / matchCount).toFixed(1)) : null,
       totalDamage: stats.damage,
       totalKills: stats.kills,
-      shares
+      shares,
+      records: memberRecords.get(key) ?? null
     };
   });
 
