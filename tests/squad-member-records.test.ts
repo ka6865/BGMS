@@ -125,11 +125,11 @@ describe("squadFaultCandidates 말투", () => {
       digits.forEach(digit => { expect(mild[index]).toContain(digit); expect(spicy[index]).toContain(digit); });
     }
     expect(mild.join("")).not.toContain("상습 1위");
-    expect(spicy.join(" ")).toContain("아군은 같은 판에 있었는데 거리는 다른 판이었습니다.");
-    expect(spicy.join(" ")).toContain("첫 퇴장 부문 상습 1위입니다.");
-    expect(spicy.join(" ")).toContain("선제권은 상대가 더 자주 챙겨 갔습니다.");
-    spicy.forEach(text => { expect(text).toMatch(/못했습니다|못 막았습니다/); expect(text.match(/[.!?]/g)).toHaveLength(2); });
-    mild.forEach(text => expect(text).not.toMatch(/못했습니다|못 막았습니다/));
+    expect(spicy.join(" ")).toContain("같은 판에 아군이 있었는데 기록은 개인전이었습니다.");
+    expect(spicy.join(" ")).toContain("첫 퇴장 상습 1위라는 기록은 변명할 여지가 없습니다.");
+    expect(spicy.join(" ")).toContain("성공보다 실패가 더 많았고 선제권은 상대가 더 자주 챙겨 갔습니다.");
+    spicy.forEach(text => { expect(text).toMatch(/낙제|합격점|초라/); expect(text.match(/[.!?]/g)).toHaveLength(2); });
+    mild.forEach(text => expect(text).not.toMatch(/낙제|합격점|초라|성공보다 실패|변명/));
   });
 
   it("후보가 없는 팀원은 말투와 상관없이 비어 있다", () => {
@@ -226,15 +226,16 @@ describe("서버가 쓰는 개인 못한 점과 조언", () => {
 
   it("매운맛은 서버가 붙인 한마디까지 그대로 나가고 두 번 적용해도 같다", () => {
     const once: any = applySquadEvidencePolicy(modelResult, stats, "B", undefined, roleProfiles, { coachingStyle: "spicy" });
-    expect(once.memberFeedbacks[0].fault).toContain("아군은 같은 판에 있었는데 거리는 다른 판이었습니다.");
-    expect(once.memberFeedbacks[0].fault).toContain("첫 퇴장 부문 상습 1위입니다.");
-    expect(once.memberFeedbacks[0].fault).toContain("선제권은 상대가 더 자주 챙겨 갔습니다.");
+    expect(once.memberFeedbacks[0].fault).toContain("같은 판에 아군이 있었는데 기록은 개인전이었습니다.");
+    expect(once.memberFeedbacks[0].fault).toContain("첫 퇴장 상습 1위라는 기록은 변명할 여지가 없습니다.");
+    expect(once.memberFeedbacks[0].fault).toContain("성공보다 실패가 더 많았고 선제권은 상대가 더 자주 챙겨 갔습니다.");
     expect(applySquadEvidencePolicy(once, stats, "B", undefined, roleProfiles, { coachingStyle: "spicy" })).toEqual(once);
   });
 
   it("조언은 맨 앞 후보 종류에 맞는 문장 하나다", () => {
     const onlyFirstDeath = [{ name: "A", shares: roleProfiles[0].shares, records: { ...records, farFromTeam: null, initiative: null } }, roleProfiles[1]];
     expect(squadMemberFaultFeedback(onlyFirstDeath, "mild").get("A")!.advice).toBe("다음 교전에서는 아군이 함께 사격할 수 있는지 확인한 뒤 들어가 보세요.");
+    expect(squadMemberFaultFeedback(onlyFirstDeath, "spicy").get("A")!.advice).toBe("다음 교전에서는 아군이 함께 쏠 수 있는지부터 확인하고 들어가세요.");
     const onlyInitiative = [{ name: "A", shares: roleProfiles[0].shares, records: { ...records, farFromTeam: null, firstDeaths: null } }, roleProfiles[1]];
     expect(squadMemberFaultFeedback(onlyInitiative, "mild").get("A")!.advice).toBe("먼저 사격할 수 있는 각도와 상대 위치를 확인해 보세요.");
   });
