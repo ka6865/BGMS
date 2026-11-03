@@ -24,7 +24,7 @@ type Props = {
 const TABS = [
   ["overview", "종합"],
   ["team", "팀 분석"],
-  ["build", "빌드"],
+  ["build", "빌드·흐름"],
   ["insights", "라인전·기여"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
