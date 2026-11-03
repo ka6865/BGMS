@@ -11,6 +11,16 @@ type MaintenanceWorkflow = {
 };
  
  describe("Daily Tasks Workflow Integration", () => {
+  it("preserves only linked members after the verified core backup", () => {
+    const workflow = loadYaml(readFileSync(join(process.cwd(), ".github/workflows/daily-tasks.yml"), "utf-8")) as {
+      jobs: { maintenance: { steps: { name?: string; run?: string; if?: string }[] } };
+    };
+    const step = workflow.jobs.maintenance.steps.find(step => step.run?.includes('scripts/preserve_match_performance.ts'));
+    expect(step?.name).toBe('Preserve Linked Member Match Performance');
+    expect(step?.run).toBe('npx tsx scripts/preserve_match_performance.ts --linked-only --apply --limit 1000');
+    expect(step?.if).toContain("steps.core_backup.outcome == 'success'");
+    expect(step?.if).toContain("steps.core_backup_verify.outcome == 'success'");
+  });
   it("includes user match sync step in daily-tasks.yml", () => {
      const yamlPath = join(process.cwd(), ".github/workflows/daily-tasks.yml");
      const content = readFileSync(yamlPath, "utf-8");

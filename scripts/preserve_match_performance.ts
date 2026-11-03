@@ -48,11 +48,9 @@ export async function preservePerformanceRows(db: SupabaseClient, rows: Retained
  */
 export const sourceReadRetry = { delaysMs: [1_000, 2_000] as number[] };
 
-async function readUnretainedSources(db: SupabaseClient, input: { limit: number; nickname?: string }) {
+async function readSources(db: SupabaseClient, name: string, parameters: Record<string, unknown>) {
   for (let attempt = 0; ; attempt += 1) {
-    const result = await db.rpc('list_unretained_match_performance', {
-      p_limit: input.limit, p_player_id: input.nickname?.toLowerCase().trim() ?? null,
-    }).abortSignal(AbortSignal.timeout(30_000));
+    const result = await db.rpc(name, parameters).abortSignal(AbortSignal.timeout(30_000));
     const delay = sourceReadRetry.delaysMs[attempt];
     if (result.error?.code !== '57014' || delay === undefined) return result;
     await new Promise(resolve => setTimeout(resolve, delay));
@@ -61,7 +59,9 @@ async function readUnretainedSources(db: SupabaseClient, input: { limit: number;
 
 export async function preserveMatchPerformance(db: SupabaseClient, input: {apply:boolean;limit:number;nickname?:string}) {
   const result = {mode:input.apply?'apply':'dry-run',scanned:0,prepared:0,saved:0,skipped:0};
-  const {data,error}=await readUnretainedSources(db,input);
+  const {data,error}=await readSources(db,'list_unretained_match_performance', {
+    p_limit: input.limit, p_player_id: input.nickname?.toLowerCase().trim() ?? null,
+  });
   if(error || !Array.isArray(data))throw new Error(`preserve-performance-source-read-failed:${error?.code ?? 'invalid-response'}`);
   const rows=[];
   for(const source of data){
@@ -74,15 +74,65 @@ export async function preserveMatchPerformance(db: SupabaseClient, input: {apply
   result.saved=await preservePerformanceRows(db,rows);
   return result;
 }
+
+export async function preserveLinkedMatchPerformance(db: SupabaseClient, input: { apply: boolean; limit: number }) {
+  if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 1000) throw new Error('preserve-performance-limit-invalid');
+  const identities = new Map<string, { platform: string; playerId: string }>();
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await db.from('profiles').select('pubg_nickname,pubg_platform')
+      .order('id').range(offset, offset + 999).abortSignal(AbortSignal.timeout(30_000));
+    if (error || !Array.isArray(data)) throw new Error('preserve-performance-profiles-read-failed');
+    for (const profile of data) {
+      const platform = typeof profile.pubg_platform === 'string' ? profile.pubg_platform.trim().toLowerCase() : '';
+      const playerId = typeof profile.pubg_nickname === 'string' ? profile.pubg_nickname.trim().toLowerCase() : '';
+      if (['steam', 'kakao'].includes(platform) && playerId) identities.set(`${platform}:${playerId}`, { platform, playerId });
+    }
+    if (data.length < 1000) break;
+  }
+  const result = { mode: input.apply ? 'apply' : 'dry-run', scope: 'linked', linkedIdentities: identities.size,
+    visitedIdentities: 0, scanned: 0, prepared: 0, saved: 0, skipped: 0,
+    sourceLimitReachedIdentities: 0, limitReached: false, maxSourceReadMs: 0 };
+  // shortcut: 사용자별 100건만 읽으며, 제외 자료가 첫 페이지를 채우면 페이지 이동을 추가한다.
+  for (const [, identity] of [...identities.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const limit = Math.min(100, input.limit - result.scanned);
+    if (limit <= 0) break;
+    const startedAt = Date.now();
+    const { data, error } = await readSources(db, 'list_linked_unretained_match_performance', {
+      p_platform: identity.platform, p_player_id: identity.playerId, p_limit: limit,
+    });
+    result.maxSourceReadMs = Math.max(result.maxSourceReadMs, Date.now() - startedAt);
+    if (error || !Array.isArray(data)) throw new Error(`preserve-performance-source-read-failed:${error?.code ?? 'invalid-response'}`);
+    if (data.length > limit) throw new Error('preserve-performance-source-limit-exceeded');
+    result.visitedIdentities++;
+    if (data.length === limit) result.sourceLimitReachedIdentities++;
+    const rows: RetainedPerformanceRow[] = [];
+    for (const source of data) {
+      if (source.platform !== identity.platform || source.player_id !== identity.playerId) throw new Error('preserve-performance-source-identity-mismatch');
+      result.scanned++;
+      const row = buildRetainedPerformanceRow(source.data?.fullResult, {
+        matchId: source.match_id, platform: identity.platform, playerId: identity.playerId,
+      });
+      if (row) { rows.push(row); result.prepared++; } else result.skipped++;
+    }
+    if (input.apply) result.saved += await preservePerformanceRows(db, rows);
+  }
+  result.limitReached = result.scanned >= input.limit;
+  return result;
+}
+
 async function main(){
   dotenv.config({path:process.env.BGMS_ENV_FILE || '.env.local',quiet:true});
   const argv=process.argv.slice(2),limitIndex=argv.indexOf('--limit'),nameIndex=argv.indexOf('--nickname');
   const limit=limitIndex<0?100:Number(argv[limitIndex+1]);
   if(!Number.isInteger(limit)||limit<1||limit>1000)throw new Error('preserve-performance-limit-invalid');
   if(nameIndex>=0&&!/^[A-Za-z0-9_-]{3,30}$/.test(argv[nameIndex+1]||''))throw new Error('preserve-performance-nickname-invalid');
+  if (argv.includes('--linked-only') && nameIndex >= 0) throw new Error('preserve-performance-options-invalid');
+  if (argv.includes('--apply') && argv.includes('--dry-run')) throw new Error('preserve-performance-options-invalid');
   if(!process.env.NEXT_PUBLIC_SUPABASE_URL||!process.env.SUPABASE_SERVICE_ROLE_KEY)throw new Error('preserve-performance-env-missing');
   const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
-  console.log(JSON.stringify(await preserveMatchPerformance(db,{apply:argv.includes('--apply'),limit,nickname:nameIndex<0?undefined:argv[nameIndex+1]})));
+  console.log(JSON.stringify(await (argv.includes('--linked-only')
+    ? preserveLinkedMatchPerformance(db, { apply: argv.includes('--apply'), limit })
+    : preserveMatchPerformance(db,{apply:argv.includes('--apply'),limit,nickname:nameIndex<0?undefined:argv[nameIndex+1]}))));
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch((error: unknown)=>{
   const reason = error instanceof Error && /^preserve-performance-[a-z-]+(?::[A-Za-z0-9-]+)?$/.test(error.message)

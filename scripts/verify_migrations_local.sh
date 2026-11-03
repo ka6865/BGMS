@@ -140,6 +140,7 @@ MIGRATIONS=(
   "20261031030000_lol_ranking_publication"
   "20261031040000_lol_master_publication_delete_where"
   "20261102183251_pubg_rankings_searched_players"
+  "20261103135922_linked_member_performance_retention"
 )
 
 cleanup() {
@@ -409,6 +410,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/team-benchmark-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/linked-performance-retention-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/performance-jobs-newest-first-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
