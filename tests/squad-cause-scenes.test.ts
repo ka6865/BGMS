@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import SquadCauseScenes from "../components/stat/SquadCauseScenes";
 import fixture from "./fixtures/squad-cause-scenes.json";
 import {
   buildSquadCauseScenePrompt,
@@ -275,11 +278,13 @@ describe("squad cause scene experiment", () => {
 
     const isolation = scenes.find(scene => scene.type === "isolation_death");
     expect(isolation?.confidence).toBe("medium");
-    expect(isolation?.title).toContain("팀과");
-    expect(isolation?.title).toContain("떨어진 상태");
-    expect(isolation?.reason).toContain("즉시 백업이나 소생 각이 늦어질 수 있는 거리 조건");
-    expect(isolation?.facts.join(" ")).toContain("매치 단위");
-    expect(isolation?.facts.join(" ")).toContain("팀 간격 위험도");
+    expect(isolation?.title).toMatch(/^\S+ (기절|사망)$/);
+    expect(isolation?.reason).toContain("이 경기의 평균 아군 거리");
+    expect(isolation?.reason).toContain("사건 시점 거리는 측정하지 않았습니다");
+    expect(isolation?.facts.join(" ")).toContain("엄폐물, 시야, 지형");
+    expect(isolation?.facts.join(" ")).toContain("팀 간격 지수");
+    expect(isolation?.facts.join(" ")).toContain("참고 기준");
+    expect([isolation?.title, isolation?.reason, ...(isolation?.facts ?? [])].join(" ")).not.toMatch(/고립 위험|위험도|위험 기준/);
     expect(isolation?.facts.join(" ")).toContain("BGMS 파생 지표");
     expect(isolation?.facts.join(" ")).not.toContain("기절/사망");
   });
@@ -398,8 +403,63 @@ describe("squad cause scene experiment", () => {
     const isolationScene = scenes.find(scene => scene.type === "isolation_death");
 
     expect(isolationScene?.severity).toBe("warning");
-    expect(isolationScene?.facts.join(" ")).toContain("아군 평균 거리는 위험 기준 이내");
+    expect(isolationScene?.facts.join(" ")).toContain("평균 거리가 참고 기준 이내");
     expect(isolationScene?.facts.join(" ")).toContain("30초 안에 소생 성공 이벤트 확인");
+  });
+
+  it.each([
+    { minDist: 240, recovered: false },
+    { minDist: 240, recovered: true },
+    { minDist: 24, recovered: true }
+  ])("같은 경기의 여러 장면에서도 평균 거리와 사건 시점을 구분한다: %o", ({ minDist, recovered }) => {
+    const scenes = extractSquadCauseScenes([{
+      matchId: "fixture-match-average-distance",
+      fullResult: {
+        isolationData: { minDist, isolationIndex: 3.2 },
+        timeline: [
+          { ts: 120000, type: "TEAM_KNOCK", victim: "Beta" },
+          ...(recovered ? [{ ts: 130000, type: "TEAM_REVIVE" as const, victim: "Beta" }] : []),
+          { ts: 240000, type: "TEAM_DIED", victim: "Charlie" }
+        ]
+      }
+    }], { maxScenes: 20 }).filter(scene => scene.type === "isolation_death");
+
+    expect(scenes).toHaveLength(2);
+    for (const scene of scenes) {
+      expect(scene.metricSnapshot.minDistanceM).toBe(minDist);
+      expect(scene.metricSnapshot.minDistanceDangerMeters).toBe(80);
+      // 제목은 사건만 말하고 평균 거리 숫자를 담지 않는다. 평균은 사유 한 번과 거리 칩 한 번으로만 알린다.
+      expect(scene.title).toMatch(/^\S+ (기절|사망)$/);
+      expect(scene.title).not.toMatch(/\d+m|평균/);
+      expect(scene.reason).toContain("이 경기의 평균 아군 거리");
+      expect(scene.reason).toContain("사건 시점 거리는 측정하지 않았습니다");
+      expect(scene.facts.join(" ")).toContain(`평균 아군 거리 ${minDist}m`);
+      expect(scene.facts.join(" ").match(/경기 평균/g) ?? []).toHaveLength(0);
+      expect(scene.aiBrief).toContain("경기 평균");
+      expect(scene.aiBrief).toContain("사건 시점 거리");
+      expect([scene.title, scene.reason, scene.aiBrief].join(" ")).not.toMatch(/떨어진 상태|즉시 백업이나 소생 각이 늦어질 수 있는 거리 조건/);
+    }
+    const prompt = buildSquadCauseScenePrompt({ ...fixture.squadContext, scenes });
+    expect(prompt).toContain("minDistanceM은 경기 평균");
+    expect(prompt).toContain("사건 시점 거리로 해석하지 마십시오");
+    expect(prompt).not.toContain("떨어진 상태");
+  });
+
+  it.each(["isolation_death", "late_trade"])("%s 카드 거리 칩에 경기 평균을 명시한다", (type) => {
+    const [scene] = extractSquadCauseScenes(matches);
+    const html = renderToStaticMarkup(createElement(SquadCauseScenes, {
+      scenes: [{ ...scene, type, metricSnapshot: { minDistanceM: 240, deathIsolation: 3.2 } }]
+    }));
+    expect(html).toContain("경기 평균 거리 240m");
+    expect(html).toContain("경기 평균 팀 간격 지수 3.20");
+    expect(html).not.toMatch(/BGMS 고립지수|고립 위험/);
+    if (type === "isolation_death") {
+      expect(html).toContain("경기 평균 간격 참고");
+      expect(html).toContain("참고 기준 80m");
+      expect(html).not.toContain("위험 기준 80m");
+    }
+    expect(html).not.toContain(">거리 240m<");
+    expect(html).not.toContain(">팀 간격 240m<");
   });
 
   it("같은 매치의 같은 대상자 반복 장면은 상위 장면에서 가능한 한 중복 선택하지 않는다", () => {
