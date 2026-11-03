@@ -21,8 +21,8 @@ export function buildSquadOutputSchema(canonicalGrade: string | null): Schema<Sq
       },
       summary: { type: "string", description: "One-line tactical summary of this squad" },
       strength: { type: "string", description: "Key strength of squad collaboration" },
-      weakness: { type: "string", description: "Major vulnerability/weakness of the squad" },
-      coaching: { type: "string", description: "Practical coaching advice to improve squad synergy" },
+      weakness: { type: "string", description: "Major weakness of the squad that a measured fact supports. Empty string \"\" when no measured fact supports one. Never filler." },
+      coaching: { type: "string", description: "Practical coaching advice that follows from a measured fact. Empty string \"\" when none does. Never filler." },
       memberFeedbacks: {
         type: "array",
         description: "Individual tactical feedback for each and every squad member in roleProfiles",
@@ -30,9 +30,9 @@ export function buildSquadOutputSchema(canonicalGrade: string | null): Schema<Sq
           type: "object",
           properties: {
             name: { type: "string", description: "Nickname of the squad member" },
-            praise: { type: "string", description: "Detailed positive actions, strengths or what they did well (칭찬할 점)" },
-            fault: { type: "string", description: "Detailed vulnerabilities, mistakes, or what they did poorly (못한 점)" },
-            advice: { type: "string", description: "Detailed improvement points and tactical advice (피드백)" },
+            praise: { type: "string", description: "Positive point that cites one measured stat of this member (칭찬할 점)" },
+            fault: { type: "string", description: "A weak point backed by a measured stat difference (못한 점). Empty string \"\" when no measured stat supports one. Never filler or a pass line." },
+            advice: { type: "string", description: "A practice suggestion that follows from one measured fact (개인 피드백). Empty string \"\" when none does. No generic encouragement such as keep it up." },
           },
           required: ["name", "praise", "fault", "advice"],
         },

@@ -254,15 +254,28 @@ describe("squad prompt punchline block", () => {
     const { systemInstruction } = promptFor("spicy");
     expect(systemInstruction).toContain("[PUNCHLINE FACTS] are the only material");
     expect(systemInstruction).toContain("Copy every number from the facts exactly");
-    expect(systemInstruction).toContain("이건 기록이 없어서 오늘은 봐드립니다.");
-    expect(systemInstruction).toContain("증거 불충분, 이번 판은 무죄 방면.");
+    // 근거 없는 칸은 넘김 문장이 아니라 빈 문자열로 둔다. 화면이 빈 칸을 숨긴다.
+    expect(systemInstruction).toContain('output an empty string ("") for that field');
+    expect(systemInstruction).not.toContain("이건 기록이 없어서 오늘은 봐드립니다.");
+    expect(systemInstruction).not.toContain("증거 불충분, 이번 판은 무죄 방면.");
     expect(systemInstruction).not.toContain("현재 기록만으로 개인의 약점을 단정하기 어렵습니다.");
+    expect(systemInstruction).not.toContain("장부");
   });
 
   it("keeps the mild persona to praise and advice from the same facts", () => {
     const { systemInstruction } = promptFor("mild");
     expect(systemInstruction).toContain("PUNCHLINE FACTS are for praise and practice advice only");
-    expect(systemInstruction).toContain("현재 기록만으로 개인의 약점을 단정하기 어렵습니다.");
+    expect(systemInstruction).toContain('output an empty string ("")');
+    expect(systemInstruction).not.toContain("현재 기록만으로 개인의 약점을 단정하기 어렵습니다.");
     expect(systemInstruction).not.toContain("증거 불충분, 이번 판은 무죄 방면.");
+  });
+
+  it("gives both personas the measured observations as the basis for fault and advice", () => {
+    for (const style of ["spicy", "mild"] as const) {
+      const { prompt, systemInstruction } = promptFor(style);
+      expect(prompt).toContain("[MEASURED OBSERVATIONS]");
+      expect(systemInstruction).toContain("[MEASURED OBSERVATIONS] is the material for fault and advice");
+      expect(systemInstruction).toContain("never copy a bracket tag");
+    }
   });
 });

@@ -1,4 +1,5 @@
 import { formatSquadPunchlineBlock, selectSquadMemberPunchlines, selectSquadPunchlines } from "./squadPunchlines";
+import { buildSquadObservationBlock } from "./squadMemberDistribution";
 import {
   isSquadReviveRateEvaluable,
   isSquadTradeLatencyEvaluable,
@@ -172,18 +173,21 @@ ${benchmarkContext}
     selectSquadPunchlines({ stats, scores, squadGrade, benchmarkStats, matchesSummary, roleProfiles }),
     selectSquadMemberPunchlines({ roleProfiles }),
   );
-  // 매운맛은 보류 문장도 넘김 말투로 쓰게 하고, 다정한맛은 기존 보류 문장을 유지한다.
-  const noWeaknessCopy = isMild
-    ? '"현재 기록만으로 개인의 약점을 단정하기 어렵습니다."'
-    : "a short in-character pass line from rule 18";
+  // 못한 점과 개인 피드백의 근거가 되는 측정 분포. 펀치라인 재료와 달리 농담용이 아니다.
+  const observationBlock = buildSquadObservationBlock({
+    roleProfiles,
+    analyzedMatchCount: matchCount,
+    totalMatchCount: matchesSummary.length,
+  });
 
   const systemInstruction = isMild ? `
 You are "KIND COACH", a warm, encouraging, and tactical PUBG coach.
 Analyze the provided squad synergy report and write a report.
 - Focus on positive collaboration indices first.
 - Do not invent situational context or motives.
-- For memberFeedbacks: You must generate detailed individual feedback (praise, fault, advice) for EACH and EVERY member listed in roleProfiles.
-- For overallOpinion: Deliver a warm, encouraging, yet tactical message addressed to the entire team together.
+- For memberFeedbacks: include EVERY member listed in roleProfiles. Always write praise from one measured stat. Write fault and advice only when a measured fact in this report supports it; otherwise output an empty string (""). Never write filler such as "keep it up" or "no data".
+- Place each fact in the field it belongs to: positive facts in summary or strength, lopsided or low facts in weakness or coaching. Never put a positive fact in weakness, and do not repeat the same fact in several fields.
+- For overallOpinion: Deliver a warm, encouraging, yet tactical message addressed to the entire team together, joining two facts into one sentence.
 - Output MUST be structured in JSON matching the exact schema.
 - Language: Output fields MUST be written in Korean.
 - Preserve nicknames exactly as provided. Do NOT translate, localize, or Korean-transliterate nicknames such as "KangHeeSung_".
@@ -201,14 +205,14 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
 1. NEVER use explicit vulgar swear words (e.g. "병신", "개새끼", "시발") directly, to prevent safety filters from blocking the response.
 2. Maximize sarcasm with PUBG community terms, but tie every jab to a measured metric condition. Never mock a skill, ability, or intent that is not measured:
    - If a member's measured damage share is low (below 20%) while their kill or assist share is high, you may call them "킬로그 배달부" (Killfeed delivery) and cite only those measured shares.
-   - You may tease a measured number itself (e.g. a damage share of X%) as a bookkeeping joke, without adding any cause or motive.
+   - You may tease a measured number itself (e.g. a damage share of X%) as a joke about the number, without adding any cause or motive.
    - "대열 이탈이 커서 합류 타이밍이 흔들림" (Roast only if isolation index is high, e.g. > 3.0)
 3. Highlight metrics aggressively using clear, human-readable units (e.g. "X.X초", "X회", "X%"):
    - NEVER output raw millisecond values in the response. Always divide by 1000 and round to convert them to seconds like "23.0초" or "12.0초".
    - If trade latency is slow: "아군 기절하고 장례식 다 치른 뒤에야 늦장 백업 오실 겁니까? 평균 대비 너무 느립니다."
    - If isolation rate is high: Say "대열 이탈이 커서 동시 교전 합이 흔들립니다." Do NOT use "1인 솔로 4개", "오합지졸", or "혼자 정글북".
 4. Deliver extremely sharp, critical, yet constructive, fact-based overall opinion and feedback.
-5. For memberFeedbacks: You must generate detailed individual feedback (praise, fault, advice) for EACH and EVERY member listed in roleProfiles. Don't be soft. Use only their measured damage, kill, assist and knockout stats/shares. Differences in shares do not prove motives or unrecorded actions.
+5. For memberFeedbacks: include EVERY member listed in roleProfiles. Always write praise from one measured stat. Write fault and advice ONLY when a measured fact in this report supports it (for example a share that is clearly the lowest or highest on the team); otherwise output an empty string (""). Never write filler such as 'keep it up', 'no data' or a pass line in these fields. Each of praise, fault and advice must cite a different measured number or label. Use only their measured damage, kill, assist and knockout stats/shares. Differences in shares do not prove motives or unrecorded actions.
 6. For overallOpinion: Deliver a sharp, critical, yet highly constructive message addressed to the entire team together.
 7. Output MUST be structured in JSON matching the exact schema.
 8. Language: Output fields MUST be written in Korean.
@@ -219,19 +223,21 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
 13. Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 뇌", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
 14. CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
 15. [PUNCHLINE FACTS] are the only material for jokes, exaggeration, metaphors and nicknames. Copy every number from the facts exactly. Do NOT round, convert, subtract, average, or derive any new number, even one that looks obvious (for example, a difference between two figures). Name each share with its exact label (딜 비중 = damage, 킬 비중 = kill, 어시스트 비중 = assist, 녹다운 비중 = knockouts) and never swap or rename them.
-16. Give the report some bite. Use short, punchy sentences and PUBG community slang such as 장부, 킬로그, 캐리, 치킨. Spread the facts across fields: each of summary, strength, weakness and overallOpinion should carry one comedic line built from a different fact, and do not repeat the same fact in several fields.
+16. Give the report some bite. Use short, punchy sentences and PUBG community slang such as 킬로그, 캐리, 치킨. Use a slang word only where it fits the sentence; never use it as filler. Place each fact in the field it belongs to: positive (hype) facts in summary or strength; negative or lopsided facts (roast, or a team-level gap from [MEASURED OBSERVATIONS]) in weakness or coaching. Never put a positive fact in weakness, and never fill a field just to avoid leaving it empty. summary is one line about the record. overallOpinion is a short closing remark to the whole team that joins two facts into one sentence, not a bare fact. Do not repeat the same fact in several fields.
 17. Style examples with placeholders (X, Y, N are measured values from the facts, never invented):
-    - hype: a damage share of X% becomes "화력 장부의 X%를 혼자 떠안은 캐리" (over-the-top praise of the bookkeeping only).
+    - hype: a damage share of X% becomes "화력의 X%를 혼자 떠안은 캐리" (over-the-top praise of the number only).
     - roast: N matches with 0 wins becomes "N경기 동안 우승 0회, 트로피 진열장이 아직 비어 있습니다." (a sarcastic remark about the record only).
     Do NOT tease aim, brain, fingers, focus, judgment, mentality or any ability, and do NOT attribute intent or unrecorded actions.
     Use the term 킬로그 배달부 only for a member whose fact id is member_kill_log, because that fact is the only measured condition for it.
-18. When a point has no measured fact or its metric is unavailable, write a short in-character pass line instead of a dry verdict such as "판단을 보류합니다". Examples: "이건 기록이 없어서 오늘은 봐드립니다." or "증거 불충분, 이번 판은 무죄 방면." Vary the wording across fields instead of reusing one example in several fields. Pass lines contain no numbers and no ability claims.
+18. When a point has no measured fact or its metric is unavailable, output an empty string ("") for that field. The screen hides empty fields. Do NOT write a dry verdict such as "판단을 보류합니다", an in-character pass line, or any padding in weakness, coaching, fault or advice.
       `.trim();
 
   const prompt = `
 ${squadReportSummary}
 
 ${punchlineBlock}
+
+${observationBlock}
 
 Based on the above performance data, write a tactical coaching report according to your designated persona.
 Use measured statistics and available benchmarks to provide concrete, quantitative facts (e.g. "평균 대비 X초 빠름") in your feedback.
@@ -243,11 +249,12 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 - Unavailable metrics are NOT zero or poor play. Never praise, blame, compare, or infer performance from them.
 - If cover rate or focus-fire score is unavailable, do not evaluate cover, covering teammates, simultaneous engagement, or focus-fire ability anywhere, including member feedback. There is no implemented cover collection yet; this does not mean a lack of cover opportunities.
 - Zero smoke rescues counts successful recorded rescues, NOT smoke attempts, unused smoke, or a refusal to save. Do not say 연막을 아꼈다/국 끓인다 or blame recovery skill from a success count alone.
-- Personal shares describe distribution only. Do not infer 소극적, 적극적, 후방 지원, 위치 선정, 연계 부족, 협공 능력, or intent from shares. If no personal weakness is measured, use ${noWeaknessCopy} in fault and offer a future practice action in advice.
+- Personal shares describe distribution only. Do not infer 소극적, 적극적, 후방 지원, 위치 선정, 연계 부족, 협공 능력, or intent from shares. If no personal weakness is measured, output an empty string ("") in fault. Output advice only when it follows from a measured fact; otherwise output an empty string ("").
 - These are team-scope observations across the selected matches, not the target player alone. Individual isolation/wipe/cover values cannot replace missing team metrics.
-- Only discuss measured metrics. If no supported weakness is evident, state that further observation is needed instead of inventing a fault.
+- Only discuss measured metrics. If no supported weakness is evident, output an empty string for that field instead of inventing a fault.
 ${tradeEvaluable ? "" : `- Backup speed is NOT evaluable for this squad (fewer than ${SQUAD_MIN_TRADE_KILLS} measured trade kills). Do NOT state any backup speed value or backup timing, do NOT compare it with the global average, and do NOT praise, blame or advise on backup timing.`}
 ${reviveEvaluable ? "" : `- Revive rate is NOT evaluable for this squad (fewer than ${SQUAD_MIN_KNOCKS} measured knocks). Do NOT state any revive rate, and do NOT compare revive counts with the global revive rate.`}
+- [MEASURED OBSERVATIONS] is the material for fault and advice. A fault may only state a metric that the block tags as the member's team-lowest and below the fair share, phrased as a recorded distribution and never as skill, intent, position or effort. An advice may only suggest a practice that would change that recorded stat (for example, taking part in more of the team's assists) and must cite the number. If a member has no such tag, leave fault and advice empty. Copy the numbers exactly. Write fault and advice as natural Korean sentences; never copy a bracket tag or its label text. Describe how the stat is recorded, not how to play or where to stand: 딜 = damage dealt to enemies, 킬 = enemies killed, 어시스트 = damage to an enemy that a teammate then killed, 기절 = enemies knocked down. Example fault: "어시스트 비중 5%로 팀에서 가장 낮습니다." Example advice pattern: "<stat> 비중 N%를 올리려면 <how that stat is recorded>를 늘려 보세요."
 - Do not infer player intent, communication, safety, or actions from absent evidence.
 - Squad isolation, backup and recovery metrics describe the entire team. roleProfiles contain NO individual position, isolation, backup, smoke or revive evidence. Never blame an individual for a team metric, infer front/back positioning, or infer kill-stealing intent from kill/assist shares.
 - ${teamMode === "duo" ? 'This is a DUO team of exactly two players. Call it 듀오, never 스쿼드 or 4인. Do not mention third or fourth members, and do not compare against squad-sized teams.' : 'This is a SQUAD team.'}
