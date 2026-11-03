@@ -933,6 +933,49 @@ describeBrowser("stats browser smoke", () => {
     }
   }, 30_000);
 
+  it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('solo evidence matches scoring at $width x $height', async (viewport) => {
+    await withStatsBrowserPage({ browser, baseUrl, scenarioName: 'solo', clock, viewport,
+      run: async ({ page, dispatcher }) => {
+        await goToPlayer(page, dispatcher, baseUrl, 'steam', 'FixturePlayer');
+        await waitForSummarySuccess(dispatcher, 'FixturePlayer', 'steam');
+        await page.click('[data-compact-match-id="match-fixture-1"] button[aria-label="매치 상세 펼치기"]');
+        await waitForDetailSuccess(dispatcher, 'FixturePlayer', 'steam');
+        await page.click('[data-compact-match-id="match-fixture-1"] button[aria-haspopup="dialog"]');
+        await waitForStatsSelector({ dispatcher, page, selector: 'section[aria-label="매치 성과 및 티어 근거"]' });
+        if (viewport.width < 768) {
+          expect(await page.$('section[aria-label="전술 근거"]')).toBeNull();
+          await clickButtonText(page, '상세 근거 보기');
+        }
+        const evidence = await page.$eval('[data-testid="match-tier-tooltip"]', root => {
+          const bounds = root.getBoundingClientRect();
+          const rows = Array.from(root.querySelectorAll(':is(section[aria-label="전투 근거"], section[aria-label="전술 근거"], section[aria-label="생존 근거"]) > div:last-child > div'));
+          return {
+            text: root.textContent,
+            maxScores: Array.from(root.querySelectorAll('[aria-label$=" 점수"]')).map(node => node.getAttribute('aria-valuemax')),
+            fits: rows.every(row => {
+              const [label, value] = Array.from(row.children).map(child => child.getBoundingClientRect());
+              return !label || !value || (label.right <= value.left + 1 && value.right <= bounds.right + 1);
+            }),
+            insideViewport: bounds.left >= 0 && bounds.right <= innerWidth && bounds.bottom <= innerHeight,
+          };
+        });
+        for (const label of ['연막 구출률', '소생률', '트레이드 성공률', '견제 지원', '적 팀 전멸 기여', '팀 구출 기회', '기절 후 생존 관리력']) {
+          expect(evidence.text).not.toContain(label);
+        }
+        expect(evidence.text).toContain('Top 10 진입 보너스+5점');
+        expect(evidence.text).toContain('역전 승률');
+        expect(evidence.maxScores).toEqual(['50', '15', '35']);
+        expect(evidence.fits).toBe(true);
+        expect(evidence.insideViewport).toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.$eval('[data-testid="match-tier-tooltip"]', root => { root.scrollTop = root.scrollHeight; });
+        await page.screenshot({ path: screenshotPath('solo-evidence', viewport), fullPage: true });
+        dispatcher.ledger.assertNoUnexpected();
+        dispatcher.ledger.assertNoUnauthenticatedAi();
+      },
+    });
+  }, 60_000);
+
   it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('missing stats remain distinct from zero at $width x $height', async (viewport) => {
     await withStatsBrowserPage({ browser, baseUrl, scenarioName: 'missing-stats', clock, viewport,
       run: async ({ page, dispatcher }) => {

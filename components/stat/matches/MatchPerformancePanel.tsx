@@ -90,7 +90,7 @@ const getOpportunityRate = (success?: number, total?: number) => {
   };
 };
 
-const buildTierEvidence = (matchData: MatchSummaryData) => {
+const buildTierEvidence = (matchData: MatchSummaryData, isSolo: boolean) => {
   const stats = matchData.stats;
   const tradeStats = matchData.tradeStats;
   const totalTeammateKnocks = tradeStats?.teammateKnocks;
@@ -104,6 +104,9 @@ const buildTierEvidence = (matchData: MatchSummaryData) => {
     : isFiniteNumber(stats.timeSurvived) ? stats.timeSurvived : null;
   const isEarlyDeath = timeSurvived === null ? null : timeSurvived < 600 || (isActualDeath && (matchData.deathPhase ?? 99) <= 3);
   const isHardEarlyDeath = timeSurvived === null ? null : timeSurvived < 300;
+  const top10Value = !isFiniteNumber(stats.winPlace) || stats.winPlace < 1 || timeSurvived === null
+    ? "기록 없음"
+    : isHardEarlyDeath ? "미적용" : stats.winPlace <= 10 ? "+5점" : "0점";
   const isolationIndex = matchData.isolationData?.isolationIndex;
   const smokeRate = getOpportunityRate(tradeStats?.smokeRescues, totalTeammateKnocks);
   const reviveRate = getOpportunityRate(tradeStats?.revCount, totalTeammateKnocks);
@@ -201,7 +204,9 @@ const buildTierEvidence = (matchData: MatchSummaryData) => {
       accent: "bg-indigo-500",
       value: joinEvidenceSummary([
         isDisplayValueAvailable(pressureValue) && `압박 ${pressureValue}`,
-        tacticalOpportunitySummary
+        isSolo
+          ? isDisplayValueAvailable(reversalValue) && `역전 ${reversalValue}`
+          : tacticalOpportunitySummary
       ], "전술 샘플 측정 불가")
     },
     {
@@ -243,26 +248,28 @@ const buildTierEvidence = (matchData: MatchSummaryData) => {
           label: "압박 지수",
           value: pressureValue
         },
-        ...tacticalOpportunityItems,
-        {
-          label: "견제 지원",
-          value: supportValue,
-          note: supportNote
-        },
-        {
-          label: "적 팀 전멸 기여",
-          value: teamWipeValue
-        },
+        ...(isSolo ? [] : [
+          ...tacticalOpportunityItems,
+          {
+            label: "견제 지원",
+            value: supportValue,
+            note: supportNote
+          },
+          {
+            label: "적 팀 전멸 기여",
+            value: teamWipeValue
+          }
+        ]),
         {
           label: "역전 승률",
           value: reversalValue,
           note: reversalNote
         },
         {
-          label: "고립 페널티",
-          value: isFiniteNumber(isolationIndex) ? isolationIndex >= 3.5 ? "적용 가능" : "미적용" : "기록 없음",
+          label: isSolo ? "매치 임팩트 고립 감경" : "고립 페널티",
+          value: isFiniteNumber(isolationIndex) ? isolationIndex >= (isSolo ? 4.5 : 3.5) ? "적용 가능" : "미적용" : "기록 없음",
           note: isFiniteNumber(isolationIndex)
-            ? `고립 지수 ${isolationIndex.toFixed(1)}`
+            ? `고립 지수 ${isolationIndex.toFixed(1)}${isSolo ? " · 매치 임팩트에만 반영" : ""}`
             : undefined
         }
       ]
@@ -276,7 +283,11 @@ const buildTierEvidence = (matchData: MatchSummaryData) => {
           value: survivalRankValue,
           note: survivalRankNote
         },
-        {
+        isSolo ? {
+          label: "Top 10 진입 보너스",
+          value: top10Value,
+          note: isHardEarlyDeath ? "5분 미만 0점 룰 적용" : undefined
+        } : {
           label: "기절 후 생존 관리력",
           value: "응답 필드 없음",
           note: "현재 매치 응답에 피기절 횟수 미포함"
@@ -284,7 +295,9 @@ const buildTierEvidence = (matchData: MatchSummaryData) => {
         {
           label: "조기 탈락 보정",
           value: isEarlyDeath === null ? "기록 없음" : isEarlyDeath ? "적용" : "미적용",
-          note: isEarlyDeath === null ? undefined : isEarlyDeath ? "10분 미만 또는 3페이즈 이하 사망" : "정상 생존 구간"
+          note: isEarlyDeath === null ? undefined : isEarlyDeath
+            ? `10분 미만 또는 3페이즈 이하 사망${isSolo ? " · 매치 임팩트 감경" : ""}`
+            : "정상 생존 구간"
         },
         {
           label: "5분 미만 0점 룰",
@@ -356,10 +369,11 @@ export const MatchPerformancePanel = ({
     || mapName.includes("tdm")
     || matchData.mapName === "PillarCompound_Main"
     || matchData.mapName === "Italy_TDM_Main";
-  const scoreMax = !isTdmMatch && mode.includes("solo")
+  const isSolo = mode.includes("solo");
+  const scoreMax = !isTdmMatch && isSolo
     ? { combat: 50, tactical: 15, survival: 35 }
     : { combat: 40, tactical: 35, survival: 25 };
-  const tierEvidence = isTdmMatch ? null : buildTierEvidence(matchData);
+  const tierEvidence = isTdmMatch ? null : buildTierEvidence(matchData, isSolo);
   const teamDamageShare = Number(matchData.teamImpact?.teamDamageShare || 0);
   const badges = matchData.badges || [];
   const nextTier = benchmark ? getNextTierInfo(benchmark.score || 0) : null;

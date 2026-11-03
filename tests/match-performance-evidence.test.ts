@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MatchPerformancePanel } from '../components/stat/matches/MatchPerformancePanel';
@@ -13,6 +13,73 @@ afterEach(cleanup);
 const evidence = (latencySumMs: number, within3sCount = 1) => ({
   version: 1, eligibleCount: 1, alreadyFiringCount: 0, unknownCount: 0,
   within3sCount, latencySumMs, noReplyCount: 1 - within3sCount,
+});
+
+describe('모드별 성과 근거', () => {
+  const renderMode = (gameMode: string, teammateKnocks = 2, ...observations: [] | [unknown, unknown]) => {
+    const [winPlace, timeSurvived] = observations.length ? observations : [3, 1420];
+    const matchData = structuredClone(detailReady) as unknown as MatchData;
+    matchData.gameMode = gameMode;
+    Object.assign(matchData.stats, { winPlace, timeSurvived });
+    Object.assign(matchData.tradeStats!, { teammateKnocks });
+    return render(createElement(MatchPerformancePanel, {
+      matchData, isMobile: false, showTierDetails: true, onToggleTierDetails: () => {},
+    }));
+  };
+
+  it.each(['solo', 'solo-fpp', 'SOLO-FPP'])('%s는 개인 점수 근거만 표시한다', (mode) => {
+    renderMode(mode);
+    for (const label of ['연막 구출률', '소생률', '트레이드 성공률', '견제 지원', '적 팀 전멸 기여', '팀 구출 지표', '팀 구출 기회', '기절 후 생존 관리력', '고립 페널티']) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+    for (const label of ['딜량 순위', '선제 타격 성공률', '반격 소요 시간', '압박 지수', '역전 승률', '생존 순위', 'Top 10 진입 보너스']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.getByText('Top 10 진입 보너스').parentElement).toHaveTextContent('+5점');
+    expect(screen.getByText('매치 임팩트 고립 감경')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: '전투 점수' })).toHaveAttribute('aria-valuemax', '50');
+    expect(screen.getByRole('progressbar', { name: '전술 점수' })).toHaveAttribute('aria-valuemax', '15');
+    expect(screen.getByRole('progressbar', { name: '생존 점수' })).toHaveAttribute('aria-valuemax', '35');
+  });
+
+  it.each(['solo', 'solo-fpp'])('%s의 기회 없음은 팀 보정으로 표시하지 않는다', (mode) => {
+    renderMode(mode, 0);
+    expect(screen.queryByText(/팀 구출 기회/)).not.toBeInTheDocument();
+    expect(screen.getByText('전술', { selector: 'span.w-8' }).parentElement).toHaveTextContent('역전');
+  });
+
+  it.each([
+    [1, 300, '+5점'], [10, 1420, '+5점'], [11, 1420, '0점'], [3, 299, '미적용'],
+    [0, 1420, '기록 없음'], [-1, 1420, '기록 없음'],
+    [undefined, 1420, '기록 없음'], [null, 1420, '기록 없음'], [NaN, 1420, '기록 없음'],
+    [3, null, '기록 없음'], [3, undefined, '기록 없음'], [3, NaN, '기록 없음'],
+  ])('Top 10 순위 %s·생존 %s를 %s로 표시한다', (place, seconds, expected) => {
+    renderMode('solo', 0, place, seconds);
+    expect(screen.getByText('Top 10 진입 보너스').parentElement).toHaveTextContent(expected);
+  });
+
+  it.each([3.5, 4.5])('솔로 고립 %s는 안정도 감점 대신 임팩트 기준으로 표시한다', (isolationIndex) => {
+    const matchData = structuredClone(detailReady) as unknown as MatchData;
+    matchData.gameMode = 'solo';
+    Object.assign(matchData.isolationData!, { isolationIndex });
+    render(createElement(MatchPerformancePanel, {
+      matchData, isMobile: false, showTierDetails: true, onToggleTierDetails: () => {},
+    }));
+    const row = screen.getByText('매치 임팩트 고립 감경').parentElement!;
+    expect(row).toHaveTextContent(isolationIndex === 3.5 ? '미적용' : '적용 가능');
+    expect(row).toHaveTextContent('매치 임팩트에만 반영');
+  });
+
+  it.each(['duo', 'duo-fpp', 'squad', 'squad-fpp'])('%s의 기존 팀 항목과 배점을 유지한다', (mode) => {
+    renderMode(mode);
+    const tactical = within(screen.getByRole('region', { name: '전술 근거' }));
+    expect(tactical.getAllByText(/^(압박 지수|연막 구출률|소생률|트레이드 성공률|견제 지원|적 팀 전멸 기여|역전 승률|고립 페널티)$/)).toHaveLength(8);
+    expect(screen.getByText('기절 후 생존 관리력')).toBeInTheDocument();
+    expect(screen.queryByText('Top 10 진입 보너스')).not.toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: '전투 점수' })).toHaveAttribute('aria-valuemax', '40');
+    expect(screen.getByRole('progressbar', { name: '전술 점수' })).toHaveAttribute('aria-valuemax', '35');
+    expect(screen.getByRole('progressbar', { name: '생존 점수' })).toHaveAttribute('aria-valuemax', '25');
+  });
 });
 
 describe('성과 근거의 결측과 실제 0', () => {

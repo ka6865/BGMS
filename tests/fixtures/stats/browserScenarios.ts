@@ -70,6 +70,7 @@ export type StatsBrowserScenarioName =
   | "summary-retry"
   | "detail-retry"
   | "missing-stats"
+  | "solo"
   | "squad"
   | "expired"
   | "autocomplete-abort"
@@ -413,6 +414,7 @@ export function createStatsBrowserScenario(input: {
       recentMatchIds,
       qaResponse,
     });
+    if (input.name === "solo") body.matchModes = Object.fromEntries(recentMatchIds.map(matchId => [matchId, "solo-fpp"]));
     supportedIdentities.add(identity);
     if (input.name === "sync-failure") {
       body.syncStatus = "save_failed";
@@ -480,6 +482,11 @@ export function createStatsBrowserScenario(input: {
         summary.teammateNames = TEAMMATE_NAMES;
       }
     }
+    if (input.name === "solo") {
+      for (const summary of Object.values(summaries)) {
+        Object.assign(summary, { gameMode: "solo-fpp", totalTeams: 64, totalPlayers: 64 });
+      }
+    }
     return jsonResponse(200, { summaries, missingMatchIds: [] }, {
       delayMs: input.name === "teammates-history-first" ? 300 : undefined,
     });
@@ -513,6 +520,10 @@ export function createStatsBrowserScenario(input: {
       playedAt: input.name === "expired" && expiredIndex >= 0
         ? input.clock.daysAgo([13, 15, 91][expiredIndex] as 13 | 15 | 91) : undefined,
     });
+    if (input.name === "solo") {
+      Object.assign(detail, { gameMode: "solo-fpp", totalTeams: 64, totalPlayers: 64 });
+      Object.assign(detail.benchmark, { score: 78, breakdown: { combat: 34, tactical: 10, survival: 34 }, impactScore: 83 });
+    }
     if (input.name === "missing-stats") {
       Object.assign(detail.stats, { headshotKills: null, assists: 0, DBNOs: undefined, timeSurvived: null });
       Object.assign(detail.isolationData, { isolationIndex: undefined });
