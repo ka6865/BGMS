@@ -439,7 +439,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   return {
     groupKey,
     teamMode: selectedGroup.teamMode,
-    // `matchCount`는 팀 지표·역할·AI에 쓰는 경기 수다. 최근 10경기 중 보관 기간이 남고 팀 관측이 있는 경기를 모두 쓴다.
+    // `matchCount`는 팀 지표·역할·AI에 쓰는 경기 수다. 최근 10경기 중 상세 보관 기간(14일)이 남고 팀 관측이 있는 경기를 모두 쓴다.
     // 그보다 많은 최근 경기가 있으면 `latestMatchCount`로 구분한다.
     matchCount,
     latestMatchCount: targetMatches.length,
