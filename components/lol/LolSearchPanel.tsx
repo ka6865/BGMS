@@ -11,6 +11,7 @@ import LolRankCards from "./LolRankCards";
 import LolMasteryCard from "./LolMasteryCard";
 import { LolChallengesCard, LolRecentTrendsCard } from "./LolInsightCards";
 import LolLegalNotice from "./LolLegalNotice";
+import LolLiveGamePanel from "./LolLiveGamePanel";
 import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH } from "@/lib/lol/keyNotice";
 import { nextPendingMatchIds } from "@/lib/lol/limits";
 
@@ -62,6 +63,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [loading, setLoading] = useState(false);
   const [openMatchId, setOpenMatchId] = useState<string | null>(null);
+  const [liveOpen, setLiveOpen] = useState(false);
   // 모바일·태블릿(lg 미만)에서 경기 목록과 통계를 나눠 보여 준다. 넓은 화면은 두 열에 함께 보인다.
   const [mobileView, setMobileView] = useState<"matches" | "stats">("matches");
   const [busyAccount, setBusyAccount] = useState<string | null>(null);
@@ -107,6 +109,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     setError(null);
     setResult(null);
     setOpenMatchId(null);
+    setLiveOpen(false);
     setMobileView("matches");
     setMoreError(null);
     setFailedAction(null);
@@ -341,7 +344,6 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const visibleFailures = result?.matchFailures?.filter(failure => !["invalid_match", "restricted_match"].includes(failure.kind)) ?? [];
   const keyRenewal = result?.matchFailures?.some(failure => ["key_or_permission", "unconfigured"].includes(failure.kind));
   const summary = summaries?.[filter];
-  const liveHref = result && liveEnabled && ownRiotId ? `${lolRiotIdPath(ownRiotId, pageBase) ?? pageBase}/live` : null;
   const remainingCooldown = Math.max(Math.ceil((refreshAvailableAt - now) / 1000), 0);
   const lastUpdatedSeconds = result?.lastUpdatedAt
     ? Math.max(0, Math.floor((now - Date.parse(result.lastUpdatedAt)) / 1000))
@@ -471,10 +473,12 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                       : `${Math.floor(lastUpdatedSeconds / 60)}분 전`}
                   </span>
                 )}
-                {liveHref && (
-                  <a href={liveHref} className="flex min-h-11 items-center rounded-lg border border-amber-700 px-3 text-xs font-semibold text-amber-200 hover:bg-amber-950/40">
-                    진행 중인 게임
-                  </a>
+                {liveEnabled && ownRiotId && (
+                  <button type="button" aria-expanded={liveOpen} aria-controls="lol-live-game"
+                    onClick={() => setLiveOpen(current => !current)}
+                    className="flex min-h-11 items-center rounded-lg border border-amber-700 px-3 text-xs font-semibold text-amber-200 hover:bg-amber-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400">
+                    {liveOpen ? "인게임 정보 접기" : "인게임 정보"}
+                  </button>
                 )}
                 <button
                   type="button"
@@ -490,6 +494,12 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                 </button>
               </div>
             </div>
+
+            {liveEnabled && liveOpen && ownRiotId && (
+              <div id="lol-live-game">
+                <LolLiveGamePanel key={ownRiotId} inline publicView={publicView} apiBase={apiBase} initialRiotId={ownRiotId} />
+              </div>
+            )}
 
             <div role="tablist" aria-label="검색 결과 보기" className="grid grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 lg:hidden">
               {([["matches", "전적"], ["stats", "통계·함께한 소환사"]] as const).map(([key, label]) => (

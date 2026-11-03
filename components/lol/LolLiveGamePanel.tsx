@@ -113,9 +113,10 @@ function ParticipantRow({ item, teamId }: { item: LolLiveParticipantView; teamId
   );
 }
 
-export default function LolLiveGamePanel({ apiBase, backHref, initialRiotId, initialError, publicView = false }: {
+export default function LolLiveGamePanel({ apiBase, backHref, initialRiotId, initialError, publicView = false, inline = false }: {
   apiBase: string;
-  backHref: string;
+  backHref?: string;
+  inline?: boolean;
   initialRiotId?: string;
   initialError?: string;
   publicView?: boolean;
@@ -178,16 +179,18 @@ export default function LolLiveGamePanel({ apiBase, backHref, initialRiotId, ini
   const keyFailure = failedNames.some(item => item.rank.status === "failed" && item.rank.reason === "key_or_permission");
   const elapsed = ready ? clock(ready.gameLengthSeconds) : null;
   const shownId = view?.riotId ?? initialRiotId ?? null;
+  const Container = inline ? "section" : "main";
+  const Heading = inline ? "h2" : "h1";
 
   return (
-    <main className="h-full min-h-0 overflow-y-auto bg-zinc-950 px-4 py-5 text-zinc-100 sm:px-6">
-      <div className="mx-auto w-full max-w-5xl pb-8">
-        <a href={backHref} className="inline-flex min-h-11 items-center text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline">
+    <Container aria-label="인게임 정보" className={inline ? "min-w-0 py-2 text-zinc-100" : "h-full min-h-0 overflow-y-auto bg-zinc-950 px-4 py-5 text-zinc-100 sm:px-6"}>
+      <div className={inline ? "w-full" : "mx-auto w-full max-w-5xl pb-8"}>
+        {!inline && backHref && <a href={backHref} className="inline-flex min-h-11 items-center text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline">
           <ArrowLeft aria-hidden="true" className="mr-1 size-4" />전적으로 돌아가기
-        </a>
+        </a>}
         <header className="mb-4">
           {!publicView && <p className="text-xs font-semibold text-amber-400">관리자 전용</p>}
-          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold sm:text-2xl"><Radio aria-hidden="true" className="size-5 text-rose-400" />진행 중인 게임</h1>
+          <Heading className="mt-1 flex items-center gap-2 text-xl font-bold sm:text-2xl"><Radio aria-hidden="true" className="size-5 text-rose-400" />진행 중인 게임</Heading>
           {shownId && <p className="mt-1 break-all text-sm text-zinc-400">{shownId}</p>}
         </header>
 
@@ -219,8 +222,8 @@ export default function LolLiveGamePanel({ apiBase, backHref, initialRiotId, ini
         )}
 
         {view?.status === "not_in_game" && !loading && (
-          <section aria-label="진행 상태" className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-300">
-            <p className="font-semibold">지금 진행 중인 게임이 없습니다.</p>
+          <section role="status" aria-label="진행 상태" className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-300">
+            <p className="font-semibold">현재 게임 중이 아닙니다.</p>
             <p className="mt-1 text-xs text-zinc-500">조회 시점 기준입니다. 경기 시작 직후에는 잠시 뒤 다시 조회해 주세요.</p>
           </section>
         )}
@@ -281,6 +284,6 @@ export default function LolLiveGamePanel({ apiBase, backHref, initialRiotId, ini
 
         <p className="mt-6 border-t border-zinc-800 pt-3 text-xs text-zinc-500">{LOL_LIVE_NOTICE}</p>
       </div>
-    </main>
+    </Container>
   );
 }
