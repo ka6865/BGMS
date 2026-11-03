@@ -1,10 +1,14 @@
 // 스쿼드 AI 평가에 줄 측정 분포 사실을 만든다. 순수 함수만 둔다.
 // 개인 딜·킬·어시스트·기절 비중의 팀 내 순위와 최고·최저만 다룬다. 실력, 의도, 위치는 말하지 않는다.
-// 펀치라인 재료와 달리 농담용이 아니라 "못한 점"과 "개인 피드백"의 근거로 쓴다.
+// 비중은 합이 100%인 분배라 누군가는 반드시 최저가 되고 역할 차이도 반영한다. 그래서 개인 "못한 점"과 "개인 피드백"의 근거가 아니라 칭찬과 팀 분포 설명에만 쓴다.
+// 개인 못한 점은 squadMemberRecords가 고정 기준으로 정한 "못한 점 후보"에서만 나온다.
+
+import { squadFaultCandidates, type SquadMemberRecords } from "./squadMemberRecords";
 
 export interface SquadObservationMember {
   name?: unknown;
   shares?: { damage?: unknown; kill?: unknown; assist?: unknown; dbno?: unknown } | null;
+  records?: SquadMemberRecords | null;
 }
 
 export interface SquadObservationInput {
@@ -34,7 +38,7 @@ function share(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : null;
 }
 
-type Measured = { name: string; values: Record<(typeof METRICS)[number]["key"], number | null> };
+type Measured = { name: string; values: Record<(typeof METRICS)[number]["key"], number | null>; records: SquadMemberRecords | null };
 
 function measuredMembers(input: SquadObservationInput): Measured[] {
   return (input.roleProfiles ?? []).flatMap((profile): Measured[] => {
@@ -46,7 +50,8 @@ function measuredMembers(input: SquadObservationInput): Measured[] {
       assist: share(profile.shares?.assist),
       dbno: share(profile.shares?.dbno),
     };
-    return Object.values(values).some(value => value !== null) ? [{ name, values }] : [];
+    const records = profile.records ?? null;
+    return Object.values(values).some(value => value !== null) ? [{ name, values, records }] : [];
   });
 }
 
@@ -62,12 +67,11 @@ function rankOf(members: Measured[], key: (typeof METRICS)[number]["key"], value
 export function buildSquadObservationBlock(input: SquadObservationInput): string {
   const members = measuredMembers(input);
   if (members.length < 2) return "";
-  const fairShare = Math.round(100 / members.length);
   const extremesAllowed = members.length >= MIN_MEMBERS_FOR_EXTREME;
 
   const teamLines: string[] = [];
-  const memberExtremes = new Map<string, { high: string[]; low: string[] }>();
-  for (const member of members) memberExtremes.set(member.name, { high: [], low: [] });
+  const memberHighs = new Map<string, string[]>();
+  for (const member of members) memberHighs.set(member.name, []);
 
   for (const { key, label } of METRICS) {
     const ranked = members
@@ -78,28 +82,30 @@ export function buildSquadObservationBlock(input: SquadObservationInput): string
     const top = ranked[0];
     const second = ranked[1];
     const bottom = ranked[ranked.length - 1];
-    const secondLowest = ranked[ranked.length - 2];
     if (top.value - bottom.value >= MIN_TEAM_SPREAD) {
       teamLines.push(`- 팀 ${label} 비중은 최고 ${top.value}%(${top.name}), 최저 ${bottom.value}%(${bottom.name})로 갈렸습니다.`);
     }
     if (!extremesAllowed) continue;
-    if (top.value - second.value >= MIN_EXTREME_GAP) memberExtremes.get(top.name)?.high.push(`${label} ${top.value}%`);
-    if (secondLowest.value - bottom.value >= MIN_EXTREME_GAP && bottom.value < fairShare) {
-      memberExtremes.get(bottom.name)?.low.push(`${label} ${bottom.value}%`);
-    }
+    if (top.value - second.value >= MIN_EXTREME_GAP) memberHighs.get(top.name)?.push(`${label} ${top.value}%`);
   }
 
+  const faultCandidates = squadFaultCandidates(members);
   const memberLines = members.map(member => {
     const parts = METRICS.flatMap(({ key, label }) => {
       const value = member.values[key];
       return value === null ? [] : [`${label} ${value}%(팀 ${rankOf(members, key, value)}위)`];
     });
-    const extremes = memberExtremes.get(member.name);
-    const tags = [
-      extremes?.high.length ? `팀 최고: ${extremes.high.join(", ")}` : "",
-      extremes?.low.length ? `팀 최저(균등 분배 ${fairShare}% 미만): ${extremes.low.join(", ")}` : "",
+    const highs = memberHighs.get(member.name) ?? [];
+    const recordParts = [
+      member.records?.firstDeaths ? `팀에서 가장 먼저 사망 ${member.records.firstDeaths.count}/${member.records.firstDeaths.matches}경기` : "",
+      member.records?.initiative ? `선제 타격 ${member.records.initiative.attempts}회 중 ${member.records.initiative.successes}회 성공` : "",
     ].filter(Boolean);
-    return `- ${member.name}: ${parts.join(" · ")}${tags.length ? ` [${tags.join(" / ")}]` : ""}`;
+    const candidates = faultCandidates.get(member.name) ?? [];
+    return [
+      `- ${member.name}: ${parts.join(" · ")}${highs.length ? ` [팀 최고: ${highs.join(", ")}]` : ""}`,
+      recordParts.length ? `  개인 기록: ${recordParts.join(" · ")}` : "",
+      ...candidates.map(text => `  못한 점 후보: ${text}`),
+    ].filter(Boolean).join("\n");
   });
 
   const analyzed = Number(input.analyzedMatchCount);
