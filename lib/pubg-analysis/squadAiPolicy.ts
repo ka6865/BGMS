@@ -16,6 +16,9 @@ const SQUAD_UNSUPPORTED_ABILITY_PATTERNS = [
 // 딜·킬·어시스트·기절 비중은 합이 100%인 분배라 개인의 못한 점이나 조언 근거가 될 수 없다.
 const SQUAD_SHARE_BLAME_PATTERN = /(?:딜|피해량|킬|어시스트|녹다운|기절)\s*비중/u;
 
+// 프롬프트가 펀치라인 재료 뒤에 붙이는 라벨이다. 모델이 옮겨 적으면 지운다.
+const PUNCHLINE_LABEL = /\s*→\s*한마디\s*[:：]\s*/gu;
+
 const SENTENCE_SPLIT = /(?<=[.!?。！？])\s+|\n+/u;
 
 // 자유 서술 필드에만 쓴다. 숫자 근거와 JSON 구조는 건드리지 않는다.
@@ -127,7 +130,9 @@ function localizeGenericWithheld(text: string, coachingStyle: string | undefined
  * 근거 없는 능력 단정이 든 문장만 뺀다. 모두 빠지면 보류 문장 하나로 바꾼다.
  * 매운맛은 보류 문장을 넘김 문장으로 바꾼다. 문제가 없으면 입력을 그대로 돌려주므로 여러 번 적용해도 결과가 같다(멱등).
  */
-export function sanitizeSquadAbilityText(text: string, coachingStyle?: string, blameField = false): string {
+export function sanitizeSquadAbilityText(rawText: string, coachingStyle?: string, blameField = false): string {
+  // 프롬프트의 재료 라벨("→ 한마디:")을 모델이 그대로 옮기면 라벨만 지우고 문장은 남긴다.
+  const text = rawText.replace(PUNCHLINE_LABEL, " ").replace(/ {2,}/g, " ");
   const sentences = text.split(SENTENCE_SPLIT);
   const unsupported = (sentence: string) => isUnsupportedSquadSentence(sentence, blameField);
   if (!sentences.some(unsupported)) return localizeGenericWithheld(text, coachingStyle, text);

@@ -149,6 +149,24 @@ export interface TeamContext {
   aliveTeammatesAtMyDeath: number | null;
 }
 
+/** 내가 기절하거나 사망한 순간의 팀원 근접 측정 한 건. */
+export interface DeathContextSample {
+  /** 경기 시작 후 시각(ms). */
+  atMs: number;
+  /** 가장 가까운 생존 팀원까지의 거리(m). 생존 팀원이 없거나 쓸 수 있는 위치 샘플이 없으면 null. */
+  nearestAliveTeammateM: number | null;
+  /** 그 순간 서 있던 팀원 수. 0이면 마지막 생존자였다. */
+  aliveTeammateCount: number;
+  /** 거리에 쓴 위치 샘플의 나이(ms). */
+  locationAgeMs: number | null;
+}
+
+/** [계산 5 기록] 내 (마지막) 사망 생명의 기절·사망 시점 팀원 근접. 이 필드가 생기기 전 분석 결과에는 없다. */
+export interface DeathContext {
+  atKnock: DeathContextSample | null;
+  atDeath: DeathContextSample | null;
+}
+
 /** 팀원(또는 나) 기절 한 건. victim + 생명 번호 + 기절 사건으로 식별한다. */
 export interface RescueEpisode {
   key: string;
@@ -254,6 +272,8 @@ export interface AnalysisResult {
   tradeStats: TradeStats;
   /** [계산 5 기록] 내 팀 인원 맥락. 이 필드가 생기기 전 분석 결과에는 없다. */
   teamContext?: TeamContext;
+  /** 사망하지 않았거나 이 필드가 생기기 전 분석 결과에는 없다(null 또는 undefined). */
+  deathContext?: DeathContext | null;
   initiative_rate: number | null;
   initiativeSampleCount: number;
   duelStats: DuelStats;
@@ -321,6 +341,8 @@ export interface AnalysisState {
   myVictimDamage: Map<string, number>; // [V55.2] 내가 각 유저에게 입힌 누적 데미지
   weaponStats: Map<string, any>;
   playerLocations: Map<string, Location>;
+  /** playerLocations 각 항목을 마지막으로 갱신한 텔레메트리 시각(ms). */
+  playerLocationTs: Map<string, number>;
   playerAliveStatus: Map<string, string | boolean>;
   teamMapping: Map<string, string>;
   teamAliveMembers: Map<string, Set<string>>;
@@ -471,6 +493,9 @@ export interface AnalysisState {
   wipeEvidence: WipeEvidence[];
   myRosterSize: number | null;
   aliveTeammatesAtMyDeath: number | null;
+  /** 소생·복귀로 끝나지 않은 마지막 내 기절 시점의 팀원 근접. */
+  myKnockSample: DeathContextSample | null;
+  deathContext: DeathContext | null;
   firstReplyWithin3sCount: number;
   firstReplyLatencySumMs: number;
 }

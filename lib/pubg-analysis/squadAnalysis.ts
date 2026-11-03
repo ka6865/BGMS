@@ -350,6 +350,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       team: match.data?.fullResult?.team,
       initiative_rate: match.data?.fullResult?.initiative_rate,
       initiativeSampleCount: match.data?.fullResult?.initiativeSampleCount,
+      deathContext: match.data?.fullResult?.deathContext,
     })),
     memberKeys: squadMemberKeys,
     selfKey: normalizeName(nickname),

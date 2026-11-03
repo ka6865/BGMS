@@ -33,7 +33,7 @@ export default function PrivacyPage() {
         개인정보처리방침
       </h1>
       <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.35)", marginBottom: "40px" }}>
-        최종 업데이트: 2026년 10월 23일
+        최종 업데이트: 2026년 11월 4일
       </p>
 
       <Section title="1. 개요">
@@ -69,6 +69,7 @@ export default function PrivacyPage() {
         <ul>
           <li>PUBG 인게임 닉네임 및 Account ID (PUBG 공식 API 조회)</li>
           <li>매치 기록, 무기 숙련도, 시즌 통계 (PUBG 공식 API 응답 데이터)</li>
+          <li>함께 플레이한 다른 참가자의 닉네임, Account ID와 해당 경기에서의 킬·피해량·어시스트·기절·생존 시간 등 경기 기록 (팀 분석에 사용)</li>
         </ul>
         <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)", marginTop: "8px" }}>
           ※ PUBG 전적 데이터는 KRAFTON의 공식 PUBG Developer API를 통해 조회되며,
@@ -128,7 +129,7 @@ export default function PrivacyPage() {
             ["게시글·댓글", "이용자가 삭제할 때까지 (탈퇴 시 작성자 연결을 끊고 내용은 유지)"],
             ["검색된 PUBG 플레이어의 전적 캐시 (닉네임·Account ID·시즌 통계·숙련도·클랜·최근 경기 목록)", "삭제 요청 전까지"],
             ["검색된 PUBG 플레이어의 경기 기록 (경기 요약·함께 플레이한 팀원 닉네임)", "삭제 요청 전까지"],
-            ["검색되지 않은 PUBG 경기 참가자의 닉네임·Account ID", "마지막 조회일로부터 90일 (정리 실행 시 삭제)"],
+            ["검색되지 않은 PUBG 경기 참가자의 닉네임·Account ID와 해당 경기 기록(킬·피해량·어시스트·기절·생존 시간 등) 및 이를 바탕으로 계산한 분석 요약", "마지막 조회일로부터 90일 (정리 실행 시 삭제)"],
             ["LoL 검색 계정 정보·본인 경기 요약·랭크 기록", "삭제 요청 전까지"],
             ["검색된 계정의 경기 요약에 포함된 함께 플레이한 참가자 식별자(PUUID·경기 당시 Riot ID, 최대 4명)", "해당 요약과 함께 삭제 요청 전까지"],
             ["LoL 경기 원문 (다른 참가자 정보 포함)", "7일 (만료 후 정리 실행 시 삭제)"],
@@ -383,7 +384,7 @@ export default function PrivacyPage() {
           변경 시 서비스 내 공지사항 또는 본 페이지를 통해 사전 고지합니다.
         </p>
         <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)" }}>
-          시행일: 2026년 10월 30일
+          시행일: 2026년 11월 4일
         </p>
       </Section>
 

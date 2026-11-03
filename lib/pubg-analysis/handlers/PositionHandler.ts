@@ -14,7 +14,7 @@ export class PositionHandler extends BaseHandler {
         this.handleLanding(e);
         break;
       case "LogPlayerCreate":
-        this.handlePlayerCreate(e);
+        this.handlePlayerCreate(e, ts);
         break;
       case "LogPlayerTakeDamage":
       case "LogPlayerKill":
@@ -22,7 +22,7 @@ export class PositionHandler extends BaseHandler {
       case "LogPlayerMakeDBNO":
       case "LogPlayerRevive":
       case "LogPlayerMakeGroggy":
-        this.updateParticipantLocations(e);
+        this.updateParticipantLocations(e, ts);
         break;
     }
   }
@@ -34,7 +34,7 @@ export class PositionHandler extends BaseHandler {
     const charLoc = normalizeTelemetryLocation(e.character.location ?? e.character.loc);
     if (!charLoc) return;
 
-    this.updateParticipantLocations(e);
+    this.updateParticipantLocations(e, ts);
     
     if (pName === this.state.lowerNickname) {
       // console.log(`[DEBUG-POS] My Position Updated: ${charLoc.x}, ${charLoc.y}`);
@@ -98,7 +98,7 @@ export class PositionHandler extends BaseHandler {
     }
   }
 
-  private handlePlayerCreate(e: any) {
+  private handlePlayerCreate(e: any, ts: number) {
     const pName = normalizeName(e.character?.name || "");
     if (pName) {
       // [계산 5] 기절 상태의 Create는 새 생명이 아니므로 기절 상태를 덮어쓰지 않는다.
@@ -107,20 +107,22 @@ export class PositionHandler extends BaseHandler {
         this.state.playerAliveStatus.set(pName, true);
         if (e.character?.accountId) this.state.playerAliveStatus.set(e.character.accountId, true);
       }
-      this.updateParticipantLocations(e);
+      this.updateParticipantLocations(e, ts);
     }
   }
 
-  private updateParticipantLocations(e: any) {
+  private updateParticipantLocations(e: any, ts: number) {
     const update = (char: any) => {
       const loc = normalizeTelemetryLocation(char?.location ?? char?.loc);
       if (char?.name && loc) {
         const name = normalizeName(char.name);
         this.state.playerLocations.set(name, { x: loc.x, y: loc.y, z: loc.z || 0 });
+        this.state.playerLocationTs.set(name, ts);
         if (char.accountId) {
           this.accountIdsByName.set(name, char.accountId);
           this.accountAliases.add(char.accountId);
           this.state.playerLocations.set(char.accountId, { x: loc.x, y: loc.y, z: loc.z || 0 });
+          this.state.playerLocationTs.set(char.accountId, ts);
         }
       }
     };
