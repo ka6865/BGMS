@@ -747,7 +747,14 @@ export class CombatHandler extends BaseHandler {
           const dist = Math.round(calcDist3D(killerLoc, victimLoc) / 100);
 
           // [V59.0] 차량 탑승 킬 감지 (로드킬 제외)
-          const dmgCat = (e.damageTypeCategory || "").toLowerCase();
+          // LogPlayerKillV2에는 최상위 damageTypeCategory가 없다. 킬을 올린 사람의 피해(killerDamageInfo)를 기준으로 보고,
+          // 비어 있으면 마지막 피해(finishDamageInfo)를 본다. 기절 피해(dBNODamageInfo)는 다른 사람의 것일 수 있어 쓰지 않는다.
+          const dmgCat = (
+            e.damageTypeCategory ||
+            e.killerDamageInfo?.damageTypeCategory ||
+            e.finishDamageInfo?.damageTypeCategory ||
+            ""
+          ).toLowerCase();
           const isRoadkill = dmgCat.includes("vehicle");
           if (!isRoadkill) {
             if (e.victim?.isInVehicle === true) {
