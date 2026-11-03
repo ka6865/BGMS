@@ -67,3 +67,23 @@ describe("listReplacedSquadFields", () => {
     expect(listReplacedSquadFields(null, undefined)).toEqual([]);
   });
 });
+
+describe("소생 점수가 있을 때 소생 문장 처리", () => {
+  const withScore = (sentence: string) => applySquadEvidencePolicy(
+    { summary: "", strength: sentence, weakness: "", coaching: "", overallOpinion: "", memberFeedbacks: [] },
+    STATS, null, { ...SCORES, survivalCare: 71 }, [], { benchmarkStats: BENCHMARK },
+  ) as { strength: string };
+
+  it("점수 문장은 허용한다", () => {
+    expect(withScore("소생 점수는 71점입니다.").strength).toBe("소생 점수는 71점입니다.");
+  });
+
+  it("점수를 퍼센트로 잘못 쓴 문장은 보류한다", () => {
+    expect(withScore("소생률 71%를 기록했습니다.").strength).toBe("생존 케어 평가는 근거가 부족해 보류합니다.");
+  });
+
+  it("측정된 소생률 퍼센트는 허용한다", () => {
+    const sentence = "아군 기절 30회 중 14회를 살려 소생률 46.7%입니다.";
+    expect(withScore(sentence).strength).toBe(sentence);
+  });
+});

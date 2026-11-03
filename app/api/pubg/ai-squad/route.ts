@@ -442,9 +442,7 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     const canonicalStats = squadData.stats;
     const canonicalScores = squadData.scores;
     const canonicalRoleProfiles = squadData.roleProfiles;
-    const canonicalGrade = [squadData.scores.formation, squadData.scores.backupSpeed, squadData.scores.survivalCare, squadData.scores.focusFire, squadData.scores.teamWipe]
-      .every((score) => typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 100)
-      && typeof squadData.squadGrade === "string" && squadData.squadGrade.trim() ? squadData.squadGrade : null;
+    const canonicalGrade = typeof squadData.squadGrade === "string" && squadData.squadGrade.trim() ? squadData.squadGrade : null;
     const canonicalBenchmarkStats = squadData.benchmarkStats;
     const canonicalMatchCount = squadData.matchCount;
     const canonicalMatchesSummary = squadData.matchesSummary;

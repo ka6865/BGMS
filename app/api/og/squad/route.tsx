@@ -39,11 +39,11 @@ const REQUIRED_USER_STATS = [
 ] as const;
 
 const REQUIRED_SCORES = [
-  "formation",
-  "backupSpeed",
   "survivalCare",
-  "focusFire",
-  "teamWipe",
+  "backupSpeed",
+  "smokeRescue",
+  "damageBalance",
+  "placement",
 ] as const;
 
 function hasCompleteBenchmarkStats(value: unknown): boolean {
@@ -99,12 +99,12 @@ export async function GET(request: NextRequest) {
     totalTeamWipes: null as number | null,
     totalTeammateKnocks: null as number | null,
   };
-  let scores = {
-    formation: null as number | null,
-    backupSpeed: null as number | null,
-    survivalCare: null as number | null,
-    focusFire: null as number | null,
-    teamWipe: null as number | null,
+  let scores: Record<(typeof REQUIRED_SCORES)[number], number | null> = {
+    survivalCare: null,
+    backupSpeed: null,
+    smokeRescue: null,
+    damageBalance: null,
+    placement: null,
   };
   let hasData = false;
 
@@ -346,11 +346,11 @@ export async function GET(request: NextRequest) {
 
             {/* 5가지 지표 그래프 목록 */}
             {[
-              { label: "대열 유지 (Formation)", score: scores.formation, color: "#818cf8", bg: "rgba(99, 102, 241, 0.15)" },
+              { label: "소생률 (Revive Rate)", score: scores.survivalCare, color: "#34d399", bg: "rgba(52, 211, 153, 0.15)" },
               { label: "백업 속도 (Backup Speed)", score: scores.backupSpeed, color: "#f43f5e", bg: "rgba(244, 63, 148, 0.15)" },
-              { label: "생존 케어 (Survival Care)", score: scores.survivalCare, color: "#34d399", bg: "rgba(52, 211, 153, 0.15)" },
-              { label: "화력 집중 (Focus Fire)", score: scores.focusFire, color: "#fbbf24", bg: "rgba(251, 191, 36, 0.15)" },
-              { label: "전멸 기여 (Squad Wipe)", score: scores.teamWipe, color: "#c084fc", bg: "rgba(192, 132, 252, 0.15)" },
+              { label: "연막 구출 (Smoke Rescue)", score: scores.smokeRescue, color: "#818cf8", bg: "rgba(99, 102, 241, 0.15)" },
+              { label: "딜 분배 (Damage Balance)", score: scores.damageBalance, color: "#fbbf24", bg: "rgba(251, 191, 36, 0.15)" },
+              { label: "순위 성과 (Placement)", score: scores.placement, color: "#c084fc", bg: "rgba(192, 132, 252, 0.15)" },
             ].map((metric) => (
               <div
                 key={metric.label}

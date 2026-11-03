@@ -109,7 +109,7 @@ describe("squad OG benchmark-unavailable state", () => {
         totalTeamWipes: 2,
         totalTeammateKnocks: 4,
       },
-      scores: { formation: 90, backupSpeed: 85, survivalCare: 80, focusFire: 75, teamWipe: 70 },
+      scores: { survivalCare: 90, backupSpeed: 85, smokeRescue: 80, damageBalance: 75, placement: 70 },
       roleProfiles: [{ name: "Player_A" }, { name: "Teammate_B" }],
       benchmarkStats: { tier: "A", avgIsolation: 1.3, avgTradeLatency: 9000, avgReviveRate: 20, avgSmokeRate: 10, avgTeamWipes: 2 },
     });
@@ -138,7 +138,7 @@ describe("squad OG benchmark-unavailable state", () => {
         totalTeamWipes: 2,
         totalTeammateKnocks: 4,
       },
-      scores: { formation: null, backupSpeed: 85, survivalCare: 80, focusFire: 75, teamWipe: 70 },
+      scores: { survivalCare: null, backupSpeed: 85, smokeRescue: 80, damageBalance: 75, placement: 70 },
       benchmarkStats: { tier: "B", avgIsolation: 1.3, avgTradeLatency: 9000, avgReviveRate: 20, avgSmokeRate: 10, avgTeamWipes: 2 },
       roleProfiles: [{ name: "Player_A" }],
     });
@@ -167,7 +167,7 @@ describe("squad OG benchmark-unavailable state", () => {
         totalTeamWipes: 1,
         totalTeammateKnocks: 1,
       },
-      scores: { formation: 90, backupSpeed: 90, survivalCare: 90, focusFire: 90, teamWipe: 90 },
+      scores: { survivalCare: 90, backupSpeed: 90, smokeRescue: 90, damageBalance: 90, placement: 90 },
       roleProfiles: [{ name: "Player_A" }],
       benchmarkStats: { tier: "A", avgIsolation: 1.3, avgTradeLatency: 9000, avgReviveRate: 20, avgSmokeRate: 10, avgTeamWipes: 2 },
     });

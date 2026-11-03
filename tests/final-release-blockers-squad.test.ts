@@ -54,7 +54,7 @@ function canonicalRow(index: number, overrides: Record<string, any> = {}) {
 
 describe("strict squad analysis population and scope",()=>{
   beforeEach(()=>{vi.resetModules();});
-  it("filters non-human/non-BR rows, selects latest ten, then best five only within that ten", async () => {
+  it("filters non-human/non-BR rows, selects latest ten, and analyzes every observed match within that ten", async () => {
     const rowsByIndex = new Map(
       Array.from({ length: 12 }, (_, index) => [index + 1, canonicalRow(index + 1)] as const),
     );
@@ -98,16 +98,12 @@ describe("strict squad analysis population and scope",()=>{
       Array.from({ length: 10 }, (_, index) => `match-${index + 1}`),
     );
     expect(analysis.matchesSummary.find((match: any) => match.matchId === "match-5")?.winPlace).toBe(5);
-    expect(analysis.selectedMatchIds).toHaveLength(5);
-    expect(analysis.selectedMatchIds).toEqual([
-      "match-10",
-      "match-9",
-      "match-8",
-      "match-7",
-      "match-6",
-    ]);
+    expect([...analysis.selectedMatchIds].sort()).toEqual(
+      Array.from({ length: 10 }, (_, index) => `match-${index + 1}`).sort(),
+    );
     expect(analysis.selectedMatchIds).not.toContain("match-20");
-    expect(analysis.bestMatchCount).toBe(5);
+    expect(analysis.matchCount).toBe(10);
+    expect(analysis.bestMatchCount).toBe(10);
     expect(analysis.latestMatchCount).toBe(10);
     expect(processed.limit).toHaveBeenCalledWith(100);
     expect(benchmarkChains).toHaveLength(0);

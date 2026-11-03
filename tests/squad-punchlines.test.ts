@@ -129,14 +129,13 @@ describe("squad punchline team facts", () => {
     expect(picks.map((item) => item.id)).not.toContain("best_rank_top");
   });
 
-  it("uses the squad grade only when all five scores are measured", () => {
-    const measured = { formation: 80, backupSpeed: 70, survivalCare: 60, focusFire: 75, teamWipe: 65 };
-    const high = selectSquadPunchlines(teamInput({ squadGrade: "A", scores: measured }));
-    expect(high.find((item) => item.id === "squad_grade_high")).toMatchObject({ kind: "hype", fact: "종합 협동 등급은 A입니다." });
-    const withheld = selectSquadPunchlines(teamInput({ squadGrade: "A", scores: { ...measured, focusFire: null } }));
-    expect(withheld.map((item) => item.id)).not.toContain("squad_grade_high");
-    const notGraded = selectSquadPunchlines(teamInput({ squadGrade: null, scores: measured }));
-    expect(notGraded.map((item) => item.id)).not.toContain("squad_grade_high");
+  it("does not turn the squad grade into a joke fact", () => {
+    const measured = { survivalCare: 80, backupSpeed: 70, smokeRescue: 60, damageBalance: 75, placement: 65 };
+    for (const squadGrade of ["A", "C+", null]) {
+      const ids = selectSquadPunchlines(teamInput({ squadGrade, scores: measured })).map((item) => item.id);
+      expect(ids).not.toContain("squad_grade_high");
+      expect(ids).not.toContain("squad_grade_low");
+    }
   });
 
   it("never builds facts from unmeasured isolation, cover, or wipe metrics", () => {
@@ -169,8 +168,8 @@ describe("squad punchline team facts", () => {
     expect(first.filter((item) => item.kind === "roast").length).toBeLessThanOrEqual(SQUAD_PUNCHLINE_KIND_LIMIT);
     expect(first.filter((item) => item.kind === "hype").length).toBeLessThanOrEqual(SQUAD_PUNCHLINE_KIND_LIMIT);
     expect(first.length).toBeGreaterThanOrEqual(2);
-    // 가중치 순서: 등급(0.5) → 백업(0.47) → 딜 편차(0.46) → 구조 성공률(0.41) → 최고 순위(0.3)
-    expect(first.map((item) => item.id)).toEqual(["squad_grade_high", "backup_slow", "damage_spread", "revive_low", "best_rank_top"]);
+    // 가중치 순서: 백업(0.47) → 딜 편차(0.46) → 구조 성공률(0.41) → 최고 순위(0.3)
+    expect(first.map((item) => item.id)).toEqual(["backup_slow", "damage_spread", "revive_low", "best_rank_top"]);
   });
 
   it("does not pad the list when only one fact is measurable", () => {

@@ -93,9 +93,12 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
       if (unavailable) return squadMetricWithheldCopy(coachingStyle, unavailable.label);
       // Observed counts remain useful even when the knock denominator/score
       // is missing. Withhold rates and ability judgments, not the real totals.
-      if (scores !== undefined && !isObserved(scores, "survivalCare")
-        && (RESCUE_ABILITY_PATTERN.test(sentence)
-          || (RESCUE_RATE_PATTERN.test(sentence) && !citesOnlyMeasuredReviveRate(sentence, stats, options.benchmarkStats)))) {
+      // 소생 점수가 있으면 능력 표현과 점수(N점) 문장은 허용한다. 퍼센트는 점수와 헷갈리기 쉬워 항상 측정된 소생률과 대조한다.
+      const reviveScoreObserved = scores !== undefined && isObserved(scores, "survivalCare");
+      if (scores !== undefined
+        && ((!reviveScoreObserved && RESCUE_ABILITY_PATTERN.test(sentence))
+          || (RESCUE_RATE_PATTERN.test(sentence) && (!reviveScoreObserved || /%/.test(sentence))
+            && !citesOnlyMeasuredReviveRate(sentence, stats, options.benchmarkStats)))) {
         return squadMetricWithheldCopy(coachingStyle, "생존 케어");
       }
       if (!grade && /(?:종합|스쿼드|협동|전체|시너지)\s*(?:등급|평가|점수)|총점|[SABCD][+-]?\s*(?:등급|Grade|급)|\b[SABCD][+-]?(?:입니다|라고\s*평가)/i.test(sentence)) {

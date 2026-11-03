@@ -52,7 +52,7 @@ function detail(groupKey: string) {
       avgCoverRate: 0.5,
       totalTeamWipes: 1,
     },
-    scores: { formation: 80, backupSpeed: 81, survivalCare: 82, focusFire: 83, teamWipe: 84 },
+    scores: { survivalCare: 80, backupSpeed: 81, smokeRescue: 82, damageBalance: 83, placement: 84 },
     squadGrade: "A",
     roleProfiles: [{
       name: "FixturePlayer",
@@ -569,7 +569,7 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     expect(screen.queryByText("측정 불가")).not.toBeInTheDocument();
   });
 
-  it("does not render an all-zero radar polygon when any synergy score is unavailable", async () => {
+  it("does not render a radar polygon when fewer than three axes are measured", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/pubg/ai-squad") {
@@ -586,14 +586,14 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
       return Promise.resolve(selectedGroupKey
         ? jsonResponse({
             ...detail(selectedGroupKey),
-            scores: { formation: 80, backupSpeed: 81, survivalCare: null, focusFire: 83, teamWipe: 84 },
+            scores: { survivalCare: 80, backupSpeed: 81, smokeRescue: null, damageBalance: null, placement: null },
           })
         : jsonResponse({ groups }));
     });
 
     const view = renderPanel("g1");
 
-    await waitFor(() => expect(screen.getByText(/생존 케어 \(측정 불가\)/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/연막 구출 \(미측정\)/)).toBeInTheDocument());
     expect(view.container.querySelector('polygon[stroke="rgba(168, 85, 247, 0.85)"]')).toBeNull();
     expect(view.container.querySelectorAll('circle[fill="#a855f7"]')).toHaveLength(0);
   });

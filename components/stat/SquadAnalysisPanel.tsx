@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import SquadCauseScenes, { SquadCauseSceneCardData } from "./SquadCauseScenes";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { hasSquadFeedbackContent } from "@/lib/pubg-analysis/squadAiPolicy";
+import { SQUAD_GRADE_MIN_AXES, SQUAD_SCORE_AXES, type SquadScoreKey } from "@/lib/pubg-analysis/squadScore";
 import type { StatsPlatform } from "@/types/stats-page";
 
 import { createSquadRequestCache, type SquadRequestCache } from "@/lib/stats/squadRequestCache";
@@ -59,12 +60,20 @@ interface MatchSummaryItem {
   createdAt: string;
 }
 
+const RADAR_LABEL_CLASSES = [
+  "absolute top-0 text-[10px] text-zinc-300 font-semibold",
+  "absolute right-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-right",
+  "absolute right-8 bottom-4 text-[10px] text-zinc-300 font-semibold",
+  "absolute left-8 bottom-4 text-[10px] text-zinc-300 font-semibold",
+  "absolute left-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-left",
+];
+
 interface SquadAnalysisData {
   calculationPendingMatchCount?: number;
   groupKey: string;
   teamMode?: "duo" | "squad";
   matchCount: number;
-  // 함께 뛴 최근 경기 수. 팀 지표는 이 중 점수가 높은 matchCount경기로만 계산한다.
+  // 함께 뛴 최근 경기 수. 팀 지표는 이 중 팀 관측이 있는 matchCount경기로 계산한다.
   latestMatchCount?: number;
   matchesSummary: MatchSummaryItem[];
   stats: {
@@ -77,14 +86,9 @@ interface SquadAnalysisData {
     totalTeammateKnocks?: number | null;
     totalTradeKills?: number | null;
   };
-  scores: {
-    formation: number | null;
-    backupSpeed: number | null;
-    survivalCare: number | null;
-    focusFire: number | null;
-    teamWipe: number | null;
-  };
+  scores: Record<SquadScoreKey, number | null>;
   squadGrade: string | null;
+  gradeBasis?: { measuredAxes: number; totalAxes: number; score: number | null };
   benchmarkStats?: {
     tier: string | null;
     avgIsolation: number | null;
@@ -617,30 +621,21 @@ export default function SquadAnalysisPanel({
     }, 80);
   };
 
-  // Helper to compute SVG polygon points for Radar Chart
-  const getRadarPoints = (scores: SquadAnalysisData["scores"]) => {
-    const metrics = [
-      scores.formation,    // Top
-      scores.backupSpeed,  // Right-Top
-      scores.survivalCare, // Right-Bottom
-      scores.focusFire,    // Left-Bottom
-      scores.teamWipe      // Left-Top
-    ];
-
-    // A missing score is not a zero score.  Suppress the measured-data
-    // polygon until every axis has an observed value so the chart cannot
-    // imply a collapse to the origin.
-    if (!metrics.every(isFinitePercentMetric)) return null;
-
-    return metrics.map((score, i) => {
-      const angle = (i * 72 - 90) * (Math.PI / 180);
-      const radius = 80 * (score / 100);
-      const x = 100 + radius * Math.cos(angle);
-      const y = 100 + radius * Math.sin(angle);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(" ");
+  // 레이더 꼭짓점 좌표. 측정되지 않은 축은 점을 찍지 않고, 측정된 축이 3개 이상일 때만 다각형을 그린다.
+  const radarVertex = (index: number, score: number) => {
+    const angle = (index * 72 - 90) * (Math.PI / 180);
+    const radius = 80 * (score / 100);
+    return { x: 100 + radius * Math.cos(angle), y: 100 + radius * Math.sin(angle) };
   };
-  const scoreLabel = (score: number | null) => formatObservedMetric(score);
+  const getRadarPoints = (scores: SquadAnalysisData["scores"]) => {
+    const vertices = SQUAD_SCORE_AXES.flatMap(({ key }, index) => {
+      const score = scores[key];
+      return isFinitePercentMetric(score) ? [radarVertex(index, score)] : [];
+    });
+    if (vertices.length < SQUAD_GRADE_MIN_AXES) return null;
+    return vertices.map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  };
+  const scoreLabel = (score: number | null, fallback = "측정 불가") => isFinitePercentMetric(score) ? String(score) : fallback;
   const radarPoints = analysisData ? getRadarPoints(analysisData.scores) : null;
 
   if (loadingList) {
@@ -819,23 +814,13 @@ export default function SquadAnalysisPanel({
                 )}
 
                 {/* Data Points */}
-                {radarPoints !== null && Array.from({ length: 5 }).map((_, i) => {
-                  const metrics = [
-                    analysisData.scores.formation,
-                    analysisData.scores.backupSpeed,
-                    analysisData.scores.survivalCare,
-                    analysisData.scores.focusFire,
-                    analysisData.scores.teamWipe
-                  ];
-                  const score = metrics[i];
+                {radarPoints !== null && SQUAD_SCORE_AXES.map(({ key }, i) => {
+                  const score = analysisData.scores[key];
                   if (!isFinitePercentMetric(score)) return null;
-                  const angle = (i * 72 - 90) * (Math.PI / 180);
-                  const radius = 80 * (score / 100);
-                  const x = 100 + radius * Math.cos(angle);
-                  const y = 100 + radius * Math.sin(angle);
+                  const { x, y } = radarVertex(i, score);
                   return (
                     <circle
-                      key={i}
+                      key={key}
                       cx={x}
                       cy={y}
                       r="3"
@@ -848,11 +833,9 @@ export default function SquadAnalysisPanel({
               </svg>
  
               {/* Dynamic Axis Labels */}
-              <div className="absolute top-0 text-[10px] text-zinc-300 font-semibold">대열 유지 ({scoreLabel(analysisData.scores.formation)})</div>
-              <div className="absolute right-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-right">백업 속도 ({scoreLabel(analysisData.scores.backupSpeed)})</div>
-              <div className="absolute right-8 bottom-4 text-[10px] text-zinc-300 font-semibold">생존 케어 ({scoreLabel(analysisData.scores.survivalCare)})</div>
-              <div className="absolute left-8 bottom-4 text-[10px] text-zinc-300 font-semibold">화력 집중 ({scoreLabel(analysisData.scores.focusFire)})</div>
-              <div className="absolute left-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-left">전멸 기여 ({scoreLabel(analysisData.scores.teamWipe)})</div>
+              {SQUAD_SCORE_AXES.map(({ key, label }, i) => (
+                <div key={key} className={RADAR_LABEL_CLASSES[i]}>{label} ({scoreLabel(analysisData.scores[key], "미측정")})</div>
+              ))}
             </div>
  
             {/* Synergy metrics key-value list */}
@@ -873,7 +856,9 @@ export default function SquadAnalysisPanel({
                         <InlineIconLabel icon="rank">{teamLabel} 협동 등급</InlineIconLabel>
                       </span>
                       <span className="text-purple-400 font-black text-sm tracking-wide bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/15">
-                        {analysisData.squadGrade ? `${analysisData.squadGrade} Grade` : "등급 보류"}
+                        {analysisData.squadGrade
+                          ? `${analysisData.squadGrade} Grade${analysisData.gradeBasis ? ` · 측정 ${analysisData.gradeBasis.measuredAxes}/${analysisData.gradeBasis.totalAxes}` : ""}`
+                          : "등급 보류"}
                       </span>
                     </div>
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
@@ -978,7 +963,7 @@ export default function SquadAnalysisPanel({
                           평균 {p.avgDamage === null ? "측정 불가" : `${Math.round(p.avgDamage)}딜`} / {p.avgKills === null ? "측정 불가" : `${p.avgKills}킬`}
                         </span>
                         {p.totalDamage !== undefined && p.totalKills !== undefined && (
-                          <span className="text-zinc-500 font-medium">총 {formatObservedMetric(p.totalDamage, "딜")} / {formatObservedMetric(p.totalKills, "킬")} ({typeof analysisData.latestMatchCount === "number" && analysisData.latestMatchCount > analysisData.matchCount ? `최근 ${analysisData.latestMatchCount}판 중 점수 상위 ` : ""}{formatObservedMetric(analysisData.matchCount, "판 누적")})</span>
+                          <span className="text-zinc-500 font-medium">총 {formatObservedMetric(typeof p.totalDamage === "number" && Number.isFinite(p.totalDamage) ? Math.round(p.totalDamage) : p.totalDamage, "딜")} / {formatObservedMetric(p.totalKills, "킬")} ({typeof analysisData.latestMatchCount === "number" && analysisData.latestMatchCount > analysisData.matchCount ? `최근 ${analysisData.latestMatchCount}판 중 팀 관측이 있는 ` : ""}{formatObservedMetric(analysisData.matchCount, "판 누적")})</span>
                         )}
                       </div>
                     </div>
@@ -1066,7 +1051,7 @@ export default function SquadAnalysisPanel({
  
           {!analysisData.squadGrade && (
             <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 text-sm leading-relaxed break-keep text-amber-100/90">
-              미측정 지표가 있어 종합 등급은 보류합니다. AI 코칭은 확인된 경기 지표만으로 진행하며, 미측정 값을 0점으로 평가하지 않습니다.
+              측정된 항목이 부족해 종합 등급은 보류합니다. AI 코칭은 확인된 경기 지표만으로 진행하며, 미측정 값을 0점으로 평가하지 않습니다.
             </p>
           )}
           {aiError && (

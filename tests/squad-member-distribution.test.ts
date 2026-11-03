@@ -14,7 +14,7 @@ describe("buildSquadObservationBlock", () => {
   it("팀 내 순위와 최고·최저를 서버가 정해 적는다", () => {
     const block = buildSquadObservationBlock({ roleProfiles: SQUAD, analyzedMatchCount: 5, totalMatchCount: 10 });
     expect(block).toContain("[MEASURED OBSERVATIONS]");
-    expect(block).toContain("함께 뛴 최근 10경기 중 점수가 높은 5경기 기준");
+    expect(block).toContain("함께 뛴 최근 10경기 중 팀 관측이 있는 5경기 기준");
     expect(block).toContain("팀 딜 비중은 최고 45%(KangHeeSung_), 최저 13%(MiaeQ_Q)로 갈렸습니다.");
     expect(block).toContain("KangHeeSung_: 딜 45%(팀 1위) · 킬 36%(팀 1위) · 어시스트 32%(팀 2위) · 기절 50%(팀 1위) [팀 최고: 딜 45%, 킬 36%, 기절 50%]");
     expect(block).toContain("MiaeQ_Q: 딜 13%(팀 4위) · 킬 22%(팀 3위) · 어시스트 5%(팀 4위) · 기절 10%(팀 4위) [팀 최저(균등 분배 25% 미만): 어시스트 5%, 기절 10%]");
