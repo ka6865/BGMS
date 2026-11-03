@@ -14,6 +14,14 @@ import {
 
 const actorLocation = (actor: any) => actor?.location ?? actor?.loc;
 
+// 차량이 낸 피해의 종류. 충돌(Damage_VehicleHit, Damage_VehicleCrashHit)은 로드킬이다.
+// 차량 폭발(Damage_Explosion_Vehicle)은 들이받은 것도 총을 쏜 것도 아니라서 로드킬·리드샷·라이딩샷 어디에도 세지 않는다.
+const vehicleDamageKind = (category: string): "impact" | "explosion" | null => {
+  const lower = category.toLowerCase();
+  if (!lower.includes("vehicle")) return null;
+  return lower.includes("explosion") ? "explosion" : "impact";
+};
+
 export class CombatHandler extends BaseHandler {
   readonly firstReplyEvidence = new FirstReplyEvidenceCollector();
   private readonly revengeWindows = new Map<string, number>();
@@ -552,16 +560,15 @@ export class CombatHandler extends BaseHandler {
       const dist = Math.round(calcDist3D(killerLoc, victimLoc) / 100);
 
       // [V59.0] 차량 탑승 타격 감지 (로드킬 제외)
-      const dmgCat = (e.damageTypeCategory || "").toLowerCase();
-      const isRoadkill = dmgCat.includes("vehicle");
-      if (!isRoadkill) {
+      const vehicleKind = vehicleDamageKind(e.damageTypeCategory || "");
+      if (vehicleKind === null) {
         if (e.victim?.isInVehicle === true) {
           this.state.leadShotKnocks++;
         }
         if (attacker?.isInVehicle === true) {
           this.state.ridingShotKnocks++;
         }
-      } else {
+      } else if (vehicleKind === "impact") {
         // [V60.0] 차량 충돌 기절(로드킬) 누계
         this.state.roadKnocks++;
       }
@@ -749,21 +756,20 @@ export class CombatHandler extends BaseHandler {
           // [V59.0] 차량 탑승 킬 감지 (로드킬 제외)
           // LogPlayerKillV2에는 최상위 damageTypeCategory가 없다. 킬을 올린 사람의 피해(killerDamageInfo)를 기준으로 보고,
           // 비어 있으면 마지막 피해(finishDamageInfo)를 본다. 기절 피해(dBNODamageInfo)는 다른 사람의 것일 수 있어 쓰지 않는다.
-          const dmgCat = (
+          const vehicleKind = vehicleDamageKind(
             e.damageTypeCategory ||
             e.killerDamageInfo?.damageTypeCategory ||
             e.finishDamageInfo?.damageTypeCategory ||
-            ""
-          ).toLowerCase();
-          const isRoadkill = dmgCat.includes("vehicle");
-          if (!isRoadkill) {
+            "",
+          );
+          if (vehicleKind === null) {
             if (e.victim?.isInVehicle === true) {
               this.state.leadShotKills++;
             }
             if (attackerObj?.isInVehicle === true) {
               this.state.ridingShotKills++;
             }
-          } else {
+          } else if (vehicleKind === "impact") {
             // [V60.0] 차량 충돌 킬(로드킬) 누계
             this.state.roadKills++;
           }

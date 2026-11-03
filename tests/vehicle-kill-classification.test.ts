@@ -145,6 +145,42 @@ describe("차량 킬 분류 (LogPlayerKillV2의 피해 정보 기준)", () => {
     expect(result.roadKills).toBe(1);
   });
 
+  it("킬을 올린 피해가 차량 폭발이면 로드킬도 라이딩샷도 리드샷도 아니다", () => {
+    const result = run([
+      kill(10_000, "E1", {
+        killer: info("Damage_Explosion_Vehicle", "None"),
+        finish: info("Damage_Instant_Fall", "PlayerFemale_A_C"),
+        dbno: info("Damage_Explosion_Vehicle", "None"),
+      }, { isInVehicle: true }, { isInVehicle: true }),
+    ]);
+    expect(result.roadKills).toBe(0);
+    expect(result.ridingShotKills).toBe(0);
+    expect(result.leadShotKills).toBe(0);
+  });
+
+  it("차량 충돌 피해 종류가 다른 이름(VehicleCrashHit)이어도 로드킬이다", () => {
+    const result = run([
+      kill(10_000, "E1", { killer: info("Damage_VehicleCrashHit", "BP_Motorbike_04_C"), finish: info("Damage_VehicleCrashHit", "BP_Motorbike_04_C") }),
+    ]);
+    expect(result.roadKills).toBe(1);
+  });
+
+  it("기절 이벤트의 차량 폭발은 로드킬 기절도 라이딩샷 기절도 아니다", () => {
+    const result = run([
+      {
+        t: 10_000,
+        _T: "LogPlayerMakeGroggy",
+        attacker: actor("Me", { isInVehicle: true }),
+        victim: actor("E1"),
+        damageCauserName: "None",
+        damageTypeCategory: "Damage_Explosion_Vehicle",
+      },
+    ]);
+    expect(result.roadKnocks).toBe(0);
+    expect(result.ridingShotKnocks).toBe(0);
+    expect(result.leadShotKnocks).toBe(0);
+  });
+
   it("기절 이벤트의 차량 충돌은 기존처럼 로드킬 기절로 센다", () => {
     const result = run([
       {
