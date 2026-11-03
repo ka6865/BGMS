@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { preserveMatchPerformance, sourceReadRetry } from '../scripts/preserve_match_performance';
+import { preserveLinkedMatchPerformance, preserveMatchPerformance, sourceReadRetry } from '../scripts/preserve_match_performance';
 import { buildRetainedPerformanceRow } from '../lib/pubg/retainedPerformance';
 import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION } from '../lib/pubg-analysis/constants';
 
@@ -128,5 +128,84 @@ describe('bulk retained performance preservation',()=>{
     const f=fixture(before);
     await expect(preserveMatchPerformance(f.db,{apply:true,limit:1})).rejects.toThrow('preserve-performance-readback-failed');
     expect(f.stored()).toEqual(before);
+  });
+});
+
+function linkedFixture(profiles: Record<string, unknown>[], sources = [source]) {
+  const f = fixture();
+  const storage = f.db.from;
+  const profileRead = vi.fn(async (start: number, end: number) => ({ data: profiles.slice(start, end + 1), error: null }));
+  f.db.from = (table: string) => {
+    if (table !== 'profiles') return storage(table);
+    let start = 0, end = 999;
+    const query = {
+      select: () => query, order: () => query,
+      range: (first: number, last: number) => { start = first; end = last; return query; },
+      abortSignal: () => profileRead(start, end),
+    };
+    return query;
+  };
+  f.db.rpc = vi.fn((_name: string, params: { p_platform: string; p_player_id: string; p_limit: number }) => ({
+    abortSignal: async () => ({ data: sources.filter(row => row.platform === params.p_platform && row.player_id === params.p_player_id).slice(0, params.p_limit), error: null }),
+  }));
+  return { ...f, profileRead };
+}
+
+describe('linked member performance preservation', () => {
+  const profile = { pubg_platform: 'steam', pubg_nickname: 'Target', last_active_at: '2020-01-01' };
+
+  it('deduplicates linked identities without requiring recent activity and writes verified summaries', async () => {
+    const f = linkedFixture([profile, { ...profile, pubg_nickname: ' TARGET ' }, { pubg_platform: 'xbox', pubg_nickname: 'Target' }, { pubg_platform: 'steam', pubg_nickname: null }]);
+    expect(await preserveLinkedMatchPerformance(f.db, { apply: true, limit: 1000 })).toMatchObject({
+      scope: 'linked', linkedIdentities: 1, visitedIdentities: 1, scanned: 1, prepared: 1, saved: 1, skipped: 0,
+    });
+    expect(f.db.rpc).toHaveBeenCalledWith('list_linked_unretained_match_performance', { p_platform: 'steam', p_player_id: 'target', p_limit: 100 });
+    expect(f.stored()).toEqual(compact());
+  });
+
+  it('keeps platforms separate and dry-run never writes', async () => {
+    const f = linkedFixture([profile, { ...profile, pubg_platform: 'kakao' }]);
+    expect(await preserveLinkedMatchPerformance(f.db, { apply: false, limit: 1000 })).toMatchObject({ linkedIdentities: 2, visitedIdentities: 2, prepared: 1, saved: 0 });
+    expect(f.db.rpc.mock.calls.map((call: any[]) => call[1].p_platform)).toEqual(['kakao', 'steam']);
+    expect(f.upsert).not.toHaveBeenCalled();
+  });
+
+  it('paginates the profile list and does not query sources for unlinked players', async () => {
+    const f = linkedFixture(Array.from({ length: 1001 }, () => profile));
+    expect(await preserveLinkedMatchPerformance(f.db, { apply: false, limit: 1 })).toMatchObject({ linkedIdentities: 1, scanned: 1, limitReached: true });
+    expect(f.profileRead.mock.calls).toEqual([[0, 999], [1000, 1999]]);
+    expect(f.db.rpc).toHaveBeenCalledTimes(1);
+    const empty = linkedFixture([]);
+    expect(await preserveLinkedMatchPerformance(empty.db, { apply: false, limit: 10 })).toMatchObject({ linkedIdentities: 0, scanned: 0 });
+    expect(empty.db.rpc).not.toHaveBeenCalled();
+  });
+
+  it('bounds each identity and the whole run while reporting a full identity page', async () => {
+    const rows = Array.from({ length: 100 }, (_, index) => ({ ...source, match_id: `match-${index}`, data: { fullResult: { ...source.data.fullResult, matchId: `match-${index}` } } }));
+    const f = linkedFixture([profile, { ...profile, pubg_nickname: 'Other' }], rows);
+    const result = await preserveLinkedMatchPerformance(f.db, { apply: false, limit: 50 });
+    expect(result).toMatchObject({ scanned: 50, prepared: 50, limitReached: true, sourceLimitReachedIdentities: 1 });
+    expect(f.db.rpc.mock.calls.every((call: any[]) => call[1].p_limit <= 50)).toBe(true);
+  });
+
+  it('fails closed on profile, RPC and storage errors', async () => {
+    const f = linkedFixture([profile]);
+    f.profileRead.mockResolvedValueOnce({ data: null as any, error: { code: '42501' } as any });
+    await expect(preserveLinkedMatchPerformance(f.db, { apply: false, limit: 10 })).rejects.toThrow('preserve-performance-profiles-read-failed');
+    f.db.rpc.mockImplementationOnce(() => ({ abortSignal: async () => ({ data: null, error: { code: '42501' } }) }));
+    await expect(preserveLinkedMatchPerformance(f.db, { apply: false, limit: 10 })).rejects.toThrow('preserve-performance-source-read-failed:42501');
+    f.upsert.mockResolvedValueOnce({ error: { code: 'write-failed' } });
+    await expect(preserveLinkedMatchPerformance(f.db, { apply: true, limit: 10 })).rejects.toThrow('preserve-performance-write-failed');
+  });
+
+  it('rejects an RPC row for another identity before writing', async () => {
+    const f = linkedFixture([profile]);
+    f.db.rpc.mockImplementationOnce(() => ({ abortSignal: async () => ({ data: [{ ...source, platform: 'kakao' }], error: null }) }));
+    await expect(preserveLinkedMatchPerformance(f.db, { apply: true, limit: 10 })).rejects.toThrow('preserve-performance-source-identity-mismatch');
+    expect(f.upsert).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 1001, 1.5])('rejects invalid limits (%s)', async limit => {
+    await expect(preserveLinkedMatchPerformance(linkedFixture([profile]).db, { apply: false, limit })).rejects.toThrow('preserve-performance-limit-invalid');
   });
 });
