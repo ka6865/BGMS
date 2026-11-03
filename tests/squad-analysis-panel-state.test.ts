@@ -598,6 +598,31 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     expect(view.container.querySelectorAll('circle[fill="#a855f7"]')).toHaveLength(0);
   });
 
+  it("같은 조합의 전적 기록 수와 상세 분석된 판 수를 안내한다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/pubg/ai-squad") {
+        return Promise.resolve(jsonResponse({ squadGrade: "A", summary: "s", strength: "s", weakness: "w", coaching: "c" }));
+      }
+      const parsed = new URL(url, "http://localhost");
+      const selectedGroupKey = parsed.searchParams.get("groupKey");
+      return Promise.resolve(selectedGroupKey
+        ? jsonResponse({
+            ...detail(selectedGroupKey),
+            recordedSummary: { windowDays: 14, total: 19, analyzed: 6, wins: 2 },
+            gradeBasis: { measuredAxes: 4, totalAxes: 5, score: 52.1 },
+            squadGrade: "B+",
+          })
+        : jsonResponse({ groups }));
+    });
+
+    renderPanel("g1");
+
+    await waitFor(() => expect(screen.getByText(/최근 14일 이 조합 19판 중 상세 분석된 6판 기준/)).toBeInTheDocument());
+    expect(screen.getByText(/나머지 13판은 전적 탭에서 경기 카드를 펼치면 분석에 반영됩니다/)).toBeInTheDocument();
+    expect(screen.getByText(/B\+ Grade · 측정 4\/5/)).toBeInTheDocument();
+  });
+
   it("renders unavailable role shares without a null percent label or bar width", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);

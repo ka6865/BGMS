@@ -15,7 +15,10 @@ function configureSquadClient(processed:any,teamBenchmarkRow:any=null){
   // 계산 버전별 집계 행을 in()으로 한 번에 읽고 합산한다.
   const teamChain:any={};for(const method of ["select","eq","in"])teamChain[method]=vi.fn().mockReturnValue(teamChain);
   teamChain.then=(resolve:any,reject:any)=>Promise.resolve({data:teamBenchmarkRow?[teamBenchmarkRow]:[],error:null}).then(resolve,reject);
-  const from=vi.fn((table:string)=>{if(table==='processed_match_telemetry')return processed;if(table==='pubg_team_benchmarks')return teamChain;benchmarkChains.push(table);throw new Error('Personal benchmark must not be queried for a squad');});
+  // 전적 기록(pubg_player_matches)은 같은 조합의 경기 수와 순위만 읽는다. 이 테스트들에서는 기록이 없는 것으로 둔다.
+  const recordedChain:any={};for(const method of ["select","eq","in","gte","order","limit"])recordedChain[method]=vi.fn().mockReturnValue(recordedChain);
+  recordedChain.then=(resolve:any,reject:any)=>Promise.resolve({data:[],error:null}).then(resolve,reject);
+  const from=vi.fn((table:string)=>{if(table==='processed_match_telemetry')return processed;if(table==='pubg_team_benchmarks')return teamChain;if(table==='pubg_player_matches')return recordedChain;benchmarkChains.push(table);throw new Error('Personal benchmark must not be queried for a squad');});
   mockCreateClient.mockReturnValue({from});return {from,benchmarkChains,teamChain};
 }
 const observation=(extra:Partial<SquadObservation>={}):SquadObservation=>({version:1,scope:'squad',teamAccountIds:['a','b'],status:'observed',issues:[],knocks:3,revives:1,smokeRescues:0,tradeKills:1,tradeLatencyTotalMs:6000,...extra});
@@ -118,7 +121,7 @@ describe("strict squad analysis population and scope",()=>{
     expect(a.stats).toEqual({avgIsolation:null,avgTradeLatency:null,totalSmokeRescues:null,totalRevives:null,avgCoverRate:null,totalTeamWipes:null,totalTeammateKnocks:null,totalTradeKills:null});
     expect(Object.values(a.scores)).toEqual([null,null,null,null,null]);expect(a.squadGrade).toBeNull();
     expect(Object.values(a.benchmarkStats).every(v=>v===null)).toBe(true);
-    expect(from.mock.calls.map(([table]:[string])=>table).filter(table=>table!=='pubg_team_benchmarks')).toEqual(['processed_match_telemetry']);expect(a.roleProfiles).toHaveLength(2);
+    expect(from.mock.calls.map(([table]:[string])=>table).filter(table=>table!=='pubg_team_benchmarks'&&table!=='pubg_player_matches')).toEqual(['processed_match_telemetry']);expect(a.roleProfiles).toHaveLength(2);
   });
   it('weights team trade events and uses the same team recovery denominator',async()=>{
     const rows=[canonicalRow(1,{squadObservation:observation({tradeLatencyTotalMs:2000})}),canonicalRow(2,{squadObservation:observation({knocks:5,revives:2,tradeKills:2,tradeLatencyTotalMs:12000})})];

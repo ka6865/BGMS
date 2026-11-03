@@ -183,6 +183,7 @@ function canonicalSquadIdentity(data: any): unknown {
     latestMatchCount: data.latestMatchCount,
     bestMatchCount: data.bestMatchCount,
     matchesSummary: Array.isArray(data.matchesSummary) ? data.matchesSummary : [],
+    recordedSummary: data.recordedSummary ?? null,
     selectedMatchIds: Array.isArray(data.selectedMatchIds) ? data.selectedMatchIds : [],
     stats: data.stats,
     scores: data.scores,
@@ -445,7 +446,11 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     const canonicalGrade = typeof squadData.squadGrade === "string" && squadData.squadGrade.trim() ? squadData.squadGrade : null;
     const canonicalBenchmarkStats = squadData.benchmarkStats;
     const canonicalMatchCount = squadData.matchCount;
-    const canonicalMatchesSummary = squadData.matchesSummary;
+    // 우승·순위 재료는 상세 분석 여부와 무관한 전적 기록(같은 조합, 최근 14일)을 우선한다. 기록이 부족하면 분석된 경기로 대신한다.
+    const recordedPlacements = (squadData.recordedSummary?.matches ?? []).filter((match: { winPlace: number }) => match.winPlace > 0);
+    const canonicalMatchesSummary = recordedPlacements.length >= SQUAD_AI_MIN_MATCH_COUNT
+      ? recordedPlacements.map((match: { matchId: string; winPlace: number }) => ({ matchId: match.matchId, winPlace: match.winPlace }))
+      : squadData.matchesSummary;
     // 보류 문구 치환 스타일. 프롬프트와 같이 "mild"만 다정한맛으로 보고 나머지는 매운맛으로 본다.
     const policyCoachingStyle = coachingStyle === "mild" ? "mild" : "spicy";
 

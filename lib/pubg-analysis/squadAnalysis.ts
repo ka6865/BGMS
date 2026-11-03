@@ -3,6 +3,7 @@ import { aggregateSquadObservations, SQUAD_OBSERVATION_VERSION } from './squadOb
 import { sumTeamBenchmarkRows, toTeamBenchmarkStats, type TeamBenchmarkRow } from "./teamBenchmark";
 import { aggregateSquadFocusFire } from "./squadFocusFire";
 import { computeSquadGrade, computeSquadScores } from "./squadScore";
+import { readRecordedSquadMatches } from "./squadRecordedMatches";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import {
   extractSquadCauseScenes,
@@ -381,6 +382,15 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     };
   });
 
+  const recordedSummary = await readRecordedSquadMatches({
+    supabase,
+    playerId: lowerNickname,
+    platform: cachePlatform,
+    teamMode: selectedGroup.teamMode,
+    teammateNames: selectedGroup.members,
+    analyzedMatchIds: new Set(analysisMatches.map(match => match.match_id)),
+  });
+
   const teamStats = {
     avgIsolation: null,
     avgTradeLatency: squadObservation.avgTradeLatency === null ? null : Math.round(squadObservation.avgTradeLatency),
@@ -396,8 +406,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     smokeRescues: squadObservation.smokeRescues,
     knocks: squadObservation.knocks,
     damageShares: roleProfiles.map(profile => profile.shares.damage),
-    // 순위는 팀 관측이 없어도 알 수 있어서 우승·순위 문장과 같은 최근 경기 전체를 쓴다.
-    placements: targetMatches.map(match => (match.data as any)?.fullResult?.stats?.winPlace),
+    // 순위는 상세 분석이 없어도 전적 기록으로 알 수 있다. 같은 조합의 최근 14일 기록이 3경기 이상이면 그것을 쓴다.
+    placements: (recordedSummary && recordedSummary.matches.filter(match => match.winPlace > 0).length >= 3
+      ? recordedSummary.matches.map(match => match.winPlace)
+      : targetMatches.map(match => (match.data as any)?.fullResult?.stats?.winPlace)),
     matchCount,
   });
   const gradeResult = computeSquadGrade(scores);
@@ -446,6 +458,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     calculationPendingMatchCount: allTargetMatches.length - targetMatches.length,
     bestMatchCount: analysisMatches.length,
     matchesSummary,
+    recordedSummary,
     selectedMatchIds: analysisMatches.map((match) => match.match_id),
     focusFireObservation: aggregateSquadFocusFire(analysisMatches.map((match) => ({
       matchId: match.match_id, observation: match.data?.fullResult?.squadFocusFire,

@@ -152,7 +152,7 @@ ${benchmarkContext}
 - Revive Score (소생 점수, points out of 100, NOT a percent): ${formatScore(scores?.survivalCare)}
 - Backup Trade Speed (백업 속도): ${tradeEvaluable ? formatScore(scores?.backupSpeed) : "표본 부족으로 평가하지 않음"}
 - Smoke Rescue (연막 구출): ${formatScore(scores?.smokeRescue)}
-- Damage Balance (딜 분배): ${formatScore(scores?.damageBalance)}
+- Damage Balance (딜 균형): ${formatScore(scores?.damageBalance)}
 - Placement (순위 성과): ${formatScore(scores?.placement)}
 (These are points converted from fixed targets, not percentages and not a ranking against other teams. Write a score as "N점", never as "N%". Cite the revive percentage only from the measured revive figures above.)
     `.trim();

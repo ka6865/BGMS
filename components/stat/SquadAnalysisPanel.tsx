@@ -89,6 +89,8 @@ interface SquadAnalysisData {
   scores: Record<SquadScoreKey, number | null>;
   squadGrade: string | null;
   gradeBasis?: { measuredAxes: number; totalAxes: number; score: number | null };
+  // 같은 팀원 조합의 최근 전적 기록. 상세 분석이 없는 판도 세므로 분석된 판보다 많을 수 있다.
+  recordedSummary?: { windowDays: number; total: number; analyzed: number; wins: number } | null;
   benchmarkStats?: {
     tier: string | null;
     avgIsolation: number | null;
@@ -753,6 +755,14 @@ export default function SquadAnalysisPanel({
       {analysisData && !loadingDetail && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
+          {analysisData.recordedSummary && analysisData.recordedSummary.total > 0 && (
+            <p className="lg:col-span-12 rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-xs leading-relaxed break-keep text-zinc-300">
+              최근 {analysisData.recordedSummary.windowDays}일 이 조합 {analysisData.recordedSummary.total}판 중 상세 분석된 {analysisData.recordedSummary.analyzed}판 기준입니다. 소생·백업·연막과 딜 균형은 분석된 판만, 순위 성과는 기록된 {analysisData.recordedSummary.total}판 전체로 계산합니다.
+              {analysisData.recordedSummary.total > analysisData.recordedSummary.analyzed
+                ? ` 나머지 ${analysisData.recordedSummary.total - analysisData.recordedSummary.analyzed}판은 전적 탭에서 경기 카드를 펼치면 분석에 반영됩니다.`
+                : ""}
+            </p>
+          )}
           {/* Left Panel: Synergy Radar Chart & Stats Summary */}
           <div className="lg:col-span-5 rounded-xl border border-zinc-800/60 bg-zinc-900/20 p-5 space-y-6">
             <div className="text-center">

@@ -9,11 +9,12 @@ export const SQUAD_SCORE_VERSION = 1;
 export type SquadScoreKey = "backupSpeed" | "survivalCare" | "smokeRescue" | "damageBalance" | "placement";
 
 export const SQUAD_SCORE_AXES: ReadonlyArray<{ key: SquadScoreKey; label: string; weight: number }> = [
-  { key: "survivalCare", label: "소생률", weight: 0.25 },
+  { key: "survivalCare", label: "소생률", weight: 0.3 },
   { key: "backupSpeed", label: "백업 속도", weight: 0.2 },
   { key: "smokeRescue", label: "연막 구출", weight: 0.1 },
-  { key: "damageBalance", label: "딜 분배", weight: 0.2 },
-  { key: "placement", label: "순위 성과", weight: 0.25 },
+  // 한 명이 화력을 많이 가져가는 캐리 구조는 나쁜 플레이가 아니므로 비중을 낮게 둔다.
+  { key: "damageBalance", label: "딜 균형", weight: 0.1 },
+  { key: "placement", label: "순위 성과", weight: 0.3 },
 ];
 
 // 등급을 내려면 측정된 축이 이 값 이상이어야 한다.
