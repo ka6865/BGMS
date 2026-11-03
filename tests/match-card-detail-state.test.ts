@@ -33,7 +33,8 @@ vi.mock("@/lib/ai-management", () => ({
 }));
 vi.mock("@/components/AuthProvider", () => ({ useAuth: () => ({ user: { id: "user-1" } }) }));
 vi.mock("@/lib/analytics", () => ({ trackEvent }));
-vi.mock("@/lib/replay/mapCapabilities", () => ({
+vi.mock("@/lib/replay/mapCapabilities", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/replay/mapCapabilities")>()),
   resolve3DMapCapability: () => ({ mapId: "Erangel", assetPath: "/fixture" }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -497,6 +498,20 @@ describe("MatchCard isolated detail state", () => {
     expect(mockPush).toHaveBeenLastCalledWith(
       "/maps/Erangel?playback=match-detail-1&nickname=PlayerOne&platform=kakao&playedAt=2026-08-09T12%3A00%3A00.000Z",
     );
+  });
+
+  it("2D 리플레이가 지원되지 않는 맵은 /maps 404로 이동하지 않고 버튼을 막는다", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({ ...detail(), mapName: "Savage_Main" }))));
+    renderCard({ platform: "kakao", initialMatchData: summaryWithTierEvidence() });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    await screen.findByText("팀원 교전 성적");
+    fireEvent.click(screen.getByRole("button", { name: "리플레이 분석" }));
+
+    const replay2D = screen.getByRole("button", { name: /2D 맵 리플레이/ });
+    expect(replay2D).toBeDisabled();
+    fireEvent.click(replay2D);
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it("모바일 상세은 티어 근거를 자동 노출하지 않고 티어 배지 탭 뒤에만 연다", async () => {

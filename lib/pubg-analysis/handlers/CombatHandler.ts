@@ -391,7 +391,8 @@ export class CombatHandler extends BaseHandler {
         const wId = e.damageCauserName || (e.damageCauser && e.damageCauser.itemId) || e.weaponId || "Unknown";
         const cleanWId = wId.replace(/Item_Weapon_|Weap|_Projectile|_C/g, "");
 
-        // 1. 제외 무기 필터링 (투척물, 캐릭터 오브젝트, C4, 자전거 등 분석 배제)
+        // 1. 제외 무기 필터링: 연막탄·섬광탄·스파이크·디코이, 맨손, 조명탄과 낙사·자기장·출혈 같은 환경 피해만 뺀다.
+        //    수류탄·화염병·차량 피해는 공식 damageDealt에 포함되므로 그대로 집계한다.
         if (!this.isIgnoredWeapon(wId, cleanWId, e.damageTypeCategory)) {
           // 2. 피해자가 이미 기절(groggy) 상태이거나 사망(false) 상태인 경우 딜량 가산 제외 (확킬 딜량 오염 방지)
           const victimStatus = this.state.playerAliveStatus.get(victimName);
@@ -1216,7 +1217,8 @@ export class CombatHandler extends BaseHandler {
             const wId = w.weapon || "Unknown";
             const cleanWId = wId.replace(/Item_Weapon_|Weap|_Projectile|_C/g, "");
             
-            // 제외 무기 필터링 (투척물, 주먹, 프라이팬, 캐릭터 오브젝트, C4, 자전거 등 분석 배제)
+            // 공식 종료 통계(샷 수·보유 시간·명중률) 보정에서 뺄 무기: 투척물, 주먹, 프라이팬, 캐릭터 오브젝트, C4, 자전거 등.
+            // 실시간 집계(handleDamage)에는 이미 반영되어 있어 내 딜량 합계는 그대로다.
             if (
               IGNORE_WEAPONS.includes(wId) || 
               IGNORE_WEAPONS.includes(cleanWId) ||
@@ -1233,7 +1235,7 @@ export class CombatHandler extends BaseHandler {
               cleanWId.includes("PlayerMale") ||
               cleanWId.includes("Punch") ||
               cleanWId.includes("Melee") ||
-              cleanWId.includes("Pan") ||
+              cleanWId === "Pan" ||
               cleanWId.includes("Cowbar") ||
               cleanWId.includes("Crowbar") ||
               cleanWId.includes("C4") ||
@@ -1296,7 +1298,8 @@ export class CombatHandler extends BaseHandler {
             const wId = w.weapon || "Unknown";
             const cleanWId = wId.replace(/Item_Weapon_|Weap|_Projectile|_C/g, "");
             
-            // 제외 무기 필터링 (투척물, 주먹, 프라이팬, 캐릭터 오브젝트, C4, 자전거 등 분석 배제)
+            // 아군 무기 목록은 공식 종료 통계로만 만들기 때문에 투척물, 주먹, 프라이팬, 캐릭터 오브젝트, C4, 자전거 등은 목록에서 빠진다.
+            // 팀 딜량 합계는 공식 값을 쓰므로 영향이 없다.
             if (
               IGNORE_WEAPONS.includes(wId) || 
               IGNORE_WEAPONS.includes(cleanWId) ||
@@ -1313,7 +1316,7 @@ export class CombatHandler extends BaseHandler {
               cleanWId.includes("PlayerMale") ||
               cleanWId.includes("Punch") ||
               cleanWId.includes("Melee") ||
-              cleanWId.includes("Pan") ||
+              cleanWId === "Pan" ||
               cleanWId.includes("Cowbar") ||
               cleanWId.includes("Crowbar") ||
               cleanWId.includes("C4") ||

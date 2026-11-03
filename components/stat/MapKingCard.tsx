@@ -24,7 +24,7 @@ const MAP_ICON_TONES: Record<string, string> = {
   '태이고': 'text-red-300',
   '론도': 'text-sky-300',
   '데스턴': 'text-yellow-300',
-  '칼린도': 'text-cyan-300',
+  '카라킨': 'text-cyan-300',
   '헤이븐': 'text-zinc-300',
 };
 

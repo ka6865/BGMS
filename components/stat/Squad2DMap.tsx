@@ -13,7 +13,7 @@ import {
 import L, { CRS } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Loader2, ShieldAlert, Play, Pause, RotateCcw, Eye, EyeOff, Zap } from "lucide-react";
-import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
+import { getWeaponDisplayName } from "@/lib/pubg-analysis/constants";
 import { fetchTelemetryPayload } from "@/lib/pubg-analysis/fetchTelemetryPayload";
 import { parseTelemetryPlatform } from "@/lib/pubg-analysis/telemetryIdentity";
 import { svgIcon } from "@/lib/ui/icon-svg";
@@ -743,7 +743,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
               </div>
             `;
             tooltipClass = "!bg-green-950/95 !border-green-800 !text-green-300";
-            text = `[아군 킬] ${ev.attacker} -> ${ev.victim} 사망 (${getTranslatedWeaponName(ev.weapon)})`;
+            text = `[아군 킬] ${ev.attacker} -> ${ev.victim} 사망 (${getWeaponDisplayName(ev.weapon)})`;
           } else {
             // 적이 다른 적을 처치하거나, 아군이 사망함
             iconHtml = `
@@ -1017,7 +1017,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
         >
           {shouldShowTooltip && (
             <Tooltip permanent direction="top" offset={[0, -10]} className="custom-map-tooltip !bg-zinc-950 !border-red-800 !text-red-300 !text-[8px] !px-1.5 !py-0.5 shadow-lg">
-              적: {firstKnock.attacker} ({getTranslatedWeaponName(firstKnock.weapon)})
+              적: {firstKnock.attacker} ({getWeaponDisplayName(firstKnock.weapon)})
             </Tooltip>
           )}
         </Marker>
@@ -1082,7 +1082,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
       >
         {shouldShowTooltip && (
           <Tooltip permanent direction="bottom" offset={[0, 12]} className="custom-map-tooltip !bg-red-950/90 !border-red-800 !text-red-200 !text-[8px] !px-1.5 !py-0.5 shadow-lg">
-            {firstKnock.victim} 기절 (공격: {getCleanAttackerName(firstKnock.attacker)} - {getTranslatedWeaponName(firstKnock.weapon)})
+            {firstKnock.victim} 기절 (공격: {getCleanAttackerName(firstKnock.attacker)} - {getWeaponDisplayName(firstKnock.weapon)})
           </Tooltip>
         )}
       </Marker>
@@ -1165,7 +1165,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
               const minutes = Math.floor(k.relativeTimeMs / 60000);
               const seconds = Math.floor((k.relativeTimeMs % 60000) / 1000);
               const timeStr = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-              const weaponName = getTranslatedWeaponName(k.weapon);
+              const weaponName = getWeaponDisplayName(k.weapon);
               const isSelected = selectedKnockIdx === idx;
 
               return (

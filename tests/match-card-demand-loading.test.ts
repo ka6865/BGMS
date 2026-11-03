@@ -50,7 +50,8 @@ vi.mock("@/lib/analytics", () => ({
   trackEvent: vi.fn(),
 }));
 
-vi.mock("@/lib/replay/mapCapabilities", () => ({
+vi.mock("@/lib/replay/mapCapabilities", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/replay/mapCapabilities")>()),
   resolve3DMapCapability: () => null,
 }));
 

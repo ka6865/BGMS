@@ -62,7 +62,7 @@ const WEAPON_NAME_MAP: Record<string, string> = {
   Item_Weapon_UZI_C: "Micro UZI",
   Item_Weapon_Saiga12_C: "S12K",
   Item_Weapon_Shotgun_C: "S12K",
-  Item_Weapon_Winchester_C: "Win94",
+  Item_Weapon_Winchester_C: "S1897",
   Item_Weapon_Lynx_C: "Lynx AMR",
   Item_Weapon_DBS_C: "DBS",
   Item_Weapon_DP12_C: "DBS",

@@ -8,7 +8,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { revalidateTag, unstable_cache } from "next/cache"; // [ISR V1.0] Next.js 16 캐싱 API
 import { AnalysisEngine } from "@/lib/pubg-analysis/AnalysisEngine";
-import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
+import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
@@ -118,12 +118,6 @@ async function safeJsonParse(res: Response): Promise<any> {
     throw new Error(`JSON 파싱 실패: ${err.message}`);
   }
 }
-
-const MAP_NAMES: Record<string, string> = {
-  "Baltic_Main": "에란겔", "Savage_Main": "사녹", "Desert_Main": "미라마",
-  "Summerland_Main": "카라킨", "Chimera_Main": "파라모", "Tiger_Main": "태이고",
-  "Kiki_Main": "데스턴", "Neon_Main": "론도", "DihorOtok_Main": "비켄디"
-};
 
 /**
  * [ISR V1.0] Supabase DB 조회를 Next.js 16 unstable_cache로 래핑
@@ -526,7 +520,8 @@ async function readFreshRecoveryBenchmarkGuard(
 const MAP_IDS: Record<string, string> = {
   "Baltic_Main": "erangel", "Savage_Main": "sanhok", "Desert_Main": "miramar",
   "Summerland_Main": "karakin", "Chimera_Main": "paramo", "Tiger_Main": "taego",
-  "Kiki_Main": "deston", "Neon_Main": "rondo", "DihorOtok_Main": "vikendi"
+  "Kiki_Main": "deston", "Neon_Main": "rondo", "DihorOtok_Main": "vikendi",
+  "Heaven_Main": "haven"
 };
 
 
