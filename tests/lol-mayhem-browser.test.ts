@@ -60,7 +60,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const { createElement } = await import("react");
     const View = (await import("../components/lol/LolMayhemView")).default;
     const Admin = (await import("../app/admin/lol/mayhem-datasets/MayhemDatasetReviewPanel")).default;
-    let admin = adminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success";
+    let admin = adminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success"; let itemMode = "success";
     server = createServer((req, res) => {
       if (req.url === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css.css); return; }
       if (req.url === "/client.js") { res.setHeader("Content-Type", "text/javascript"); res.end(client.outputFiles[0].text); return; }
@@ -75,6 +75,19 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
             res.end(JSON.stringify({ ok: true }));
           });
         } else res.end(JSON.stringify(admin));
+        return;
+      }
+      if (req.url?.startsWith("/items")) itemMode = req.url.slice(1);
+      if (req.url?.startsWith("/api/lol/mayhem/champion-items/")) {
+        const id = Number(req.url.split("/").at(-1));
+        if (itemMode === "items-error") { itemMode = "success"; res.statusCode = 503; res.end("{}"); return; }
+        const items = [
+          { id: 3089, name: "라바돈의 죽음모자", image: "3089.png", tier: 1, components: [1058,1058].map(id => ({ id, name: "쓸데없이 큰 지팡이", image: "1058.png" })) },
+          { id: 3115, name: "내셔의 이빨", image: "3115.png", tier: 2, components: [] },
+        ];
+        const payload = { dataset: itemMode === "items-empty" ? null : { championId: id, patch: "16.22", version: "16.22.1", date: "2026-11-04", items: id === 64 ? items.slice(1) : items } };
+        const send = () => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(payload)); };
+        if (itemMode === "items-race" && id === 63) { server.emit("delayed-items-started"); setTimeout(() => { send(); server.emit("delayed-items-sent"); }, 700); } else send();
         return;
       }
       if (req.url === "/admin") admin = adminFixture();
@@ -100,9 +113,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         return;
       }
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
-      const isStats = req.url?.startsWith("/stats");
+      const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items");
       const props = req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/dataset"
-        ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : { catalog };
+        ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: req.url !== "/items-only", championVersion: "16.21.1", itemsEnabled: true } : { catalog };
       res.setHeader("Content-Type", "text/html");
       res.end('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         + `<link rel="stylesheet" href="/style.css"></head><body class="bg-zinc-950"><div id="root">${req.url === "/admin" ? renderToString(createElement(Admin)) : renderToString(createElement(View, props))}</div>`
@@ -119,7 +132,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const page = await browser.newPage(); await page.setViewport({ width, height });
     const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
     await page.setRequestInterception(true);
-    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || request.url().includes("/api/lol/mayhem/champion-stats/"))) void request.continue(); else void request.abort(); });
+    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || (request.url().includes("/api/lol/mayhem/champion-stats/") || request.url().includes("/api/lol/mayhem/champion-items/")))) void request.continue(); else void request.abort(); });
     const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     const count = () => page.$$eval('ul[aria-label="증강 목록"] > li', items => items.length);
     const press = (label: string) => page.$$eval('[role="group"] button', (buttons, text) => (buttons as HTMLElement[]).find(button => button.textContent === text)!.click(), label);
@@ -149,7 +162,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
   it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 조합과 전체 선택률을 구분하고 미매핑 승인을 막는다", async (width, height) => {
     const page = await browser.newPage(); await page.setViewport({ width, height });
     await page.setRequestInterception(true);
-    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || request.url().includes("/api/lol/mayhem/champion-stats/"))) void request.continue(); else void request.abort(); });
+    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || (request.url().includes("/api/lol/mayhem/champion-stats/") || request.url().includes("/api/lol/mayhem/champion-items/")))) void request.continue(); else void request.abort(); });
     await page.goto(`${base}/dataset`, { waitUntil: "networkidle0" });
     await page.click("main > details > summary");
     await page.select('section[aria-label="해외 증바람 자료"] select', "63");
@@ -180,7 +193,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const page = await browser.newPage(); await page.setViewport({ width, height });
     const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
     await page.setRequestInterception(true);
-    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || request.url().includes("/api/lol/mayhem/champion-stats/"))) void request.continue(); else void request.abort(); });
+    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || (request.url().includes("/api/lol/mayhem/champion-stats/") || request.url().includes("/api/lol/mayhem/champion-items/")))) void request.continue(); else void request.abort(); });
     const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     await page.goto(`${base}/stats`, { waitUntil: "networkidle0" });
     const selected = 'button[data-champion-id="64"]';
@@ -241,4 +254,61 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     expect(text).toContain("럭스"); expect(text).toContain("88.88%"); expect(text).not.toContain("6.97%");
     await page.close();
   });
+  it.each([[375,667],[390,844],[430,932],[1440,900]])("%ix%i에서 증바람 아이템 등급·재료·독립 패치·재시도·빈 상태를 확인한다", async (width,height) => {
+    const page = await browser.newPage(); await page.setViewport({width,height});
+    const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
+    await page.setRequestInterception(true);
+    page.on("request", request => request.url().startsWith(base) ? void request.continue() : void request.abort());
+    await page.goto(`${base}/items`, {waitUntil:"networkidle0"});
+    await page.click('[aria-label="챔피언 상세 보기"] button:nth-child(2)');
+    await page.waitForSelector('[aria-label="증바람 아이템 목록"] > li');
+    const text = await page.$eval('[aria-label="증바람 아이템 평가"]', node => node.textContent);
+    expect(text).toContain("아이템 패치 26.22"); expect(text).toContain("평가 기준일 2026-11-04");
+    expect(text).toContain("실제 구매 순서는 제공되지 않습니다"); expect(text).not.toContain("26.21");
+    expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li:first-child ul li', nodes => nodes.length)).toBe(2);
+    expect(await page.$eval('[aria-label="증바람 아이템 목록"] img', node => node.getAttribute("src"))).toContain("/16.22.1/img/item/");
+    await page.click('[aria-label="아이템 평가 등급"] button[data-tier="2"]');
+    expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li', nodes => nodes.length)).toBe(1);
+    await page.type('input[aria-label="증바람 아이템 검색"]', "없는아이템");
+    await page.waitForSelector('[aria-label="아이템 필터 초기화"]'); await page.click('[aria-label="아이템 필터 초기화"]');
+    expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li', nodes => nodes.length)).toBe(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.$$eval('[aria-label="증바람 아이템 평가"] button,input[aria-label="증바람 아이템 검색"]', nodes => nodes.every(node => node.getBoundingClientRect().height >= 44))).toBe(true);
+    await page.screenshot({path:`tmp/lol-mayhem-review/items-${width}x${height}.png`,fullPage:true});
+    await chooseChampion(page,"64");
+    await page.waitForSelector('[aria-label="증바람 아이템 평가"][data-champion-id="64"]');
+    expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li', nodes => nodes.length)).toBe(1);
+    await page.goto(`${base}/items-error`, {waitUntil:"networkidle0"}); await page.click('[aria-label="챔피언 상세 보기"] button:nth-child(2)');
+    await page.waitForSelector('[aria-label="챔피언별 선택 통계"] [role="alert"]');
+    await page.click('[aria-label="챔피언별 선택 통계"] [role="alert"] button');
+    await page.waitForSelector('[aria-label="증바람 아이템 목록"] > li');
+    await page.goto(`${base}/items-empty`, {waitUntil:"networkidle0"}); await page.click('[aria-label="챔피언 상세 보기"] button:nth-child(2)');
+    await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("아이템 평가가 아직 없습니다"));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]); await page.close();
+  });
+  it("늦은 아이템 응답이 다른 챔피언의 평가를 덮어쓰지 않는다", async () => {
+    const page = await browser.newPage();
+    const started = new Promise<void>(resolve => server.once("delayed-items-started", resolve));
+    const sent = new Promise<void>(resolve => server.once("delayed-items-sent", resolve));
+    await page.goto(`${base}/items-race`, {waitUntil:"networkidle0"});
+    await page.click('[aria-label="챔피언 상세 보기"] button:nth-child(2)'); await started;
+    await chooseChampion(page,"64"); await page.waitForSelector('[aria-label="증바람 아이템 평가"][data-champion-id="64"]');
+    await sent; await page.waitForNetworkIdle({idleTime:500});
+    expect(await page.$eval('[aria-label="증바람 아이템 평가"]', node => node.getAttribute("data-champion-id"))).toBe("64");
+    expect(await page.$eval('[aria-label="증바람 아이템 평가"]', node => node.textContent)).not.toContain("라바돈");
+    await page.close();
+  });
+
+  it("증강 통계를 끈 상태에서도 증바람 아이템을 독립적으로 보여준다", async () => {
+    const page = await browser.newPage();
+    const requests: string[] = []; page.on("request", request => requests.push(request.url()));
+    await page.goto(`${base}/items-only`, {waitUntil:"networkidle0"});
+    await page.waitForSelector('[aria-label="증바람 아이템 목록"] > li');
+    expect(requests.some(url => url.includes("/champion-stats/"))).toBe(false);
+    expect(await page.$('[aria-label="챔피언 상세 보기"]')).toBeNull();
+    expect(await page.$eval('[aria-label="증바람 아이템 평가"]', node => node.textContent)).toContain("26.22");
+    await page.close();
+  });
+
 });

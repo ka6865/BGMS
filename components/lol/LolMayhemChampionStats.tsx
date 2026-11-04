@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { filterLolChampions, type LolChampion } from "@/lib/lol/champions";
 import { LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments, type LolAugmentRarity, type LolMayhemCatalog } from "@/lib/lol/augments/catalog";
+import LolMayhemItems from "./LolMayhemItems";
 import type { PublicChampionStats } from "@/lib/lol/mayhemChampionDataset";
 
 type Result = { dataset: PublicChampionStats | null };
@@ -16,10 +17,11 @@ function ChampionPortrait({ champion, version, size }: { champion: LolChampion; 
     : <span aria-hidden="true" className="shrink-0 rounded-lg bg-zinc-800" style={{ width: size, height: size }} />;
 }
 
-export default function LolMayhemChampionStats({ enabled = false, patch, champions, catalog, championVersion = null }: {
-  enabled?: boolean; patch: string; champions: LolChampion[]; catalog: LolMayhemCatalog; championVersion?: string | null;
+export default function LolMayhemChampionStats({ enabled = false, patch, champions, catalog, championVersion = null, itemsEnabled = false }: {
+  enabled?: boolean; patch: string; champions: LolChampion[]; catalog: LolMayhemCatalog; championVersion?: string | null; itemsEnabled?: boolean;
 }) {
   const [championId, setChampionId] = useState(String(champions.find(champion => champion.id === 29)?.id ?? champions[0]?.id ?? ""));
+  const [detailView, setDetailView] = useState<"augments" | "items">(enabled ? "augments" : "items");
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerToggle = useRef<HTMLButtonElement>(null);
   const [championQuery, setChampionQuery] = useState("");
@@ -54,7 +56,7 @@ export default function LolMayhemChampionStats({ enabled = false, patch, champio
     return () => controller.abort();
   }, [enabled, patch, selectedId, requestKey]);
 
-  if (!enabled) return null;
+  if (!enabled && !itemsEnabled) return null;
   return <section id="champion-stats" aria-label="챔피언별 선택 통계" className="mt-5 grid items-start gap-5 lg:grid-cols-[248px_minmax(0,1fr)]">
     <h2 className="sr-only">챔피언별 증강 선택 통계</h2>
     <aside className="min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/80 lg:sticky lg:top-4">
@@ -87,11 +89,16 @@ export default function LolMayhemChampionStats({ enabled = false, patch, champio
       <header className="flex items-center gap-4 rounded-xl bg-zinc-900 px-4 py-4 sm:px-5">
         {champion && <ChampionPortrait champion={champion} version={championVersion} size={56} />}
         <div className="min-w-0 flex-1">
-          <h3 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xl font-bold"><span>{champion?.name ?? "챔피언별 증강"}</span>{dataset && <span className="text-xs font-normal text-zinc-400">선택 기록 {dataset.rows.length}개</span>}</h3>
-          <p className="mt-1 text-sm text-zinc-300">많이 선택된 증강부터 확인하세요.</p>
-          {dataset && <p className="mt-1 text-xs leading-5 text-zinc-400">통계 기준일 {dataset.sourceDataDate} · 패치 {dataset.clientPatch.replace(/^16\./, "26.")}</p>}
+          <h3 className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xl font-bold"><span>{champion?.name ?? "챔피언별 증강"}</span>{dataset && detailView === "augments" && <span className="text-xs font-normal text-zinc-400">선택 기록 {dataset.rows.length}개</span>}</h3>
+          <p className="mt-1 text-sm text-zinc-300">{detailView === "augments" ? "많이 선택된 증강부터 확인하세요." : "증바람 전용 아이템 평가를 확인하세요."}</p>
+          {dataset && detailView === "augments" && <p className="mt-1 text-xs leading-5 text-zinc-400">통계 기준일 {dataset.sourceDataDate} · 패치 {dataset.clientPatch.replace(/^16\./, "26.")}</p>}
         </div>
       </header>
+      {itemsEnabled && enabled && <div role="group" aria-label="챔피언 상세 보기" className="grid grid-cols-2 gap-2 rounded-xl bg-zinc-900 p-2">
+        <button aria-pressed={detailView === "augments"} className={chip(detailView === "augments")} onClick={()=>setDetailView("augments")}>증강</button>
+        <button aria-pressed={detailView === "items"} className={chip(detailView === "items")} onClick={()=>setDetailView("items")}>증바람 아이템</button>
+      </div>}
+      {itemsEnabled && detailView === "items" && champion ? <LolMayhemItems key={selectedId} championId={champion.id}/> : <>
       {!champions.length && <p role="alert" className="text-sm text-amber-300">챔피언 목록을 불러오지 못했습니다. 페이지를 새로고침해 주세요.</p>}
       {loading && <p role="status" className="py-12 text-center text-sm text-zinc-400">{champion?.name} 통계를 불러오는 중입니다.</p>}
       {current?.error && <div className="flex flex-wrap items-center gap-3 py-8 text-sm" role="alert"><span>챔피언 통계를 불러오지 못했습니다.</span><button className={chip(false)} onClick={() => setRetry(value => value + 1)}>다시 시도</button></div>}
@@ -127,6 +134,7 @@ export default function LolMayhemChampionStats({ enabled = false, patch, champio
           </li>;
         })}</ul>}
         <p className="text-xs leading-5 text-zinc-400">선택률은 제공된 통계의 선택 비율입니다. 계산 분모와 증강 제시 여부는 확인되지 않았으며 등장 확률이나 승률을 뜻하지 않습니다.</p>
+      </>}
       </>}
     </div>
   </section>;
