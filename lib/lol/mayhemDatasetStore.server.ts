@@ -24,7 +24,7 @@ export async function getMayhemDatasetAdmin(): Promise<MayhemDatasetAdminData> {
   return {
     releases: releases.data!.map(row => ({ ...row, metadata: {
       unknown_count: row.metadata?.unknown_count, unknownExternalIds: row.metadata?.unknownExternalIds,
-      sourceStatsDate: row.metadata?.sourceStatsDate, sourcePatch: row.metadata?.sourcePatch, sourceClientPatch: row.metadata?.sourceClientPatch, augments: row.metadata?.augments, combos: row.metadata?.combos,
+      sourceStatsDate: row.metadata?.sourceStatsDate, sourcePatch: row.metadata?.sourcePatch, sourceClientPatch: row.metadata?.sourceClientPatch, augments: row.metadata?.augments, combos: row.metadata?.combos, archiveSummary: row.metadata?.archiveSummary,
     } })) as MayhemDatasetRelease[],
     publications: publications.data!, mappings: mappings.data!, sync: sync.data!,
     augments: texts.data!.filter(row => active.has(`${row.client_patch}:${row.platform_id}`)).map(row => ({ platformId: row.platform_id, name: row.name ?? `증강 ${row.platform_id}`, patch: row.client_patch })),
@@ -66,7 +66,7 @@ export async function getMayhemMappingPreview(id: number): Promise<MappingPrevie
   };
 }
 
-const getPublication = unstable_cache(async (patch: string) => {
+export const getMayhemDatasetPublication = unstable_cache(async (patch: string) => {
   const { data, error } = await createServiceRoleSupabase().from("lol_mayhem_dataset_publications")
     .select("release_id,published_at").eq("source", "arammayhem").eq("client_patch", patch).abortSignal(signal()).maybeSingle();
   if (error) throw new Error("dataset_database_error");
@@ -103,7 +103,7 @@ const getPayload = unstable_cache(async (id: number) => {
     const ids = byCombo.get(member.external_combo_id) ?? [];
     ids.push(member.platform_id); byCombo.set(member.external_combo_id, ids);
   }
-  return { sourceStatsDate: release.data.metadata.sourceStatsDate ?? null, sourcePatch: release.data.metadata.sourcePatch ?? null, statsDateSource: release.data.metadata.statsDateSource ?? null,
+  return { archiveAvailable: release.data.metadata.normalizerVersion >= 2 && /^[a-f0-9]{64}$/.test(release.data.metadata.archiveHash ?? ""), sourceStatsDate: release.data.metadata.sourceStatsDate ?? null, sourcePatch: release.data.metadata.sourcePatch ?? null, statsDateSource: release.data.metadata.statsDateSource ?? null,
     rates: rates.data.map(row => ({ augmentId: row.platform_id, pickRate: row.pick_rate === null ? null : Number(row.pick_rate), rank: row.pick_rate_rank })),
     combos: combos.map(row => {
       if (!/^https:\/\/arammayhem\.com\//.test(row.source_url) || !byCombo.get(row.external_combo_id)?.length) throw new Error("dataset_invalid_combo");
@@ -113,7 +113,7 @@ const getPayload = unstable_cache(async (id: number) => {
 
 export async function getPublicMayhemDataset(patch: string): Promise<PublicMayhemDataset | null> {
   if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return null;
-  const publication = await getPublication(patch);
+  const publication = await getMayhemDatasetPublication(patch);
   if (!publication) return null;
   return { patch, publishedAt: publication.published_at, ...await getPayload(publication.release_id) };
 }

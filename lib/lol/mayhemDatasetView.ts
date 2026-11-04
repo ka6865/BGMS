@@ -1,8 +1,9 @@
+import type { ArchiveSummary } from "./mayhemArchive";
 export const MAYHEM_EXTERNAL_ID_PATTERN = /^[a-z0-9][a-z0-9_!-]{0,127}$/i;
 
 export type MayhemDatasetRelease = {
   id: number; verified_client_patch: string; upstream_release_id: string; status: string; fetched_at: string;
-  metadata: { unknown_count?: number; unknownExternalIds?: string[]; sourceStatsDate?: string | null; sourcePatch?: string; sourceClientPatch?: string; augments?: number; combos?: number };
+  metadata: { archiveSummary?: ArchiveSummary; unknown_count?: number; unknownExternalIds?: string[]; sourceStatsDate?: string | null; sourcePatch?: string; sourceClientPatch?: string; augments?: number; combos?: number };
 };
 export type MayhemDatasetAdminData = {
   releases: MayhemDatasetRelease[];
@@ -12,7 +13,7 @@ export type MayhemDatasetAdminData = {
   sync: Array<{ job_key: string; last_checked_at: string | null; last_success_at: string | null; last_error_code: string | null; consecutive_failures: number; counts: Record<string, unknown> }>;
 };
 export type PublicMayhemDataset = {
-  patch: string; publishedAt: string; sourceStatsDate: string | null; sourcePatch: string | null; statsDateSource?: string | null;
+  archiveAvailable?: boolean; patch: string; publishedAt: string; sourceStatsDate: string | null; sourcePatch: string | null; statsDateSource?: string | null;
   combos: Array<{ id: number; championId: number; augmentIds: number[]; types: string[]; sourceUrl: string }>;
   rates: Array<{ augmentId: number; pickRate: number | null; rank: number | null }>;
 };

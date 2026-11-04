@@ -11,7 +11,8 @@ vi.mock("../lib/lol/augments/ingest", async () => {
 import { ingestMayhemDataset } from "../lib/lol/mayhemIngest.server";
 const token = "11111111-1111-4111-8111-111111111111";
 const raw = { url: "https://arammayhem.com/data/v1/latest/augments.json", body: "{}", hash: "a".repeat(64), etag: null, lastModified: null };
-const dataset = () => ({ batchHash: "b".repeat(64), releaseId: "source:1", raw: { index: raw, augments: raw, combos: raw },
+const sourceFile = (rows: unknown[]) => ({ schemaVersion: 1, licenseUrl: "https://creativecommons.org/licenses/by/4.0/", meta: { releaseId: "source:1" }, rows });
+const dataset = () => ({ batchHash: "b".repeat(64), releaseId: "source:1", raw: { index: raw, augments: { ...raw, body: JSON.stringify(sourceFile([{ augmentId: "augment!", name: { "ko-KR": "증강", en: "Augment" }, rarity: "gold" }])) }, combos: { ...raw, body: JSON.stringify(sourceFile([{ augmentIds: ["augment!"], augmentNames: [{ "ko-KR": "증강", en: "Augment" }] }])) } },
   rates: [{ externalId: "augment!", pickRate: 12, pickRateRank: 1, sourcePatch: "26.21" }],
   combos: [{ comboId: 1, championId: "Brand", augmentIds: ["augment!"], types: [], sourceUrl: "https://arammayhem.com/combos/1" }],
   metadata: { sourceStatsDate: "2026-11-02", sourcePatch: "26.21", statsDateSource: "release", license: "CC BY 4.0", attribution: "Data: arammayhem.com" } });
@@ -23,7 +24,10 @@ beforeEach(() => {
   mocks.upload.mockResolvedValue({ error: null });
   mocks.rpc.mockImplementation((name: string) => ({ abortSignal: async () => ({ data: name === "acquire_lol_collection_lease" ? [{ lease_token: token }] : name === "ingest_lol_mayhem_dataset" ? 42 : true, error: null }) }));
   mocks.db.mockReturnValue({ rpc: mocks.rpc, storage: { from: () => ({ upload: mocks.upload }) }, from: (table: string) => {
-    const data = table === "lol_game_patches" ? [{ client_patch: "16.21", display_patch: "26.21", ddragon_version: "16.21.1" }] : [];
+    const data = table === "lol_game_patches" ? [{ client_patch: "16.21", display_patch: "26.21", ddragon_version: "16.21.1" }]
+      : table === "lol_mayhem_augment_mappings" ? [{ external_id: "augment!", client_patch: "16.21", platform_id: 1, status: "approved", reviewed_at: "2026-11-05T00:00:00Z" }]
+      : table === "lol_augment_patch_states" ? [{ platform_id: 1, client_patch: "16.21", rarity: "gold", enabled: true, in_pool: true, is_internal: false, state: "official_active" }]
+      : table === "lol_augment_localizations" ? ["ko_kr", "en_us"].map(locale => ({ platform_id: 1, client_patch: "16.21", locale, name: locale === "ko_kr" ? "증강" : "Augment", display_text: "공식 효과" })) : [];
     const query = {
       select: () => query, eq: () => query, in: () => query, order: () => query, limit: () => query, abortSignal: () => query,
       maybeSingle: async () => ({ data: table === "lol_augment_publication" ? { client_patch: "16.21" } : null, error: null }),

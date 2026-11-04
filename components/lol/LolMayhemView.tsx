@@ -28,16 +28,17 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
   return <main className={`mx-auto w-full px-4 py-6 text-zinc-100 sm:px-6 ${view === "champions" ? "max-w-7xl" : "max-w-5xl"}`}>
     <h1 className="text-xl font-bold">증바람 증강</h1>
     <p className="mt-1 text-sm text-zinc-400">무작위 총력전: 아수라장의 챔피언별 선택 통계와 증강 도감입니다.</p>
-    {(championStatsEnabled || itemsEnabled || patchRankingsEnabled) && <div role="group" aria-label="증바람 보기" className="mt-5 flex flex-wrap gap-2">
+    {(championStatsEnabled || itemsEnabled || patchRankingsEnabled || dataset?.archiveAvailable) && <div role="group" aria-label="증바람 보기" className="mt-5 flex flex-wrap gap-2">
       {(championStatsEnabled || itemsEnabled) && <button aria-pressed={view === "champions"} className={chip(view === "champions")} onClick={() => setView("champions")}>챔피언별 정보</button>}
       {patchRankingsEnabled && <button aria-pressed={view === "rankings"} className={chip(view === "rankings")} onClick={() => setView("rankings")}>패치별 증강 순위</button>}
+      {dataset?.archiveAvailable && <button aria-pressed={view === "archive"} className={chip(view === "archive")} onClick={() => setView("archive")}>조합·증강 상태</button>}
       <button aria-pressed={view === "catalog"} className={chip(view === "catalog")} onClick={() => setView("catalog")}>전체 증강 도감</button>
     </div>}
-    {catalog && dataset && <details className="mt-4 rounded-lg border border-zinc-800 px-3">
+    {catalog && dataset && !dataset.archiveAvailable && <details className="mt-4 rounded-lg border border-zinc-800 px-3">
       <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-amber-300">챔피언별 해외 조합·전체 선택률</summary>
       <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog} />
     </details>}
-    {view === "rankings" && patchRankingsEnabled ? <LolMayhemPatchRankings/> : !catalog ? <p role={error ? "alert" : undefined} className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">
+    {view === "archive" && catalog && dataset?.archiveAvailable ? <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog}/> : view === "rankings" && patchRankingsEnabled ? <LolMayhemPatchRankings/> : !catalog ? <p role={error ? "alert" : undefined} className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">
       {error ? "증강 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." : "아직 게시된 증강 정보가 없습니다."}
     </p> : <>
       <p className="mt-3 text-sm text-zinc-300">
