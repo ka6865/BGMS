@@ -148,7 +148,16 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
   return (
     <div
       onClick={onClick}
-      className={`w-full aspect-[3/4] min-h-[140px] perspective-1000 cursor-pointer group ${
+      role="button"
+      tabIndex={0}
+      aria-label={isRevealed ? `${card.name}, ${getKoreanRarityName(card.rarity)}` : "카드 뒤집기"}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      className={`w-full aspect-[3/4] min-h-[140px] perspective-1000 cursor-pointer group focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-xl ${
         isAnimating ? "relative z-[101]" : ""
       }`}
     >
@@ -195,14 +204,14 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
         } ${borderGlow}`}>
           <div className="flex justify-between w-full items-center gap-1">
             {card.rarity !== "COMMON" ? (
-              <span className={`shrink-0 whitespace-nowrap text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${getRarityBadgeStyle(card.rarity)}`}>
+              <span className={`shrink-0 whitespace-nowrap text-[10px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${getRarityBadgeStyle(card.rarity)}`}>
                 {getKoreanRarityName(card.rarity)}
               </span>
             ) : (
               <div />
             )}
             {card.probability !== undefined && card.probability > 0 && isRevealed && (
-              <span className="min-w-0 truncate text-[8px] text-slate-400 font-extrabold bg-slate-950/60 px-1.5 py-0.5 rounded border border-slate-800/40 z-10 select-none">
+              <span className="min-w-0 truncate text-[10px] text-slate-400 font-extrabold bg-slate-950/60 px-1.5 py-0.5 rounded border border-slate-800/40 z-10 select-none">
                 {parseFloat((card.probability * 100).toFixed(4))}%
               </span>
             )}
@@ -274,12 +283,12 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
             <div className="absolute inset-0 rounded-xl bg-slate-950/95 border-2 border-amber-400 p-2 flex flex-col justify-between items-center z-20 animate-[fadeIn_0.3s_ease-out] shadow-[0_0_20px_rgba(245,158,11,0.5)]">
               {/* 보너스 헤더 뱃지 */}
               <div className="flex justify-between w-full items-center">
-                <span className="text-[8px] font-extrabold bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow-md">
+                <span className="text-[10px] font-extrabold bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow-md">
                   <Sparkles className="w-2.5 h-2.5 fill-current" />
                   보너스
                 </span>
                 {card.bonus.rarity !== "COMMON" && (
-                  <span className={`shrink-0 whitespace-nowrap text-[7px] font-extrabold px-1 py-0.5 rounded ${getRarityBadgeStyle(card.bonus.rarity)}`}>
+                  <span className={`shrink-0 whitespace-nowrap text-[10px] font-extrabold px-1 py-0.5 rounded ${getRarityBadgeStyle(card.bonus.rarity)}`}>
                     {getKoreanRarityName(card.bonus.rarity)}
                   </span>
                 )}
@@ -358,24 +367,24 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
                   </h4>
                 )}
                 {card.bonus.is_extra_crate && (
-                  <div className="text-[7px] font-extrabold text-amber-300/90 mt-0.5 animate-pulse inline-flex items-center gap-0.5">
+                  <div className="text-[10px] font-extrabold text-amber-300/90 mt-0.5 animate-pulse inline-flex items-center gap-0.5">
                     <Sparkles className="h-2 w-2" /> 상자 1개 환급 완료!
                   </div>
                 )}
                 {card.bonus.token_count > 0 && (
-                  <div className="text-[7px] font-extrabold text-amber-300/90 mt-0.5 animate-pulse inline-flex items-center gap-0.5">
+                  <div className="text-[10px] font-extrabold text-amber-300/90 mt-0.5 animate-pulse inline-flex items-center gap-0.5">
                     <Sparkles className="h-2 w-2" /> 토큰 +{card.bonus.token_count}개 자동지급!
                   </div>
                 )}
                 {card.bonus.is_prime_parcel && (
-                  <div className="text-[7px] font-extrabold text-pink-400 mt-0.5 animate-pulse inline-flex items-center gap-0.5">
+                  <div className="text-[10px] font-extrabold text-pink-400 mt-0.5 animate-pulse inline-flex items-center gap-0.5">
                     <Sparkles className="h-2 w-2" /> 최고급 꾸러미 획득!
                   </div>
                 )}
               </div>
 
               {card.bonus.probability !== undefined && card.bonus.probability > 0 && (
-                <div className="absolute bottom-8.5 left-2 text-[8px] sm:text-[9px] text-amber-400 font-extrabold bg-slate-950/70 px-1 py-0.2 rounded border border-amber-500/20 z-25 select-none">
+                <div className="absolute bottom-8.5 left-2 text-[10px] sm:text-[10px] text-amber-400 font-extrabold bg-slate-950/70 px-1 py-0.2 rounded border border-amber-500/20 z-25 select-none">
                   {parseFloat((card.bonus.probability * 100).toFixed(4))}%
                 </div>
               )}
@@ -402,10 +411,10 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
               isUltimate ? "text-red-400 drop-shadow-[0_0_5px_rgba(239,68,68,0.8)]" : isHighRarity ? "text-amber-400 drop-shadow-[0_0_5px_rgba(245,158,11,0.8)]" : "text-amber-500"
             }`} />
           </div>
-          <span className={`text-[9px] uppercase mt-2 tracking-widest ${
+          <span className={`text-[10px] uppercase mt-2 tracking-widest ${
             isUltimate ? "text-red-400 font-black" : isHighRarity ? "text-amber-400 font-black" : "text-slate-500 font-bold"
           }`}>
-            뒤집기
+            <span aria-hidden="true">뒤집기</span>
           </span>
         </div>
       </div>
@@ -480,7 +489,7 @@ export function VaultCard({ item, count, hasObtained, getRarityBadgeStyle }: Vau
 
       <div className="text-center w-full mt-4">
         {item.rarity !== "COMMON" && (
-          <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded tracking-wide inline-block mb-1.5 ${getRarityBadgeStyle(item.rarity)}`}>
+          <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded tracking-wide inline-block mb-1.5 ${getRarityBadgeStyle(item.rarity)}`}>
             {getKoreanRarityName(item.rarity)}
           </span>
         )}
@@ -542,17 +551,17 @@ export function HistoryCard({ item, getRarityBadgeStyle }: HistoryCardProps) {
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap items-center gap-1.5">
           {item.rarity !== "COMMON" && (
-            <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded ${getRarityBadgeStyle(item.rarity)}`}>
+            <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${getRarityBadgeStyle(item.rarity)}`}>
               {getKoreanRarityName(item.rarity)}
             </span>
           )}
           {item.isFromPrimeParcel && (
-            <span className="text-[8px] font-extrabold bg-pink-900/60 text-pink-400 px-1.5 py-0.5 rounded">
+            <span className="text-[10px] font-extrabold bg-pink-900/60 text-pink-400 px-1.5 py-0.5 rounded">
               꾸러미
             </span>
           )}
           {item.isBonus && (
-            <span className="text-[8px] font-extrabold bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+            <span className="text-[10px] font-extrabold bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded flex items-center gap-0.5">
               <Sparkles className="h-2.5 w-2.5" /> 보너스
             </span>
           )}
@@ -572,6 +581,36 @@ export function HistoryCard({ item, getRarityBadgeStyle }: HistoryCardProps) {
           {item.timestamp.toLocaleTimeString()}
         </span>
       </div>
+    </div>
+  );
+}
+
+const REVEAL_SUMMARY_ORDER = ["ULTIMATE", "LEGENDARY", "EPIC", "ELITE", "RARE", "SPECIAL", "COMMON"] as const;
+
+/** 카드를 모두 뒤집은 뒤에 보여 주는 개봉 요약. 뒤집기 전에는 결과가 드러나지 않도록 부모가 노출 시점을 정한다. */
+export function RevealSummary({ cards, getRarityBadgeStyle }: {
+  cards: DrawnCard[];
+  getRarityBadgeStyle: (rarity: string) => string;
+}) {
+  const counts = REVEAL_SUMMARY_ORDER.map((rarity) => ({
+    rarity,
+    count: cards.filter((card) => card.rarity === rarity).length,
+  })).filter((entry) => entry.count > 0);
+  const best = REVEAL_SUMMARY_ORDER.map((rarity) => cards.find((card) => card.rarity === rarity)).find(Boolean);
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-2.5 text-xs" aria-live="polite">
+      <span className="font-black text-slate-300">이번 개봉 {cards.length}장</span>
+      {counts.map(({ rarity, count }) => (
+        <span key={rarity} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-extrabold ${getRarityBadgeStyle(rarity)}`}>
+          {getKoreanRarityName(rarity)} {count}
+        </span>
+      ))}
+      {best && (
+        <span className="min-w-0 basis-full truncate text-slate-400">
+          가장 좋은 카드: <span className="font-bold text-amber-400">{best.name}</span>
+        </span>
+      )}
     </div>
   );
 }
