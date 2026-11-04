@@ -1,6 +1,6 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
-import { parseMayhemItemRatings, withMayhemItemMetadata, type MayhemItemRatings } from "./mayhemItems";
+import { filterMayhemItemComponents, parseMayhemItemRatings, withMayhemItemMetadata, type MayhemItemRatings } from "./mayhemItems";
 import { getPublicReference, referencePublicEnabled } from "./mayhemReferenceStore.server";
 
 async function json(url: string, maxBytes: number): Promise<unknown> {
@@ -40,8 +40,9 @@ const ratings = unstable_cache(async (championId: number): Promise<MayhemItemRat
   if (!parsed) return null;
   const version = (await versions()).find(version => version.startsWith(`${parsed.patch}.`));
   if (!version) throw new Error("mayhem_items_version_unavailable");
-  return withMayhemItemMetadata(parsed, version, await metadata(version));
-}, ["lol-mayhem-item-ratings-v4-no-base-boots"], { revalidate: 21600 });
+  const official = await metadata(version);
+  return filterMayhemItemComponents(withMayhemItemMetadata(parsed, version, official), official);
+}, ["lol-mayhem-item-ratings-v5-no-components"], { revalidate: 21600 });
 
 export async function getMayhemItemRatings(championId: number): Promise<MayhemItemRatings | null> {
   if (!Number.isSafeInteger(championId) || championId < 1 || championId > 99999) throw new Error("invalid_champion_id");
