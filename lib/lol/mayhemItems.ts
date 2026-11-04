@@ -1,5 +1,5 @@
 export type MayhemItemAsset = { id: number; name: string; image: string | null };
-export type MayhemItemRating = MayhemItemAsset & { tier: number; components: MayhemItemAsset[] };
+export type MayhemItemRating = MayhemItemAsset & { tier: number; isBoots: boolean; components: MayhemItemAsset[] };
 export type MayhemItemRatings = { championId: number; patch: string; date: string; version: string; items: MayhemItemRating[] };
 export type ParsedMayhemRatings = { championId: number; patch: string; date: string; ratings: Array<{ id: number; tier: number }> };
 const PORO_SNAX_IDS = new Set([2052, 220013]);
@@ -23,7 +23,7 @@ export function parseMayhemItemRatings(value: unknown, championId: number): Pars
 }
 export function withMayhemItemMetadata(parsed: ParsedMayhemRatings, version: string, value: unknown): MayhemItemRatings {
   if (!/^\d+\.\d+\.\d+$/.test(version) || !version.startsWith(`${parsed.patch}.`)) throw invalid();
-  const items = (value as { data?: Record<string, { name?: unknown; image?: { full?: unknown }; from?: unknown }> } | null)?.data;
+  const items = (value as { data?: Record<string, { name?: unknown; image?: { full?: unknown }; from?: unknown; tags?: unknown }> } | null)?.data;
   if (!items || typeof items !== "object" || Array.isArray(items) || !Object.keys(items).length) throw invalid();
   const asset = (id: number): MayhemItemAsset => {
     const row = items[String(id)]; const name = row?.name, image = row?.image?.full;
@@ -33,7 +33,8 @@ export function withMayhemItemMetadata(parsed: ParsedMayhemRatings, version: str
     items: parsed.ratings.filter(row => !PORO_SNAX_IDS.has(row.id)).map(row => {
       const from = items[String(row.id)]?.from;
       const components = Array.isArray(from) && from.length <= 8 ? from.filter(id => typeof id === "string" && /^[1-9][0-9]{0,5}$/.test(id) && !PORO_SNAX_IDS.has(Number(id))).map(id => asset(Number(id))) : [];
-      return { ...asset(row.id), tier: row.tier, components };
+      const tags = items[String(row.id)]?.tags;
+      return { ...asset(row.id), tier: row.tier, isBoots: Array.isArray(tags) && tags.includes("Boots"), components };
     }).sort((a,b) => a.tier - b.tier || a.name.localeCompare(b.name,"ko")),
   };
 }

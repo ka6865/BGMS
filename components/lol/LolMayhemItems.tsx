@@ -16,6 +16,7 @@ function ItemImage({ item, version, size }: { item: MayhemItemAsset; version: st
 }
 
 export default function LolMayhemItems({ championId }: { championId: number }) {
+  const [category, setCategory] = useState<"equipment" | "boots">("equipment");
   const [query, setQuery] = useState("");
   const [tier, setTier] = useState<number | null>(null);
   const [retry, setRetry] = useState(0);
@@ -34,7 +35,9 @@ export default function LolMayhemItems({ championId }: { championId: number }) {
 
   const data = current?.dataset;
   const term = query.trim().toLocaleLowerCase("ko");
-  const visible = (data?.items ?? []).filter(item => (tier === null || item.tier === tier)
+  const equipment = (data?.items ?? []).filter(item => !item.isBoots);
+  const boots = (data?.items ?? []).filter(item => item.isBoots);
+  const visible = (category === "boots" ? boots : equipment).filter(item => (tier === null || item.tier === tier)
     && (!term || item.name.toLocaleLowerCase("ko").includes(term) || String(item.id) === term));
 
   if (!current) return <p role="status" className="py-12 text-center text-sm text-zinc-400">증바람 아이템 평가를 불러오는 중입니다.</p>;
@@ -47,11 +50,14 @@ export default function LolMayhemItems({ championId }: { championId: number }) {
     <header className="space-y-1">
       <h3 className="text-base font-semibold">증바람 아이템 평가 <span className="ml-1 text-xs font-normal text-zinc-400">{data.items.length}개</span></h3>
       <p className="text-xs leading-5 text-zinc-400">아이템 패치 {data.patch.replace(/^16\./, "26.")} · 평가 기준일 {data.date}</p>
-      <p className="text-xs leading-5 text-zinc-400">등급 산정식은 확인되지 않았습니다. 선택률과 실제 구매 순서는 제공되지 않습니다.</p>
     </header>
+    <div role="group" aria-label="아이템 분류" className="grid grid-cols-2 gap-2 rounded-xl bg-zinc-900 p-2">
+      <button data-category="equipment" aria-pressed={category === "equipment"} className={chip(category === "equipment")} onClick={() => { setCategory("equipment"); setQuery(""); setTier(null); }}>장비 <span className="ml-1 text-xs">{equipment.length}</span></button>
+      <button data-category="boots" aria-pressed={category === "boots"} className={chip(category === "boots")} onClick={() => { setCategory("boots"); setQuery(""); setTier(null); }}>신발 <span className="ml-1 text-xs">{boots.length}</span></button>
+    </div>
     <div className="space-y-3 rounded-xl bg-zinc-900 p-3">
-      <label className="relative block"><span className="sr-only">증바람 아이템 검색</span><Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-3.5 text-zinc-400" />
-        <input type="search" aria-label="증바람 아이템 검색" placeholder="아이템 이름으로 검색" value={query} onChange={event => setQuery(event.target.value)} className={control} />
+      <label className="relative block"><span className="sr-only">아이템 검색</span><Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-3.5 text-zinc-400" />
+        <input type="search" aria-label="아이템 검색" value={query} onChange={event => setQuery(event.target.value)} className={control} />
       </label>
       <div role="group" aria-label="아이템 평가 등급" className="grid grid-cols-3 gap-2 sm:grid-cols-6">
         <button aria-pressed={tier === null} className={chip(tier === null)} onClick={() => setTier(null)}>전체</button>

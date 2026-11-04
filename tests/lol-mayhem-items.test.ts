@@ -8,9 +8,16 @@ describe("증바람 전용 아이템 자료", () => {
     expect(parsed.ratings).toEqual([{ id: 1036, tier: 4 }, { id: 3089, tier: 1 }]);
     const result = withMayhemItemMetadata(parsed, "16.22.1", metadata);
     expect(result).toMatchObject({ championId: 29, patch: "16.22", version: "16.22.1", date: "2026-11-04" });
-    expect(result.items[0]).toEqual({ id: 3089, tier: 1, name: "라바돈의 죽음모자", image: "3089.png", components: [1058, 1058].map(id => ({ id, name: "쓸데없이 큰 지팡이", image: "1058.png" })) });
-    expect(result.items[1]).toEqual({ id: 1036, tier: 4, name: "아이템 1036", image: null, components: [] });
+    expect(result.items[0]).toEqual({ id: 3089, tier: 1, isBoots: false, name: "라바돈의 죽음모자", image: "3089.png", components: [1058, 1058].map(id => ({ id, name: "쓸데없이 큰 지팡이", image: "1058.png" })) });
+    expect(result.items[1]).toEqual({ id: 1036, tier: 4, isBoots: false, name: "아이템 1036", image: null, components: [] });
     expect(JSON.stringify(result)).not.toMatch(/pickRate|winRate|purchaseOrder|builds/);
+  });
+  it("신발은 이름·ID 추측 대신 같은 패치의 Boots 태그로 분류한다", () => {
+    const parsed = { championId: 29, patch: "16.22", date: "2026-11-04", ratings: [1001,3006,223006,3175,3089,1036].map(id => ({ id, tier: 1 })) };
+    const value = { data: { ...metadata.data, ...Object.fromEntries([1001,3006,223006,3175].map(id => [String(id), { name: `신발 ${id}`, tags: ["AttackSpeed", "Boots"] }])) } };
+    const result = withMayhemItemMetadata(parsed, "16.22.1", value);
+    expect(result.items.filter(item => item.isBoots).map(item => item.id).sort((a,b) => a-b)).toEqual([1001,3006,3175,223006]);
+    expect(result.items.filter(item => !item.isBoots).map(item => item.id).sort((a,b) => a-b)).toEqual([1036,3089]);
   });
   it("포로 간식은 평가 등급과 무관하게 아이템·제작 재료에서 제외한다", () => {
     for (const tier of [1, 2, 3, 4, 5]) {

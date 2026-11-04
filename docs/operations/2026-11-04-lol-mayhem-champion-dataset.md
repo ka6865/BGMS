@@ -116,3 +116,12 @@ npm run test:unit
 - 이 변경은 PR #434 초안과 로컬에만 유지한다. 운영 플래그 변경·머지·배포는 하지 않는다.
 
 포로 간식(ID2052·220013)은 원천에 평가 등급이 있어도 아이템 및 제작 재료 목록에서 제외한다. 정규화 캐시 키는 `lol-mayhem-item-ratings-v2-no-poro-snax`로 바꿔 기존 캐시에 남은 항목도 제거한다. UI의 1~5티어는 원천의 `items[id].tier` 그대로이며 산정식·가중치·등급 경계는 확인되지 않았다. 승률 순위나 BGMS 자체 평가로 설명하지 않는다.
+
+2026-11-05 사용자 요청으로 장비·신발 보기를 분리했다. 같은 패치 Data Dragon의 `Boots` 태그를 `isBoots`로 정규화하며 일반 신발과 상위/모드별 신발을 동일하게 분류한다. 새 캐시 키는 `lol-mayhem-item-ratings-v3-boots`다. 분류를 바꾸면 검색·티어 필터를 초기화하고 각 분류 안에서 검색·티어를 적용한다. 화면의 산정식·선택률·구매 순서 안내 문장과 검색 placeholder는 제거한다. 검색 입력의 접근성 이름 `아이템 검색`은 유지한다. 등급과 원천 지역에 대한 저장 계약은 변경하지 않는다.
+
+
+### 한국 지역 증바람 통계 확인 (2026-11-05)
+
+현재 증강 선택률의 CN은 공급원의 모집단이며 게임 서버 선택 설정이 아니다. IESDEV 아이템 평가 응답에는 지역 구분이 없어 KR 통계라고 표시하지 않는다. Riot의 Mayhem match-v5 비공개 처리는 [공식 개발자 저장소 이슈](https://github.com/RiotGames/developer-relations/issues/1109)에 정상 동작으로 정리돼 있다. [OP.GG 안내](https://help.op.gg/hc/en-us/articles/60909599637657-How-to-Check-ARAM-Mayhem-Match-History)는 연결한 계정의 본인 경기만 데스크톱 앱으로 수집한다고 명시한다.
+
+[METAsrc 한국 필터 페이지](https://www.metasrc.com/lol/mayhem/champions/teemo/build?region=kr)는 Mayhem 구간의 수치·추천을 ARAM과 Arena 경기에서 파생했다고 밝힌다. 이를 한국 증바람 실측 자료로 연결하지 않는다. 바로 연동할 수 있는 KR 전용 증바람 공개 집계 API는 이번 확인에서 확보하지 못했다. 한국 표본을 확보하려면 지역을 확인할 수 있는 별도 제공자와 연동하거나 한국 플레이어가 동의한 클라이언트 수집이 필요하다. 새 수집기·데이터베이스·외부 전송은 이 UI 변경에 포함하지 않는다.

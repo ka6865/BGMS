@@ -82,8 +82,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         const id = Number(req.url.split("/").at(-1));
         if (itemMode === "items-error") { itemMode = "success"; res.statusCode = 503; res.end("{}"); return; }
         const items = [
-          { id: 3089, name: "라바돈의 죽음모자", image: "3089.png", tier: 1, components: [1058,1058].map(id => ({ id, name: "쓸데없이 큰 지팡이", image: "1058.png" })) },
-          { id: 3115, name: "내셔의 이빨", image: "3115.png", tier: 2, components: [] },
+          { id: 3089, name: "라바돈의 죽음모자", image: "3089.png", tier: 1, isBoots: false, components: [1058,1058].map(id => ({ id, name: "쓸데없이 큰 지팡이", image: "1058.png" })) },
+          { id: 3115, name: "내셔의 이빨", image: "3115.png", tier: 2, isBoots: false, components: [] },
+          { id: 3006, name: "광전사의 군화", image: "3006.png", tier: 1, isBoots: true, components: [] },
         ];
         const payload = { dataset: itemMode === "items-empty" ? null : { championId: id, patch: "16.22", version: "16.22.1", date: "2026-11-04", items: id === 64 ? items.slice(1) : items } };
         const send = () => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(payload)); };
@@ -264,16 +265,31 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     await page.waitForSelector('[aria-label="증바람 아이템 목록"] > li');
     const text = await page.$eval('[aria-label="증바람 아이템 평가"]', node => node.textContent);
     expect(text).toContain("아이템 패치 26.22"); expect(text).toContain("평가 기준일 2026-11-04");
-    expect(text).toContain("등급 산정식은 확인되지 않았습니다"); expect(text).toContain("실제 구매 순서는 제공되지 않습니다"); expect(text).not.toContain("26.21");
+    expect(text).not.toContain("등급 산정식"); expect(text).not.toContain("실제 구매 순서"); expect(text).not.toContain("26.21");
     expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li:first-child ul li', nodes => nodes.length)).toBe(2);
     expect(await page.$eval('[aria-label="증바람 아이템 목록"] img', node => node.getAttribute("src"))).toContain("/16.22.1/img/item/");
+    expect(text).not.toContain("광전사의 군화");
+    expect(await page.$eval('input[aria-label="아이템 검색"]', node => node.getAttribute("placeholder"))).toBeNull();
+    await page.click('[aria-label="아이템 분류"] button[data-category="boots"]');
+    expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li', nodes => nodes.length)).toBe(1);
+    expect(await page.$eval('[aria-label="증바람 아이템 목록"]', node => node.textContent)).toContain("광전사의 군화");
+    await page.click('[aria-label="아이템 평가 등급"] button[data-tier="2"]');
+    await page.waitForSelector('[aria-label="아이템 필터 초기화"]');
+    await page.click('[aria-label="아이템 필터 초기화"]');
+    expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li', nodes => nodes.length)).toBe(1);
+    await page.type('input[aria-label="아이템 검색"]', "군화");
+    expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li', nodes => nodes.length)).toBe(1);
+    await page.screenshot({path:`tmp/lol-mayhem-review/boots-${width}x${height}.png`,fullPage:true});
+    await page.focus('[aria-label="아이템 분류"] button[data-category="equipment"]');
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector('[data-category="equipment"]')?.getAttribute("aria-pressed") === "true" && (document.querySelector('input[aria-label="아이템 검색"]') as HTMLInputElement)?.value === "");
     await page.click('[aria-label="아이템 평가 등급"] button[data-tier="2"]');
     expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li', nodes => nodes.length)).toBe(1);
-    await page.type('input[aria-label="증바람 아이템 검색"]', "없는아이템");
+    await page.type('input[aria-label="아이템 검색"]', "없는아이템");
     await page.waitForSelector('[aria-label="아이템 필터 초기화"]'); await page.click('[aria-label="아이템 필터 초기화"]');
     expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li', nodes => nodes.length)).toBe(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    expect(await page.$$eval('[aria-label="증바람 아이템 평가"] button,input[aria-label="증바람 아이템 검색"]', nodes => nodes.every(node => node.getBoundingClientRect().height >= 44))).toBe(true);
+    expect(await page.$$eval('[aria-label="증바람 아이템 평가"] button,input[aria-label="아이템 검색"]', nodes => nodes.every(node => node.getBoundingClientRect().height >= 44))).toBe(true);
     await page.screenshot({path:`tmp/lol-mayhem-review/items-${width}x${height}.png`,fullPage:true});
     await chooseChampion(page,"64");
     await page.waitForSelector('[aria-label="증바람 아이템 평가"][data-champion-id="64"]');
