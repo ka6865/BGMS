@@ -125,3 +125,5 @@ npm run test:unit
 현재 증강 선택률의 CN은 공급원의 모집단이며 게임 서버 선택 설정이 아니다. IESDEV 아이템 평가 응답에는 지역 구분이 없어 KR 통계라고 표시하지 않는다. Riot의 Mayhem match-v5 비공개 처리는 [공식 개발자 저장소 이슈](https://github.com/RiotGames/developer-relations/issues/1109)에 정상 동작으로 정리돼 있다. [OP.GG 안내](https://help.op.gg/hc/en-us/articles/60909599637657-How-to-Check-ARAM-Mayhem-Match-History)는 연결한 계정의 본인 경기만 데스크톱 앱으로 수집한다고 명시한다.
 
 [METAsrc 한국 필터 페이지](https://www.metasrc.com/lol/mayhem/champions/teemo/build?region=kr)는 Mayhem 구간의 수치·추천을 ARAM과 Arena 경기에서 파생했다고 밝힌다. 이를 한국 증바람 실측 자료로 연결하지 않는다. 바로 연동할 수 있는 KR 전용 증바람 공개 집계 API는 이번 확인에서 확보하지 못했다. 한국 표본을 확보하려면 지역을 확인할 수 있는 별도 제공자와 연동하거나 한국 플레이어가 동의한 클라이언트 수집이 필요하다. 새 수집기·데이터베이스·외부 전송은 이 UI 변경에 포함하지 않는다.
+
+기본 장화(ID1001)는 재료 아이템이므로 평가/신발 목록에서 제외하되 완성 신발의 제작 재료에는 남긴다. 캐시 키는 `lol-mayhem-item-ratings-v4-no-base-boots`로 갱신한다.

@@ -30,7 +30,7 @@ export function withMayhemItemMetadata(parsed: ParsedMayhemRatings, version: str
     return { id, name: typeof name === "string" && name.trim() && name.length <= 120 ? name.trim() : `아이템 ${id}`, image: typeof image === "string" && /^[0-9]+\.png$/.test(image) ? image : null };
   };
   return { championId: parsed.championId, patch: parsed.patch, date: parsed.date, version,
-    items: parsed.ratings.filter(row => !PORO_SNAX_IDS.has(row.id)).map(row => {
+    items: parsed.ratings.filter(row => !PORO_SNAX_IDS.has(row.id) && row.id !== 1001).map(row => {
       const from = items[String(row.id)]?.from;
       const components = Array.isArray(from) && from.length <= 8 ? from.filter(id => typeof id === "string" && /^[1-9][0-9]{0,5}$/.test(id) && !PORO_SNAX_IDS.has(Number(id))).map(id => asset(Number(id))) : [];
       const tags = items[String(row.id)]?.tags;

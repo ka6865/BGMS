@@ -40,7 +40,7 @@ const ratings = unstable_cache(async (championId: number): Promise<MayhemItemRat
   const version = (await versions()).find(version => version.startsWith(`${parsed.patch}.`));
   if (!version) throw new Error("mayhem_items_version_unavailable");
   return withMayhemItemMetadata(parsed, version, await metadata(version));
-}, ["lol-mayhem-item-ratings-v3-boots"], { revalidate: 21600 });
+}, ["lol-mayhem-item-ratings-v4-no-base-boots"], { revalidate: 21600 });
 
 export async function getMayhemItemRatings(championId: number): Promise<MayhemItemRatings | null> {
   if (!Number.isSafeInteger(championId) || championId < 1 || championId > 99999) throw new Error("invalid_champion_id");
