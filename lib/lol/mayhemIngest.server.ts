@@ -81,7 +81,7 @@ export async function ingestMayhemDataset(options: { apply: boolean; patch?: str
     ]);
     if (states.error || texts.error || states.data.length >= 1000 || texts.data.length >= 1000) throw new Error("official_archive_catalog_missing");
     const officials: Record<string, MayhemOfficialAugment[]> = {};
-    for (const scope of scopes) officials[scope] = states.data.filter(row => row.client_patch === scope).map(row => {
+    for (const scope of scopes) officials[scope] = states.data.filter(row => row.client_patch === scope && !row.is_internal).map(row => {
       const ko = texts.data.find(text => text.client_patch === scope && text.platform_id === row.platform_id && text.locale === "ko_kr");
       const en = texts.data.find(text => text.client_patch === scope && text.platform_id === row.platform_id && text.locale === "en_us");
       if (!ko?.name || !en?.name || !ko.display_text) throw new Error("official_archive_catalog_missing");

@@ -100,3 +100,9 @@ describe("증바람 원본 수집 저장 경계", () => {
     expect(mocks.updates).toContainEqual(expect.objectContaining({ last_error_code: "unknown_champion" }));
   });
 });
+
+it('공개하지 않는 내부 전용 증강의 영문명이 비어 있어도 정상 수집한다',async()=>{
+  const client=mocks.db(),from=client.from;
+  client.from=(table:string)=>{const q=from(table);if(table==='lol_augment_patch_states'){const then=q.then;q.then=(resolve:(value:unknown)=>unknown)=>then((r:{data:unknown[];error:unknown})=>resolve({...r,data:[...r.data,{platform_id:3176,client_patch:'16.21',is_internal:true,enabled:false,in_pool:false,state:'internal_excluded',rarity:'gold'}]}));}return q;};
+  expect(await ingestMayhemDataset({apply:true})).toMatchObject({id:42,augments:1,combos:1});
+});
