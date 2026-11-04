@@ -60,7 +60,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const { createElement } = await import("react");
     const View = (await import("../components/lol/LolMayhemView")).default;
     const Admin = (await import("../app/admin/lol/mayhem-datasets/MayhemDatasetReviewPanel")).default;
-    let admin = adminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success"; let itemMode = "success";
+    let admin = adminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success"; let itemMode = "success"; let historyMode = "success";
     server = createServer((req, res) => {
       if (req.url === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css.css); return; }
       if (req.url === "/client.js") { res.setHeader("Content-Type", "text/javascript"); res.end(client.outputFiles[0].text); return; }
@@ -75,6 +75,26 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
             res.end(JSON.stringify({ ok: true }));
           });
         } else res.end(JSON.stringify(admin));
+        return;
+      }
+      if (req.url?.startsWith("/history")) historyMode = req.url.slice(1);
+      if (req.url?.startsWith("/api/lol/mayhem/champion-history/")) {
+        const id = Number(req.url.split("/").at(-1)?.split("?")[0]);
+        if (historyMode === "history-error") { historyMode = "success"; res.statusCode = 503; res.end("{}"); return; }
+        const history = { patch: "16.21", patches: ["16.21","16.20","16.19","16.18"].map(patch => ({patch,available:true})), rows: [
+          { augmentPlatformId: 1, status: "unobserved", missingSince: "16.19", consecutiveMissing: 3, lastObservedPatch: "16.18" },
+          { augmentPlatformId: 2, status: "never_observed", missingSince: null, consecutiveMissing: 0, lastObservedPatch: null },
+          { augmentPlatformId: 3, status: "insufficient", missingSince: null, consecutiveMissing: 0, lastObservedPatch: "16.18" },
+          { augmentPlatformId: 4, status: "observed", missingSince: null, consecutiveMissing: 0, lastObservedPatch: "16.21" },
+        ] };
+        if (historyMode === "history-gaps") {
+          history.patches[2].available = false;
+          history.rows[0] = { ...history.rows[0], status: "insufficient", missingSince: null, consecutiveMissing: 0 };
+          history.rows[1] = { ...history.rows[1], status: "insufficient" };
+        }
+        if (id === 64) history.rows = history.rows.slice(1);
+        const send = () => { res.setHeader("Content-Type","application/json"); res.end(JSON.stringify({history})); };
+        if (historyMode === "history-race" && id === 63) { server.emit("delayed-history-started"); setTimeout(() => { send(); server.emit("delayed-history-sent"); },700); } else send();
         return;
       }
       if (req.url?.startsWith("/items")) itemMode = req.url.slice(1);
@@ -114,7 +134,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         return;
       }
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
-      const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items");
+      const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items") || req.url?.startsWith("/history");
       const props = req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/dataset"
         ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: req.url !== "/items-only", championVersion: "16.21.1", itemsEnabled: true } : { catalog };
       res.setHeader("Content-Type", "text/html");
@@ -133,7 +153,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const page = await browser.newPage(); await page.setViewport({ width, height });
     const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
     await page.setRequestInterception(true);
-    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || (request.url().includes("/api/lol/mayhem/champion-stats/") || request.url().includes("/api/lol/mayhem/champion-items/")))) void request.continue(); else void request.abort(); });
+    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || (request.url().includes("/api/lol/mayhem/champion-stats/") || (request.url().includes("/api/lol/mayhem/champion-items/") || request.url().includes("/api/lol/mayhem/champion-history/"))))) void request.continue(); else void request.abort(); });
     const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     const count = () => page.$$eval('ul[aria-label="증강 목록"] > li', items => items.length);
     const press = (label: string) => page.$$eval('[role="group"] button', (buttons, text) => (buttons as HTMLElement[]).find(button => button.textContent === text)!.click(), label);
@@ -163,7 +183,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
   it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 조합과 전체 선택률을 구분하고 미매핑 승인을 막는다", async (width, height) => {
     const page = await browser.newPage(); await page.setViewport({ width, height });
     await page.setRequestInterception(true);
-    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || (request.url().includes("/api/lol/mayhem/champion-stats/") || request.url().includes("/api/lol/mayhem/champion-items/")))) void request.continue(); else void request.abort(); });
+    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || (request.url().includes("/api/lol/mayhem/champion-stats/") || (request.url().includes("/api/lol/mayhem/champion-items/") || request.url().includes("/api/lol/mayhem/champion-history/"))))) void request.continue(); else void request.abort(); });
     await page.goto(`${base}/dataset`, { waitUntil: "networkidle0" });
     await page.click("main > details > summary");
     await page.select('section[aria-label="해외 증바람 자료"] select', "63");
@@ -194,7 +214,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const page = await browser.newPage(); await page.setViewport({ width, height });
     const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
     await page.setRequestInterception(true);
-    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || (request.url().includes("/api/lol/mayhem/champion-stats/") || request.url().includes("/api/lol/mayhem/champion-items/")))) void request.continue(); else void request.abort(); });
+    page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || (request.url().includes("/api/lol/mayhem/champion-stats/") || (request.url().includes("/api/lol/mayhem/champion-items/") || request.url().includes("/api/lol/mayhem/champion-history/"))))) void request.continue(); else void request.abort(); });
     const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     await page.goto(`${base}/stats`, { waitUntil: "networkidle0" });
     const selected = 'button[data-champion-id="64"]';
@@ -326,6 +346,51 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     expect(requests.some(url => url.includes("/champion-stats/"))).toBe(false);
     expect(await page.$('[aria-label="챔피언 상세 보기"]')).toBeNull();
     expect(await page.$eval('[aria-label="증바람 아이템 평가"]', node => node.textContent)).toContain("26.22");
+    await page.close();
+  });
+
+  it.each([[375,667],[390,844],[430,932],[1440,900]])("%ix%i에서 관측 이력의 상태·검색·자료 부족·재시도를 확인한다", async (width,height) => {
+    const page = await browser.newPage(); await page.setViewport({width,height});
+    const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
+    const requests: string[] = []; page.on("request", request => requests.push(request.url()));
+    await page.setRequestInterception(true); page.on("request", request => request.url().startsWith(base) ? void request.continue() : void request.abort());
+    await page.goto(`${base}/history`, {waitUntil:"networkidle0"});
+    expect(requests.some(url => url.includes("/champion-history/"))).toBe(false);
+    await page.click('[aria-label="챔피언 상세 보기"] button:last-child');
+    await page.waitForSelector('[aria-label="증강 관측 이력"] > li');
+    const text = await page.$eval('[aria-label="선택 관측 이력"]',node=>node.textContent);
+    expect(text).toContain("26.19부터 3패치 연속 미관측"); expect(text).toContain("관측 이력 없음"); expect(text).toContain("자료 부족"); expect(text).toContain("선택 관측");
+    expect(text).toContain("최근 최대 4패치"); expect(text).toContain("미관측은 등장 불가를 뜻하지 않습니다");
+    await page.select('select[aria-label="관측 상태"]', "never_observed");
+    expect(await page.$$eval('[aria-label="증강 관측 이력"] > li', nodes=>nodes.length)).toBe(1);
+    await page.type('input[aria-label="관측 증강 검색"]', "없는증강");
+    await page.waitForFunction(()=>document.querySelector('[aria-label="선택 관측 이력"]')?.textContent?.includes("조건에 맞는 관측 이력이 없습니다"));
+    await page.focus('[aria-label="선택 관측 이력"] [role="status"] button'); await page.keyboard.press("Enter");
+    await page.waitForSelector('[aria-label="증강 관측 이력"] > li');
+    expect(await page.$$eval('[aria-label="증강 관측 이력"] > li', nodes=>nodes.length)).toBe(4);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    expect(await page.$$eval('[aria-label="선택 관측 이력"] input,[aria-label="선택 관측 이력"] select',nodes=>nodes.every(n=>n.getBoundingClientRect().height>=44))).toBe(true);
+    await page.screenshot({path:`tmp/lol-mayhem-review/history-${width}x${height}.png`,fullPage:true});
+    await chooseChampion(page,"64"); await page.waitForSelector('[aria-label="선택 관측 이력"][data-champion-id="64"]');
+    expect(await page.$$eval('[aria-label="증강 관측 이력"] > li', nodes=>nodes.length)).toBe(3);
+    await page.goto(`${base}/history-error`,{waitUntil:"networkidle0"}); await page.click('[aria-label="챔피언 상세 보기"] button:last-child');
+    await page.waitForSelector('[aria-label="챔피언별 선택 통계"] [role="alert"]');
+    await page.click('[aria-label="챔피언별 선택 통계"] [role="alert"] button'); await page.waitForSelector('[aria-label="증강 관측 이력"] > li');
+    await page.goto(`${base}/history-gaps`,{waitUntil:"networkidle0"}); await page.click('[aria-label="챔피언 상세 보기"] button:last-child');
+    await page.waitForSelector('[aria-label="증강 관측 이력"] > li');
+    expect(await page.$eval('[aria-label="패치별 자료 상태"]',node=>node.textContent)).toContain("자료 부족");
+    expect(await page.$eval('[aria-label="증강 관측 이력"]',node=>node.textContent)).not.toContain("3패치 연속 미관측");
+    expect(errors).toEqual([]); await page.close();
+  });
+  it("이전 챔피언의 느린 이력 응답이 현재 이력을 덮어쓰지 않는다", async () => {
+    const page=await browser.newPage();
+    const started=new Promise<void>(resolve=>server.once("delayed-history-started",resolve));
+    const sent=new Promise<void>(resolve=>server.once("delayed-history-sent",resolve));
+    await page.goto(`${base}/history-race`,{waitUntil:"networkidle0"}); await page.click('[aria-label="챔피언 상세 보기"] button:last-child'); await started;
+    await chooseChampion(page,"64"); await page.waitForSelector('[aria-label="선택 관측 이력"][data-champion-id="64"]');
+    await sent; await page.waitForNetworkIdle({idleTime:500});
+    expect(await page.$$eval('[aria-label="증강 관측 이력"] > li',nodes=>nodes.length)).toBe(3);
+    expect(await page.$eval('[aria-label="선택 관측 이력"]',node=>node.textContent)).not.toContain("3패치 연속 미관측");
     await page.close();
   });
 
