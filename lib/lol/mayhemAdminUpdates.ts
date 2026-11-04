@@ -68,7 +68,7 @@ export function referenceUpdateGroup(data: ReferenceAdminData, kind: ReferenceKi
   }
   return group({ key: kind, ...definitions[kind], rows, publications: data.publications.filter(pub => pub.kind === kind),
     endpoint: "/api/admin/lol/mayhem-references",
-    blocked: !data.enabled || !data.publicEnabled || (kind === "item_ratings" && !data.itemsEnabled) ? "화면 적용 설정이 꺼져 있습니다. 문제 해결에서 설정을 확인해 주세요." : "",
+    blocked: !data.enabled || !data.publicEnabled || (kind === "item_ratings" && !data.itemsEnabled) ? "화면 적용 설정이 꺼져 있습니다. 운영 설정을 확인해 주세요." : "",
     syncError: data.sync.some(row => !!row.last_error_code),
   });
 }

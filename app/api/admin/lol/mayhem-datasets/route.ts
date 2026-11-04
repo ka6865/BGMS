@@ -4,7 +4,7 @@ import { requireLolDevAdmin } from "@/lib/lol/access.server";
 import { isSameOriginLolRequest } from "@/lib/lol/http.server";
 import { validClientPatch } from "@/lib/lol/augments/ingest";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
-import { getMayhemDatasetAdmin, getMayhemSnapshotFile, MAYHEM_DATASET_TAG } from "@/lib/lol/mayhemDatasetStore.server";
+import { getMayhemDatasetAdmin, getMayhemMappingPreview, getMayhemSnapshotFile, MAYHEM_DATASET_TAG } from "@/lib/lol/mayhemDatasetStore.server";
 import { ingestMayhemDataset } from "@/lib/lol/mayhemIngest.server";
 import { MAYHEM_EXTERNAL_ID_PATTERN } from "@/lib/lol/mayhemDatasetView";
 
@@ -18,6 +18,11 @@ export async function GET(request: Request) {
   if (!access.ok) return access.error;
   try {
     const params = new URL(request.url).searchParams;
+    if (params.has("mapping")) {
+      const id = Number(params.get("mapping"));
+      if (params.getAll("mapping").length !== 1 || [...params.keys()].some(key => key !== "mapping") || !validId(id)) return reply({ error: "이름을 확인할 자료를 선택해 주세요." }, 400);
+      return reply(await getMayhemMappingPreview(id));
+    }
     if (params.has("download")) {
       const id = Number(params.get("download")); const kind = params.get("kind");
       if (!validId(id) || (kind !== "augments" && kind !== "combos")) return reply({ error: "다운로드 대상을 확인해 주세요." }, 400);

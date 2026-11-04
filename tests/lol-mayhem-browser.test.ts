@@ -76,12 +76,22 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
           let body = ""; req.on("data", chunk => { body += chunk; }); req.on("end", () => {
             const payload = JSON.parse(body); const action = payload.action;
             if (action === "map" && payload.patch !== "16.21") { res.statusCode = 400; res.end(JSON.stringify({ error: "선택률 원본 패치가 아닙니다." })); return; }
-            if (action === "map") admin.releases[0].metadata = { ...admin.releases[0].metadata, unknown_count: 0, unknownExternalIds: [] };
+            if (action === "map") admin.mappings.push({ external_id: payload.externalId, platform_id: payload.platformId, client_patch: payload.patch, status: "approved", evidence: { note: payload.evidence } });
+            if (action === "sync") admin.releases[0].metadata = { ...admin.releases[0].metadata, unknown_count: 0, unknownExternalIds: [] };
             if (action === "approve") admin.releases[0].status = "approved";
             res.end(JSON.stringify({ ok: true }));
           });
         } else res.end(JSON.stringify(admin));
         return;
+      }
+      if (req.url?.startsWith("/api/admin/lol/mayhem-datasets?mapping=")) {
+        res.setHeader("Content-Type", "application/json");
+        const source = { externalId: "augment!", name: "아주 긴 공식 증강 이름으로 줄바꿈을 확인합니다", nameEn: "Source augment", rarity: "gold", conflict: false, uses: ["rates"] };
+        const augments = [{ id: 1, name: source.name, nameEn: source.nameEn, rarity: "gold", text: "공식 효과와 원본 이름을 나란히 비교합니다. ".repeat(8), icon: null, isNew: false, notice: null }];
+        res.end(JSON.stringify({ releaseId: 1, sources: admin.releases[0].metadata.unknown_count ? [source] : [], patches: [
+          { patch: "16.22", purpose: "추천 조합", externalIds: [], augments },
+          { patch: "16.21", purpose: "전체 선택률", externalIds: [source.externalId], augments },
+        ], mappings: admin.mappings })); return;
       }
       if (req.url === "/api/admin/lol/mayhem-references") {
         res.setHeader("Content-Type", "application/json");
@@ -236,24 +246,23 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     await page.click('[aria-label="아이템·신발 적용 확인"] button');
     await page.waitForFunction(() => document.querySelector('article[aria-label="아이템·신발"]')?.textContent?.includes("적용됨"));
     expect(await page.$eval('[aria-label="수집 자료와 화면 적용"]', n => n.textContent)).toContain("자료 1개를 적용했습니다.");
-    expect(await page.$eval('article[aria-label="증강 추천 조합"] button', n => (n as HTMLButtonElement).disabled)).toBe(true);
-    await page.click('main[data-testid="mayhem-dataset-review"] > details > summary');
-    await page.waitForSelector('[aria-label="챔피언 통계 후보"]');
-    await page.click('[role="tab"]:nth-child(2)');
-    await page.waitForSelector('[aria-label="검토 후보"]');
-    expect(await page.$eval('[aria-label="참조 자료 요약"]', node => node.textContent)).toContain("챔피언 ID 63");
-    await page.click('[role="tab"]:nth-child(3)');
-    await page.waitForSelector('select[aria-label="외부 증강 ID"]');
-    const disabled = () => page.$eval('[aria-label="데이터셋 승인과 공개"] button', node => (node as HTMLButtonElement).disabled);
-    await page.click('[aria-label="데이터셋 승인과 공개"] input[type="checkbox"]'); expect(await disabled()).toBe(true);
-    await page.select('select[aria-label="외부 증강 ID"]', "augment!");
-    await page.select('select[aria-label="매핑 패치"]', "16.21");
-    await page.select('select[aria-label="공식 증강"]', "1");
-    await page.type("form textarea", "공식 이름·등급·효과를 원본과 대조했습니다.");
-    await page.click('button[type="submit"]');
-    await page.waitForFunction(() => document.querySelector('[aria-label="수집본 정보"]')?.textContent?.includes("미매핑 0개"));
-    await page.waitForFunction(() => [...document.querySelectorAll("details")].some(node => !node.open && node.querySelector("summary")?.textContent?.includes("미연결 0개")));
-    await page.click('[aria-label="데이터셋 승인과 공개"] input[type="checkbox"]'); expect(await disabled()).toBe(false);
+    expect(await page.$eval('article[aria-label="증강 추천 조합"] button', n => n.textContent)).toBe("이름 연결하기");
+    await page.click('article[aria-label="증강 추천 조합"] button:first-of-type');
+    await page.waitForSelector('[aria-label="연결할 자료"]');
+    expect(await page.$('[role="tablist"]')).toBeNull();
+    expect(await page.$('[aria-label="외부 증강 ID"]')).toBeNull();
+    await page.select('[aria-label="연결할 자료"]', "16.21");
+    await page.waitForSelector('[aria-label="연결할 게임 증강"]');
+    expect(await page.$eval('[aria-label="증강 이름 비교"]', n => n.textContent)).toContain("공식 효과와 원본 이름");
+    const saveMapping = () => page.$eval('[aria-label="증강 이름 비교"] button', n => (n as HTMLButtonElement).disabled);
+    expect(await saveMapping()).toBe(true);
+    await page.click('[aria-label="증강 이름 비교"] input[type="checkbox"]');
+    expect(await saveMapping()).toBe(false);
+    await page.screenshot({ path: `tmp/lol-mayhem-review/admin-mapping-${width}x${height}.png`, fullPage: true });
+    await page.click('[aria-label="증강 이름 비교"] button');
+    await page.waitForFunction(() => document.querySelector('[aria-label="증강 이름 연결"]')?.textContent?.includes("1개 이름 연결을 저장했습니다"));
+    await page.$$eval('[aria-label="증강 이름 연결"] button', buttons => (buttons.find(n => n.textContent === "연결 결과 반영") as HTMLButtonElement).click());
+    await page.waitForFunction(() => [...document.querySelectorAll('article[aria-label="증강 추천 조합"] button')].some(n => n.textContent === "적용 내용 확인" && !(n as HTMLButtonElement).disabled));
     expect(await page.$$eval("button, select, textarea", nodes => (nodes as HTMLElement[]).filter(node => node.offsetParent !== null).every(node => node.getBoundingClientRect().height >= 44))).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `tmp/lol-mayhem-review/admin-${width}x${height}.png`, fullPage: true });
