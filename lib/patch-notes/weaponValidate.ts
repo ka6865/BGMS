@@ -93,6 +93,15 @@ export function isQuoteGrounded(sourceText: string, quote: string): boolean {
   return normalizeForQuoteMatch(sourceText).includes(normalizedQuote);
 }
 
+/** 트렁크의 명시된 변경 후 수치만 인정한다. */
+export function hasTrunkCapacityEvidence(quote: unknown, value: unknown): boolean {
+  if (typeof quote !== "string" || typeof value !== "number" || !Number.isInteger(value)) return false;
+  const text = quote.replace(/(?<=\d),(?=\d{3}(?:\D|$))/g, "");
+  const match = /트렁크[^\d]{0,30}용량([^\d]{0,80})(\d+)(?:\s*(?:→|->|에서)\s*(\d+))?/.exec(text);
+  if (!match || /체력|내구도/.test(match[1])) return false;
+  return Number(match[3] ?? match[2]) === value;
+}
+
 function readConfidence(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   if (value < 0 || value > 1) return null;
@@ -195,6 +204,12 @@ export function validateWeaponChanges(
     base.evidenceFound = grounded;
     if (!grounded) {
       changes.push(invalid(base, "인용문을 패치노트 원문에서 찾을 수 없음"));
+      continue;
+    }
+
+    if (targetTable === "vehicles" && columnName === "trunk_capacity" &&
+        !hasTrunkCapacityEvidence(evidenceQuote, newValue)) {
+      changes.push(invalid(base, "인용문에 트렁크 용량의 변경 후 수치가 명시되지 않음"));
       continue;
     }
 

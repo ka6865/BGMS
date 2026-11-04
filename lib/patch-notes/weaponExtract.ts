@@ -114,7 +114,8 @@ ${catalogLines}
    그런 경우는 spawn_maps 또는 availability 의 update 로 제출하세요.
    remove 를 제출할 때 column_name 과 new_value 는 빈 문자열로 두세요.
 5. 신규 항목 추가와 이름 변경은 이 작업의 대상이 아닙니다.
-6. 변경 사항이 없으면 changes 를 빈 배열로 두세요. 억지로 채우지 마세요.
+6. 차량의 체력과 타이어 내구도는 트렁크 용량이 아닙니다. 트렁크 용량은 그 항목의 변경 후 수치가 명시된 경우에만 제출하고, 해당 문장과 수치를 evidence_quote 에 함께 포함하세요.
+7. 변경 사항이 없으면 changes 를 빈 배열로 두세요. 억지로 채우지 마세요.
 
 [패치노트 원문]
 ${trimmedSource}`;

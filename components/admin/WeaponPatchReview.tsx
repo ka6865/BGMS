@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import ConfirmModal from "@/components/common/ConfirmModal";
+import OfficialCatalogCompare from "./OfficialCatalogCompare";
 
 interface ProposalChange {
   id: string;
@@ -205,6 +206,10 @@ export default function WeaponPatchReview() {
     const changeIds = selectedByProposal.get(proposal.id) ?? [];
     if (changeIds.length === 0) {
       toast.warning("반영할 항목을 먼저 선택해 주세요.");
+      return;
+    }
+    if (proposal.changes.some((change) => changeIds.includes(change.id) && change.validationState !== "ok")) {
+      toast.warning("검증에 실패한 항목은 거부만 가능합니다.");
       return;
     }
     setApplyTarget(proposal);
@@ -510,6 +515,7 @@ export default function WeaponPatchReview() {
             새로 고침
           </button>
         </div>
+        <OfficialCatalogCompare />
         {renderBackfillPanel()}
         {renderApplyHistory()}
         {confirmModals}
@@ -536,6 +542,7 @@ export default function WeaponPatchReview() {
         </button>
       </div>
 
+      <OfficialCatalogCompare />
       {renderBackfillPanel()}
 
       {proposals.map((proposal) => {
@@ -608,7 +615,7 @@ export default function WeaponPatchReview() {
                         type="checkbox"
                         id={`change-${change.id}`}
                         checked={isChecked}
-                        disabled={!isSelectable || busy}
+                        disabled={busy}
                         onChange={() => toggleChange(change.id)}
                         className="mt-1 h-4 w-4 shrink-0 accent-[#F2A900] disabled:opacity-40"
                       />

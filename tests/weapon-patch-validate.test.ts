@@ -255,3 +255,18 @@ describe("validateWeaponChanges 게이트", () => {
     });
   });
 });
+
+describe("차량 트렁크 용량 근거", () => {
+  const rows: CurrentRows = new Map([[rowKey("vehicles", "coupe"), { name: "쿠페 RB", trunk_capacity: 100 }]]);
+  function validate(quote: string, value: number) {
+    return validateWeaponChanges([{ target_table: "vehicles", target_id: "coupe", column_name: "trunk_capacity", new_value: value, evidence_quote: quote }], quote, rows).changes[0];
+  }
+  it("체력 수치를 트렁크 용량으로 잘못 제안하면 거부한다", () => {
+    expect(validate("쿠페 RB의 체력이 900에서 1,000으로 증가합니다.", 1000).validationState).toBe("invalid");
+    expect(validate("쿠페 RB 체력 900 → 1,000. 트렁크 용량 100 → 120", 1000).validationState).toBe("invalid");
+  });
+  it("트렁크 변경값이 명시되면 통과한다", () => {
+    expect(validate("쿠페 RB의 트렁크 용량이 증가합니다.\n100 → 120", 120).validationState).toBe("ok");
+    expect(validate("트렁크 용량: 300", 300).validationState).toBe("ok");
+  });
+});

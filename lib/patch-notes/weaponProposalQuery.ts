@@ -6,6 +6,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { hasTrunkCapacityEvidence } from "./weaponValidate";
 import { PATCHABLE_COLUMNS, isPatchableTable, type PatchableTable } from "./weaponSchema";
 
 type AdminClient = SupabaseClient<any, any, any>;
@@ -200,6 +201,7 @@ export async function listWeaponPatchProposals(
   for (const change of changes) {
     if (!isPatchableTable(change.target_table)) continue;
     const list = changesByProposal.get(change.proposal_id) ?? [];
+    const invalidTrunk = change.target_table === "vehicles" && change.column_name === "trunk_capacity" && !hasTrunkCapacityEvidence(change.evidence_quote, change.new_value);
     list.push({
       id: change.id,
       targetTable: change.target_table,
@@ -213,8 +215,8 @@ export async function listWeaponPatchProposals(
       evidenceQuote: change.evidence_quote,
       evidenceFound: change.evidence_found,
       confidence: change.confidence === null ? null : Number(change.confidence),
-      validationState: change.validation_state,
-      validationReason: change.validation_reason,
+      validationState: invalidTrunk ? "invalid" : change.validation_state,
+      validationReason: invalidTrunk ? "인용문에 트렁크 용량의 변경 후 수치가 명시되지 않음" : change.validation_reason,
       decision: isChangeDecision(change.decision) ? change.decision : "pending",
     });
     changesByProposal.set(change.proposal_id, list);
@@ -261,19 +263,21 @@ export async function decideProposalChanges(
 
   const { data: rows, error } = await supabaseAdmin
     .from("weapon_patch_proposal_changes")
-    .select("id,validation_state")
+    .select("id,validation_state,target_table,column_name,new_value,evidence_quote")
     .eq("proposal_id", proposalId)
     .in("id", changeIds);
 
   if (error) return { ok: false, reason: `변경 항목 조회 실패: ${error.message}` };
 
-  const found = ((rows ?? []) as unknown) as { id: string; validation_state: string }[];
+  const found = ((rows ?? []) as unknown) as { id: string; validation_state: string; target_table: string; column_name: string; new_value: unknown; evidence_quote: unknown }[];
   if (found.length !== changeIds.length) {
     return { ok: false, reason: "이 제안에 속하지 않은 변경 항목이 포함되어 있습니다." };
   }
 
   if (decision === "accepted") {
-    const blocked = found.filter((row) => row.validation_state !== "ok");
+    const blocked = found.filter((row) => row.validation_state !== "ok" ||
+      (row.target_table === "vehicles" && row.column_name === "trunk_capacity" &&
+        !hasTrunkCapacityEvidence(row.evidence_quote, row.new_value)));
     if (blocked.length > 0) {
       return {
         ok: false,
