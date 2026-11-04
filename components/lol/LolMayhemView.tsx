@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { MayhemChampionTiers } from "@/lib/lol/mayhemChampionTiers";
+import LolMayhemPatchRankings from "./LolMayhemPatchRankings";
 import type { LolChampion } from "@/lib/lol/champions";
 import type { PublicMayhemDataset } from "@/lib/lol/mayhemDatasetView";
 import LolMayhemDatasetView from "./LolMayhemDatasetView";
@@ -14,7 +16,7 @@ const rarityColors: Record<LolAugmentRarity, string> = { prismatic: "text-fuchsi
 const chip = (active: boolean) => `min-h-11 rounded-lg border px-3 text-sm font-semibold transition ${active
   ? "border-amber-400 bg-amber-400/10 text-amber-300" : "border-zinc-700 text-zinc-400 hover:text-zinc-100"}`;
 
-export default function LolMayhemView({ catalog, error = false, dataset, champions = [], championStatsEnabled = false, championVersion = null, itemsEnabled = false }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[]; championStatsEnabled?: boolean; championVersion?: string | null; itemsEnabled?: boolean }) {
+export default function LolMayhemView({ catalog, error = false, dataset, champions = [], championStatsEnabled = false, championVersion = null, itemsEnabled = false, championTiers = null, patchRankingsEnabled = false }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[]; championStatsEnabled?: boolean; championVersion?: string | null; itemsEnabled?: boolean; championTiers?: MayhemChampionTiers|null; patchRankingsEnabled?: boolean }) {
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [newOnly, setNewOnly] = useState(false);
@@ -26,22 +28,23 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
   return <main className={`mx-auto w-full px-4 py-6 text-zinc-100 sm:px-6 ${view === "champions" ? "max-w-7xl" : "max-w-5xl"}`}>
     <h1 className="text-xl font-bold">증바람 증강</h1>
     <p className="mt-1 text-sm text-zinc-400">무작위 총력전: 아수라장의 챔피언별 선택 통계와 증강 도감입니다.</p>
-    {(championStatsEnabled || itemsEnabled) && <div role="group" aria-label="증바람 보기" className="mt-5 flex flex-wrap gap-2">
-      <button aria-pressed={view === "champions"} className={chip(view === "champions")} onClick={() => setView("champions")}>챔피언별 정보</button>
+    {(championStatsEnabled || itemsEnabled || patchRankingsEnabled) && <div role="group" aria-label="증바람 보기" className="mt-5 flex flex-wrap gap-2">
+      {(championStatsEnabled || itemsEnabled) && <button aria-pressed={view === "champions"} className={chip(view === "champions")} onClick={() => setView("champions")}>챔피언별 정보</button>}
+      {patchRankingsEnabled && <button aria-pressed={view === "rankings"} className={chip(view === "rankings")} onClick={() => setView("rankings")}>패치별 증강 순위</button>}
       <button aria-pressed={view === "catalog"} className={chip(view === "catalog")} onClick={() => setView("catalog")}>전체 증강 도감</button>
     </div>}
     {catalog && dataset && <details className="mt-4 rounded-lg border border-zinc-800 px-3">
       <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-amber-300">챔피언별 해외 조합·전체 선택률</summary>
       <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog} />
     </details>}
-    {!catalog ? <p role={error ? "alert" : undefined} className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">
+    {view === "rankings" && patchRankingsEnabled ? <LolMayhemPatchRankings/> : !catalog ? <p role={error ? "alert" : undefined} className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">
       {error ? "증강 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." : "아직 게시된 증강 정보가 없습니다."}
     </p> : <>
       <p className="mt-3 text-sm text-zinc-300">
         증강 도감 {catalog.displayPatch} · 증강 {catalog.augments.length}개 · 신규 {newCount}개
         {catalog.notesUrl && <> · <a href={catalog.notesUrl} target="_blank" rel="noreferrer" className="text-amber-300 underline underline-offset-2">공식 패치 노트</a></>}
       </p>
-      {(championStatsEnabled || itemsEnabled) && view === "champions" && <LolMayhemChampionStats enabled={championStatsEnabled} patch={catalog.clientPatch} champions={champions} catalog={catalog} championVersion={championVersion} itemsEnabled={itemsEnabled} />}
+      {(championStatsEnabled || itemsEnabled) && view === "champions" && <LolMayhemChampionStats enabled={championStatsEnabled} patch={catalog.clientPatch} champions={champions} catalog={catalog} championVersion={championVersion} itemsEnabled={itemsEnabled} championTiers={championTiers} />}
       {view === "catalog" && <><div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
         <input
           type="search" value={query} onChange={event => setQuery(event.target.value)}

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { filterLolChampions, type LolChampion } from "@/lib/lol/champions";
 import { LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments, type LolAugmentRarity, type LolMayhemCatalog } from "@/lib/lol/augments/catalog";
+import { sortMayhemChampions, type MayhemChampionTiers } from "@/lib/lol/mayhemChampionTiers";
 import LolMayhemItems from "./LolMayhemItems";
 import LolMayhemObservationHistory from "./LolMayhemObservationHistory";
 import type { PublicChampionStats } from "@/lib/lol/mayhemChampionDataset";
@@ -18,8 +19,8 @@ function ChampionPortrait({ champion, version, size }: { champion: LolChampion; 
     : <span aria-hidden="true" className="shrink-0 rounded-lg bg-zinc-800" style={{ width: size, height: size }} />;
 }
 
-export default function LolMayhemChampionStats({ enabled = false, patch, champions, catalog, championVersion = null, itemsEnabled = false }: {
-  enabled?: boolean; patch: string; champions: LolChampion[]; catalog: LolMayhemCatalog; championVersion?: string | null; itemsEnabled?: boolean;
+export default function LolMayhemChampionStats({ enabled = false, patch, champions, catalog, championVersion = null, itemsEnabled = false, championTiers = null }: {
+  enabled?: boolean; patch: string; champions: LolChampion[]; catalog: LolMayhemCatalog; championVersion?: string | null; itemsEnabled?: boolean; championTiers?: MayhemChampionTiers|null;
 }) {
   const [championId, setChampionId] = useState(String(champions.find(champion => champion.id === 29)?.id ?? champions[0]?.id ?? ""));
   const [detailView, setDetailView] = useState<"augments" | "items" | "history">(enabled ? "augments" : "items");
@@ -30,7 +31,8 @@ export default function LolMayhemChampionStats({ enabled = false, patch, champio
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [retry, setRetry] = useState(0);
   const [response, setResponse] = useState<{ key: string; dataset: PublicChampionStats | null; error: boolean } | null>(null);
-  const matchingChampions = filterLolChampions(champions, championQuery, null);
+  const matchingChampions = sortMayhemChampions(filterLolChampions(champions, championQuery, null), championTiers, patch);
+  const tierMap = championTiers?.patch === patch ? championTiers.tiers : {};
   const champion = champions.find(item => String(item.id) === championId) ?? champions[0];
   const selectedId = champion ? String(champion.id) : "";
   const requestKey = `${patch}:${selectedId}:${retry}`;
@@ -70,6 +72,7 @@ export default function LolMayhemChampionStats({ enabled = false, patch, champio
       <div id="mayhem-champion-picker" className={pickerOpen ? "block" : "hidden lg:block"}>
         <div className="space-y-3 px-3 pb-3 pt-4">
           <p className="hidden text-sm font-semibold lg:block">챔피언 선택 <span className="ml-1 font-normal text-zinc-400">{champions.length}</span></p>
+          {championTiers?.patch === patch && <p className="text-xs text-zinc-400">티어순 · {patch.replace(/^16\./,"26.")} 기준</p>}
           <label className="relative block"><span className="sr-only">챔피언 찾기</span><Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-3.5 text-zinc-400" />
             <input type="search" aria-label="통계 챔피언 검색" placeholder="챔피언 검색 · 이름, 초성" value={championQuery} onChange={event => setChampionQuery(event.target.value)} className={`${control} pl-9`} />
           </label>
@@ -80,6 +83,7 @@ export default function LolMayhemChampionStats({ enabled = false, patch, champio
             className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-amber-400 ${String(item.id) === selectedId ? "bg-amber-400/10 font-semibold text-amber-300" : "text-zinc-300 hover:bg-zinc-800 hover:text-white"}`}>
             <ChampionPortrait champion={item} version={championVersion} size={28} />
             <span className="min-w-0 flex-1 truncate">{item.name}</span>
+            <span className={`shrink-0 rounded px-2 py-1 text-xs font-semibold ${tierMap[String(item.id)] === 1 ? "bg-amber-400/15 text-amber-300" : "bg-zinc-800 text-zinc-300"}`}>{tierMap[String(item.id)] ? `${tierMap[String(item.id)]}티어` : "미제공"}</span>
             {String(item.id) === selectedId && <Check aria-hidden="true" size={16} className="shrink-0" />}
           </button>)}
           {!matchingChampions.length && <p role="status" className="px-3 py-6 text-center text-sm leading-6 text-zinc-400">일치하는 챔피언이 없습니다. 이름이나 초성을 다시 입력해 주세요.</p>}

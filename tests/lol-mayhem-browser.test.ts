@@ -60,7 +60,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const { createElement } = await import("react");
     const View = (await import("../components/lol/LolMayhemView")).default;
     const Admin = (await import("../app/admin/lol/mayhem-datasets/MayhemDatasetReviewPanel")).default;
-    let admin = adminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success"; let itemMode = "success"; let historyMode = "success";
+    let admin = adminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success"; let itemMode = "success"; let historyMode = "success"; let rankingMode = "success";
     server = createServer((req, res) => {
       if (req.url === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css.css); return; }
       if (req.url === "/client.js") { res.setHeader("Content-Type", "text/javascript"); res.end(client.outputFiles[0].text); return; }
@@ -76,6 +76,18 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
           });
         } else res.end(JSON.stringify(admin));
         return;
+      }
+      if (req.url?.startsWith("/rankings")) rankingMode=req.url.slice(1);
+      if (req.url?.startsWith("/api/lol/mayhem/patch-rankings")) {
+        const patch=new URL(req.url,"http://fixture.test").searchParams.get("patch")??"26.21";
+        if(rankingMode==="rankings-error"){rankingMode="success";res.statusCode=503;res.end("{}");return;}
+        const payload={patches:["26.21","26.20","26.19"],ranking:{patch,date:"2026-10-20",estimated:patch!=="26.21",rows:[
+          {id:"top",name:patch==="26.21"?"현재 증강":"과거 증강",rarity:"gold",pickRate:patch==="26.21"?40:10,rank:1},
+          {id:"zero",name:"선택률 0 증강",rarity:"silver",pickRate:0,rank:2},
+          {id:"missing",name:"미제공 증강",rarity:"prismatic",pickRate:null,rank:null},
+        ]}};
+        const send=()=>{res.setHeader("Content-Type","application/json");res.end(JSON.stringify(payload));};
+        if(rankingMode==="rankings-race"&&patch==="26.20"){server.emit("delayed-rankings-started");setTimeout(()=>{send();server.emit("delayed-rankings-sent");},700);}else send();return;
       }
       if (req.url?.startsWith("/history")) historyMode = req.url.slice(1);
       if (req.url?.startsWith("/api/lol/mayhem/champion-history/")) {
@@ -134,9 +146,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         return;
       }
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
-      const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items") || req.url?.startsWith("/history");
-      const props = req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/dataset"
-        ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: req.url !== "/items-only", championVersion: "16.21.1", itemsEnabled: true } : { catalog };
+      const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items") || req.url?.startsWith("/history") || req.url?.startsWith("/rankings");
+      const props = req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/dataset"
+        ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: req.url !== "/items-only", championVersion: "16.21.1", itemsEnabled: true, championTiers: req.url?.startsWith("/rankings") ? {patch:"16.21",dataVersion:"16.21.5",date:"2026-10-30",tiers:{"63":3,"64":1}} : null, patchRankingsEnabled: req.url?.startsWith("/rankings") } : { catalog };
       res.setHeader("Content-Type", "text/html");
       res.end('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         + `<link rel="stylesheet" href="/style.css"></head><body class="bg-zinc-950"><div id="root">${req.url === "/admin" ? renderToString(createElement(Admin)) : renderToString(createElement(View, props))}</div>`
@@ -392,6 +404,44 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     expect(await page.$$eval('[aria-label="증강 관측 이력"] > li',nodes=>nodes.length)).toBe(3);
     expect(await page.$eval('[aria-label="선택 관측 이력"]',node=>node.textContent)).not.toContain("3패치 연속 미관측");
     await page.close();
+  });
+
+  it.each([[375,667],[390,844],[430,932],[1440,900]])("%ix%i에서 티어순 챔피언과 과거 패치별 전체 증강 순위를 확인한다",async(width,height)=>{
+    const page=await browser.newPage();await page.setViewport({width,height});const errors:string[]=[];page.on("pageerror",e=>errors.push(String(e)));
+    await page.setRequestInterception(true);page.on("request",r=>r.url().startsWith(base)?void r.continue():void r.abort());
+    await page.goto(`${base}/rankings`,{waitUntil:"networkidle0"});await openChampionPicker(page);
+    expect(await page.$$eval('[aria-label="통계 챔피언 목록"] button',nodes=>nodes.map(n=>n.getAttribute("data-champion-id")))).toEqual(["64","63"]);
+    expect(await page.$eval('button[data-champion-id="64"]',n=>n.textContent)).toContain("1티어");
+    await page.click('[aria-label="증바람 보기"] button:nth-child(2)');await page.waitForSelector('[aria-label="패치 증강 순위 목록"] > li');
+    expect(await page.$eval('[aria-label="패치별 증강 순위"]',n=>n.textContent)).toContain("모든 챔피언을 합친 통계");
+    await page.select('select[aria-label="증강 순위 패치"]',"26.20");
+    await page.waitForFunction(()=>document.querySelector('[aria-label="패치 증강 순위 목록"]')?.textContent?.includes("과거 증강"));
+    expect(await page.$eval('[aria-label="패치별 증강 순위"]',n=>n.textContent)).toContain("(추정)");
+    const rows=await page.$$eval('[aria-label="패치 증강 순위 목록"] > li',nodes=>nodes.map(n=>n.textContent));expect(rows[1]).toContain("0.00%");expect(rows[2]).toContain("미제공");
+    await page.select('select[aria-label="증강 순위 등급"]',"gold");expect(await page.$$eval('[aria-label="패치 증강 순위 목록"] > li',nodes=>nodes.length)).toBe(1);
+    await page.type('input[aria-label="순위 증강 검색"]',"없는증강");await page.waitForFunction(()=>document.querySelector('[aria-label="패치별 증강 순위"]')?.textContent?.includes("조건에 맞는 증강이 없습니다"));
+    await page.focus('[aria-label="패치별 증강 순위"] [role="status"] button');await page.keyboard.press("Enter");await page.waitForSelector('[aria-label="패치 증강 순위 목록"] > li');
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    expect(await page.$eval('[aria-label="패치 증강 순위 목록"]',n=>getComputedStyle(n).gridTemplateColumns.split(" ").length)).toBe(1);
+    expect(await page.$$eval('[aria-label="패치별 증강 순위"] input,[aria-label="패치별 증강 순위"] select',nodes=>nodes.every(n=>n.getBoundingClientRect().height>=44))).toBe(true);
+    await page.screenshot({path:`tmp/lol-mayhem-review/patch-rankings-${width}x${height}.png`,fullPage:true});
+    await page.goto(`${base}/rankings-error`,{waitUntil:"networkidle0"});await page.click('[aria-label="증바람 보기"] button:nth-child(2)');await page.waitForSelector('[aria-label="패치별 증강 순위"] [role="alert"]');
+    await page.click('[aria-label="패치별 증강 순위"] [role="alert"] button');await page.waitForSelector('[aria-label="패치 증강 순위 목록"] > li');
+    expect(errors).toEqual([]);await page.close();
+  });
+  it("느린 과거 패치 응답이 새 패치 순위를 덮어쓰지 않는다",async()=>{
+    const page=await browser.newPage();const started=new Promise<void>(resolve=>server.once("delayed-rankings-started",resolve));const sent=new Promise<void>(resolve=>server.once("delayed-rankings-sent",resolve));
+    await page.goto(`${base}/rankings-race`,{waitUntil:"networkidle0"});await page.click('[aria-label="증바람 보기"] button:nth-child(2)');await page.waitForSelector('[aria-label="패치 증강 순위 목록"] > li');
+    await page.select('select[aria-label="증강 순위 패치"]',"26.20");await started;await page.select('select[aria-label="증강 순위 패치"]',"26.21");
+    await page.waitForFunction(()=>document.querySelector('[aria-label="패치 증강 순위 목록"]')?.textContent?.includes("현재 증강"));await sent;await page.waitForNetworkIdle({idleTime:500});
+    expect(await page.$eval('[aria-label="패치 증강 순위 목록"]',n=>n.textContent)).not.toContain("과거 증강");await page.close();
+  });
+
+  it("도감이 없어도 패치 순위를 독립적으로 제공한다",async()=>{
+    const page=await browser.newPage();await page.goto(`${base}/rankings-no-catalog`,{waitUntil:"networkidle0"});
+    await page.click('[aria-label="증바람 보기"] button:first-child');await page.waitForSelector('[aria-label="패치 증강 순위 목록"] > li');
+    expect(await page.$eval('[aria-label="패치별 증강 순위"]',n=>n.textContent)).toContain("모든 챔피언을 합친 통계");
+    expect(await page.$('[role="alert"]')).toBeNull();await page.close();
   });
 
 });
