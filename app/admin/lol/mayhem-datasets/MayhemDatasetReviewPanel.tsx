@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MayhemDatasetAdminData } from "@/lib/lol/mayhemDatasetView";
+import LolMayhemChampionDatasetReview from "@/components/lol/LolMayhemChampionDatasetReview";
 
 const button = "inline-flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 px-3 text-sm hover:bg-zinc-800 disabled:opacity-40";
 const input = "min-h-11 w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm";
@@ -59,6 +60,7 @@ export default function MayhemDatasetReviewPanel() {
       <h1 className="text-xl font-semibold">증바람 해외 데이터셋 검토</h1>
       <p className="mt-2 text-sm text-zinc-400">전체 증강 선택률과 외부 추천 조합을 구분해 검수합니다. 챔피언별 등장 가능 여부는 이 자료로 판단하지 않습니다.</p>
     </header>
+    <LolMayhemChampionDatasetReview />
     <div className="flex flex-wrap gap-2">
       <button className={button} disabled={busy} onClick={() => { setError(""); void refresh().catch(() => setError("검토 자료를 불러오지 못했습니다.")); }}>상태 새로고침</button>
       <button className={button} disabled={busy} onClick={() => void act("sync")}>{busy ? "처리 중…" : "원본 확인·매핑 반영"}</button>
