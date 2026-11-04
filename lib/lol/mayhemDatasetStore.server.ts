@@ -2,6 +2,8 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import type { MayhemDatasetAdminData, MayhemDatasetRelease, PublicMayhemDataset } from "./mayhemDatasetView";
+import { getCachedLolAugmentCatalog } from "./augments/catalog.server";
+import { mappingSources, type MappingPreview } from "./mayhemMappingReview";
 
 export const MAYHEM_DATASET_TAG = "lol-mayhem-dataset";
 const signal = () => AbortSignal.timeout(10_000);
@@ -43,6 +45,25 @@ export async function getMayhemSnapshotFile(id: number, kind: "augments" | "comb
   const file = await bucket.download(filePath);
   if (file.error || file.data.size > 4 * 1024 * 1024) throw new Error("invalid_snapshot");
   return file.data.text();
+}
+
+export async function getMayhemMappingPreview(id: number): Promise<MappingPreview> {
+  const data = await getMayhemDatasetAdmin();
+  const release = data.releases.find(row => row.id === id);
+  if (!release) throw new Error("mapping_release_unavailable");
+  if (release.metadata.unknown_count && !Array.isArray(release.metadata.unknownExternalIds)) throw new Error("mapping_ids_unavailable");
+  const patches = [...new Set([release.verified_client_patch, release.metadata.sourceClientPatch].filter((patch): patch is string => !!patch))];
+  const [augments, combos, catalogs] = await Promise.all([
+    getMayhemSnapshotFile(id, "augments"), getMayhemSnapshotFile(id, "combos"),
+    Promise.all(patches.map(async patch => ({ patch, catalog: await getCachedLolAugmentCatalog(patch) }))),
+  ]);
+  const sources = mappingSources(JSON.parse(augments), JSON.parse(combos), release.metadata.unknownExternalIds ?? [], release.upstream_release_id);
+  return {
+    releaseId: id, sources,
+    patches: catalogs.map(({ patch, catalog }) => ({ patch, purpose: patches.length === 1 ? "선택률·추천 조합" : patch === release.verified_client_patch ? "추천 조합" : "전체 선택률",
+      externalIds: sources.filter(row => patches.length === 1 || !row.uses.length || row.uses.includes(patch === release.verified_client_patch ? "combos" : "rates")).map(row => row.externalId), augments: catalog?.view.augments ?? [] })),
+    mappings: data.mappings.map(({ external_id, client_patch, platform_id, status }) => ({ external_id, client_patch, platform_id, status })),
+  };
 }
 
 const getPublication = unstable_cache(async (patch: string) => {
