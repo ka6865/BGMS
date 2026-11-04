@@ -88,7 +88,7 @@ begin
   begin
     perform public.persist_lol_search_snapshot('search:v10:owner#sum',v_token,'summary-race','{}','kr','asia','16.21.1',v_account,'[]','[]');
     raise exception 'in-flight collection survived account deletion';
-  exception when serialization_failure then null; end;
+  exception when sqlstate 'PT409' then null; end;
   if not exists (select 1 from public.lol_player_match_summaries where puuid='summary-later' and match_id='KR_880001') then
     raise exception 'deleting related raw removed another account summary'; end if;
   v_deleted := public.delete_lol_account_data('summary-owner');

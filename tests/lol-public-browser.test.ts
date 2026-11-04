@@ -63,6 +63,14 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     server = createServer((req, res) => {
       if (req.url === "/app.js") { res.setHeader("Content-Type", "text/javascript"); res.end(client.outputFiles![0].text); return; }
       if (req.url === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css.css); return; }
+      if (req.url?.startsWith("/api/lol/suggest?")) {
+        const query = new URL(req.url, base).searchParams.get("q") ?? "";
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ suggestions: query.startsWith("홍") ? [
+          { gameName: "홍길동", tagLine: "KR1" }, { gameName: "홍길동2", tagLine: "KR2" },
+        ] : [] }));
+        return;
+      }
       if (req.url === "/api/lol/search") {
         let body = ""; req.on("data", chunk => { body += chunk; }); req.on("end", () => {
           const { riotId, refresh } = JSON.parse(body);
@@ -139,7 +147,7 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     expect(await page.$$eval('script[src*="googlesyndication"], ins.adsbygoogle', nodes => nodes.length)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     // 상세를 펼치며 목록 끝까지 스크롤되면 공개 추가 조회가 이어질 수 있다.
-    expect(calls.filter(url => url !== `${base}/api/lol/matches/more`)).toEqual([`${base}/api/lol/search`]); expect(errors).toEqual([]);
+    expect(calls.filter(url => url !== `${base}/api/lol/matches/more` && !url.startsWith(`${base}/api/lol/suggest?`))).toEqual([`${base}/api/lol/search`]); expect(errors).toEqual([]);
     await page.screenshot({ path: `tmp/lol-public-review/${width}x${height}.png`, fullPage: true });
     // lg 미만은 통계가 별도 탭이라 탭을 바꾼 뒤 카드를 캡처한다.
     if (width < 1024) {
@@ -238,45 +246,59 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     expect(await page.$('section[aria-label="최근 경기"]')).toBeNull();
     await search(page, "오류#KR1"); await page.waitForSelector('[role="alert"]');
     expect(await page.$eval('[role="alert"]', element => element.textContent)).toContain("잠시 후");
-    expect(await page.$('[aria-label="검색 기록"] li')).toBeNull(); await page.close();
+    expect(await page.$('[aria-label="즐겨찾기 및 최근 검색"]')).toBeNull(); await page.close();
   });
 
-  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("검색 기록을 %ix%i에서 복원하고 재검색·즐겨찾기·삭제·비우기를 제공한다", async (width, height) => {
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("포커스 검색 기록을 %ix%i에서 복원하고 재검색·즐겨찾기·삭제·비우기를 제공한다", async (width, height) => {
     const page = await open(width, height);
     await page.evaluate(() => localStorage.clear());
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
     await search(page, "홍길동#KR1");
     await page.waitForSelector('[aria-label="검색 결과"]');
-    await page.waitForSelector('[aria-label="검색 기록"] li');
-    expect(await page.$eval('[aria-label="검색 기록"]', element => element.textContent)).toContain("홍길동#KR1");
-    expect(await page.$eval('[aria-label="검색 기록"] details', element => (element as HTMLDetailsElement).open)).toBe(false);
-    expect(await page.$eval('[aria-label="검색 기록"]', element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(48);
     expect(await page.$eval('[data-testid="lol-profile-favorite"]', element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
     await page.click('[data-testid="lol-profile-favorite"]');
     await page.waitForFunction(() => document.querySelector('[data-testid="lol-profile-favorite"]')?.getAttribute("aria-pressed") === "true");
-    expect(await page.$eval('[aria-label="검색 기록"]', element => element.textContent)).toContain("즐겨찾기");
-    // 접힌 기록은 키보드로 펼칠 수 있고 계정 검색 상태를 보존한다.
-    await page.focus('[aria-label="검색 기록"] summary');
-    await page.keyboard.press("Enter");
-    await page.waitForFunction(() => (document.querySelector('[aria-label="검색 기록"] details') as HTMLDetailsElement).open);
+    await page.focus("#lol-riot-id");
+    await page.keyboard.down("Control");
+    await page.keyboard.press("A");
+    await page.keyboard.up("Control");
+    await page.keyboard.press("Backspace");
+    await page.waitForSelector('[aria-label="즐겨찾기 및 최근 검색"]');
+    expect(await page.$eval('[aria-label="즐겨찾기 및 최근 검색"]', element => element.textContent)).toContain("즐겨찾기");
     expect(await page.$eval('[aria-label="검색 결과"] h2', element => element.textContent)).toContain("홍길동");
-    expect(await page.$$eval('[aria-label="검색 기록"] button', buttons => buttons.every(button => button.getBoundingClientRect().height >= 44))).toBe(true);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
-    await page.waitForSelector('[aria-label="홍길동#KR1 즐겨찾기 해제"]');
-    await page.click('[aria-label="검색 기록"] summary');
+    expect(await page.$$eval('[aria-label="즐겨찾기 및 최근 검색"] button', buttons => buttons.every(button => button.getBoundingClientRect().height >= 44))).toBe(true);
+    await page.click('[aria-label="홍길동#KR1 즐겨찾기 해제"]');
+    await page.waitForSelector('button[aria-label="홍길동#KR1 최근 검색에서 삭제"]');
+    await page.click('button[aria-label="홍길동#KR1 검색"]');
+    await page.waitForSelector('section[aria-label="최근 경기"] article');
+    expect(await page.$('[aria-label="즐겨찾기 및 최근 검색"]')).toBeNull();
+    await page.focus("#lol-riot-id");
+    await page.keyboard.down("Control");
+    await page.keyboard.press("A");
+    await page.keyboard.up("Control");
+    await page.keyboard.press("Backspace");
+    await page.waitForSelector('[aria-label="즐겨찾기 및 최근 검색"]');
     await page.click('button[aria-label="홍길동#KR1 최근 검색에서 삭제"]');
     expect(await page.$('button[aria-label="홍길동#KR1 최근 검색에서 삭제"]')).toBeNull();
-    await page.$$eval('[aria-label="검색 기록"] li button', buttons => (buttons.find(button => button.textContent?.trim() === "홍길동#KR1") as HTMLButtonElement).click());
-    await page.waitForSelector('button[aria-label="홍길동#KR1 최근 검색에서 삭제"]');
+    await page.evaluate(() => localStorage.setItem("bgms:lol-search-history:v1", JSON.stringify({ recent: ["다른계정#KR2"], favorites: [] })));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
+    await page.waitForSelector('[aria-label="검색 결과"]');
+    await page.focus("#lol-riot-id");
+    await page.keyboard.down("Control");
+    await page.keyboard.press("A");
+    await page.keyboard.up("Control");
+    await page.keyboard.press("Backspace");
+    await page.waitForSelector('[aria-label="즐겨찾기 및 최근 검색"]');
+    expect(await page.$('button[aria-label="다른계정#KR2 검색"]')).not.toBeNull();
     await page.$$eval("button", buttons => (buttons.find(button => button.textContent?.includes("최근 기록 비우기")) as HTMLButtonElement).click());
     expect(await page.$$eval("button", buttons => buttons.some(button => button.textContent?.includes("최근 기록 비우기")))).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.close();
   });
 
-  it("최대 길이 Riot ID 30개가 모바일 검색 기록에서 넘치지 않는다", async () => {
+  it("최대 길이 Riot ID 30개가 모바일 포커스 목록에서 넘치지 않는다", async () => {
     const page = await open(375, 667);
     await page.evaluate(() => {
       const ids = Array.from({ length: 30 }, (_, index) => `${"P".repeat(60)}${String(index).padStart(4, "0")}#${"T".repeat(16)}`);
@@ -284,10 +306,96 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     });
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
-    await page.waitForSelector('[aria-label="검색 기록"] li');
-    expect(await page.$$eval('[aria-label="검색 기록"] button', buttons => buttons.every(button => button.getBoundingClientRect().height >= 44))).toBe(true);
+    await page.focus("#lol-riot-id");
+    await page.waitForSelector('[aria-label="즐겨찾기 및 최근 검색"]');
+    expect(await page.$$eval('[aria-label="즐겨찾기 및 최근 검색"] button', buttons => buttons.every(button => button.getBoundingClientRect().height >= 44))).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    expect(await page.$$eval('[aria-label="검색 기록"] li', items => items.every(item => item.getBoundingClientRect().right <= innerWidth))).toBe(true);
+    expect(await page.$$eval('[aria-label="즐겨찾기 및 최근 검색"] > div', items => items.every(item => item.getBoundingClientRect().right <= innerWidth))).toBe(true);
+    await page.close();
+  });
+
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("검색 추천 드롭다운이 %ix%i 화면 안에 있고 추천을 우선 표시한다", async (width, height) => {
+    const page = await open(width, height);
+    await page.evaluate(() => localStorage.setItem("bgms:lol-search-history:v1", JSON.stringify({ recent: ["최근#KR1"], favorites: ["즐겨찾기#KR1"] })));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
+    await page.type("#lol-riot-id", "홍길동#KR1");
+    await page.waitForSelector('[role="listbox"] [role="option"]');
+    expect(await page.$('[aria-label="즐겨찾기 및 최근 검색"]')).toBeNull();
+    const bounds = await page.$eval('[data-testid="lol-search-dropdown"]', element => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, width: rect.width, scrollWidth: element.scrollWidth, clientHeight: element.clientHeight };
+    });
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(width);
+    expect(bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.width + 1);
+    expect(bounds.clientHeight).toBeLessThanOrEqual(352);
+    expect(await page.$$eval('[role="option"]', options => options.every(option => option.getBoundingClientRect().height >= 44))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `tmp/lol-public-review/search-dropdown-${width}x${height}.png`, fullPage: true });
+    await page.close();
+  });
+
+  it("추천 키보드 선택·Escape 복귀·IME Enter 차단·바깥 클릭을 처리한다", async () => {
+    const page = await open(390, 844);
+    await page.evaluate(() => localStorage.setItem("bgms:lol-search-history:v1", JSON.stringify({ recent: ["최근#KR1"], favorites: ["즐겨찾기#KR1"] })));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
+    await page.focus("#lol-riot-id");
+    await page.waitForSelector('[aria-label="즐겨찾기 및 최근 검색"]');
+    await page.keyboard.type("홍길동");
+    await page.waitForSelector('[role="listbox"] [role="option"]');
+    await page.keyboard.press("ArrowDown");
+    expect(await page.$eval("#lol-riot-id", element => element.getAttribute("aria-activedescendant"))).toContain("option-0");
+    await page.keyboard.down("Control");
+    await page.keyboard.press("A");
+    await page.keyboard.up("Control");
+    await page.keyboard.type("홍길동2#KR2");
+    await page.waitForFunction(() => document.querySelector('[role="listbox"]')?.textContent?.includes("홍길동2") === true);
+    expect(await page.$eval("#lol-riot-id", element => element.getAttribute("aria-activedescendant"))).toBeNull();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector('section[aria-label="최근 경기"] article');
+    expect(page.url()).toContain(encodeURIComponent("홍길동-KR1"));
+
+    await page.goto(`${base}/lol/kr`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
+    await page.focus("#lol-riot-id");
+    await page.keyboard.type("홍길동");
+    await page.waitForSelector('[role="listbox"] [role="option"]');
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => (document.activeElement as HTMLElement)?.getAttribute("role"))).toBe("option");
+    await page.keyboard.press("Escape");
+    expect(await page.evaluate(() => (document.activeElement as HTMLElement)?.id)).toBe("lol-riot-id");
+    expect(await page.$('[role="listbox"]')).toBeNull();
+
+    const prevented = await page.$eval("#lol-riot-id", input => {
+      input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      const event = new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, isComposing: true, bubbles: true, cancelable: true });
+      input.dispatchEvent(event);
+      input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+      return event.defaultPrevented;
+    });
+    expect(prevented).toBe(true);
+    await page.focus("#lol-riot-id");
+    await page.keyboard.down("Control");
+    await page.keyboard.press("A");
+    await page.keyboard.up("Control");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.type("홍길동");
+    await page.waitForSelector('[role="listbox"] [role="option"]');
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await page.waitForFunction(() => !document.querySelector("form")?.contains(document.activeElement));
+    await page.waitForFunction(() => document.querySelector('[role="listbox"]') === null);
+    await page.focus("#lol-riot-id");
+    await page.waitForSelector('[role="listbox"] [role="option"]');
+    await page.click("h1");
+    expect(await page.$('[role="listbox"]')).toBeNull();
     await page.close();
   });
 

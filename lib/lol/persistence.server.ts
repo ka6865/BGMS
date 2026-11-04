@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { recordLolOpsMetric } from "./ops.server";
 import type { RankingStore } from "./ranking";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
@@ -71,8 +72,8 @@ const LOL_DB_TIMEOUT_MS = 10_000;
 
 function persistenceFailure(operation: string, error: unknown, signal: AbortSignal): never {
   if (["persist_lol_search_snapshot", "persist_lol_match_details"].includes(operation)
-    && error && typeof error === "object" && "code" in error && error.code === "40001") throw new LolLeaseExpiredError();
-  if (operation === "commit_lol_season_progress" && error && typeof error === "object" && "code" in error && error.code === "40001") {
+    && error && typeof error === "object" && "code" in error && ["40001", "PT409"].includes(String(error.code))) throw new LolLeaseExpiredError();
+  if (operation === "commit_lol_season_progress" && error && typeof error === "object" && "code" in error && ["40001", "PT409"].includes(String(error.code))) {
     throw new LolSeasonCursorStaleError();
   }
   const cause = error && typeof error === "object" ? error as { name?: unknown; message?: unknown } : undefined;
@@ -270,6 +271,19 @@ export async function persistLolSearchSnapshot(input: SearchSnapshot): Promise<v
     })),
     p_matches: input.matches.map(({ summary, raw }) => ({ summary, raw })),
   });
+  try {
+    after(async () => {
+      const deadline = Date.now() + 20_000;
+      for (const { summary } of input.matches) {
+        if (Date.now() >= deadline) break;
+        const matchId = (summary as { matchId?: unknown })?.matchId;
+        if (typeof matchId !== "string") continue;
+        try { await rpc("aggregate_lol_match_benchmarks", { p_match_id: matchId }); }
+        catch { break; } // 정기 작업이 원문에서 미집계 경기를 다시 찾는다.
+      }
+    });
+  } catch { /* 요청 컨텍스트가 없는 CLI는 정기 작업으로 집계한다. */ }
+
 }
 
 export async function persistLolMatchDetails(input: MatchSnapshot): Promise<void> {
