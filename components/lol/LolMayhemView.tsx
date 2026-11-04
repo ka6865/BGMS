@@ -14,7 +14,7 @@ const rarityColors: Record<LolAugmentRarity, string> = { prismatic: "text-fuchsi
 const chip = (active: boolean) => `min-h-11 rounded-lg border px-3 text-sm font-semibold transition ${active
   ? "border-amber-400 bg-amber-400/10 text-amber-300" : "border-zinc-700 text-zinc-400 hover:text-zinc-100"}`;
 
-export default function LolMayhemView({ catalog, error = false, dataset, champions = [], championStatsEnabled = false }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[]; championStatsEnabled?: boolean }) {
+export default function LolMayhemView({ catalog, error = false, dataset, champions = [], championStatsEnabled = false, championVersion = null }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[]; championStatsEnabled?: boolean; championVersion?: string | null }) {
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [newOnly, setNewOnly] = useState(false);
@@ -23,7 +23,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
   const visible = useMemo(() => filterLolMayhemAugments(augments ?? [], query, rarity, newOnly), [augments, query, rarity, newOnly]);
   const newCount = augments?.filter(augment => augment.isNew).length ?? 0;
 
-  return <main className="mx-auto w-full max-w-5xl px-4 py-6 text-zinc-100 sm:px-6">
+  return <main className={`mx-auto w-full px-4 py-6 text-zinc-100 sm:px-6 ${view === "champions" ? "max-w-7xl" : "max-w-5xl"}`}>
     <h1 className="text-xl font-bold">증바람 증강</h1>
     <p className="mt-1 text-sm text-zinc-400">무작위 총력전: 아수라장의 챔피언별 선택 통계와 증강 도감입니다.</p>
     {championStatsEnabled && <div role="group" aria-label="증바람 보기" className="mt-5 flex flex-wrap gap-2">
@@ -41,7 +41,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
         패치 {catalog.displayPatch} · 증강 {catalog.augments.length}개 · 신규 {newCount}개
         {catalog.notesUrl && <> · <a href={catalog.notesUrl} target="_blank" rel="noreferrer" className="text-amber-300 underline underline-offset-2">공식 패치 노트</a></>}
       </p>
-      {championStatsEnabled && view === "champions" && <LolMayhemChampionStats enabled patch={catalog.clientPatch} champions={champions} catalog={catalog} />}
+      {championStatsEnabled && view === "champions" && <LolMayhemChampionStats enabled patch={catalog.clientPatch} champions={champions} catalog={catalog} championVersion={championVersion} />}
       {view === "catalog" && <><div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
         <input
           type="search" value={query} onChange={event => setQuery(event.target.value)}

@@ -4,10 +4,19 @@ import { mkdir, readFile } from "node:fs/promises";
 import { build } from "esbuild";
 import postcss from "postcss";
 import tailwind from "@tailwindcss/postcss";
-import puppeteer, { type Browser } from "puppeteer";
+import puppeteer, { type Browser, type Page } from "puppeteer";
 import type { LolMayhemCatalog } from "../lib/lol/augments/catalog";
 import type { MayhemDatasetAdminData, PublicMayhemDataset } from "../lib/lol/mayhemDatasetView";
 import type { ChampionDatasetAdminData, ChampionDatasetManifest, PublicChampionStats } from "../lib/lol/mayhemChampionDataset";
+
+async function openChampionPicker(page: Page) {
+  const toggle = '[aria-label="챔피언 선택 열기"]';
+  if (await page.$eval(toggle, node => node.getBoundingClientRect().height > 0 && node.getAttribute("aria-expanded") === "false")) await page.click(toggle);
+}
+async function chooseChampion(page: Page, id: string) {
+  await openChampionPicker(page);
+  await page.click(`button[data-champion-id="${id}"]`);
+}
 
 const catalog: LolMayhemCatalog = {
   clientPatch: "16.21", displayPatch: "26.21", releasedAt: "2026-10-20T18:00:00Z", notesUrl: "https://example.test/notes",
@@ -93,7 +102,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
       const isStats = req.url?.startsWith("/stats");
       const props = req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/dataset"
-        ? { catalog, dataset, champions: champs, championStatsEnabled: true } : isStats ? { catalog, champions: champs, championStatsEnabled: true } : { catalog };
+        ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : { catalog };
       res.setHeader("Content-Type", "text/html");
       res.end('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         + `<link rel="stylesheet" href="/style.css"></head><body class="bg-zinc-950"><div id="root">${req.url === "/admin" ? renderToString(createElement(Admin)) : renderToString(createElement(View, props))}</div>`
@@ -174,18 +183,19 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     page.on("request", request => { if (request.url().startsWith(base) && (!request.url().includes("/api/lol/") || request.url().includes("/api/lol/mayhem/champion-stats/"))) void request.continue(); else void request.abort(); });
     const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     await page.goto(`${base}/stats`, { waitUntil: "networkidle0" });
-    const select = 'select[aria-label="통계 챔피언 선택"]';
+    const selected = 'button[data-champion-id="64"]';
     expect(await page.$('ul[aria-label="증강 목록"]')).toBeNull();
     await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("6.97%"));
-    expect(await page.$eval(select, node => (node as HTMLSelectElement).getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
-    await page.focus(select); await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
-    await page.select(select, "63");
-    await page.select(select, "64");
+    await openChampionPicker(page);
+    expect(await page.$eval(selected, node => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+    await page.focus(selected); await page.keyboard.press("Enter");
+    await chooseChampion(page, "63");
+    await chooseChampion(page, "64");
     await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("6.97%"));
     const text = await page.$eval('[aria-label="챔피언별 선택 통계"]', node => node.textContent ?? "");
-    expect(text).toContain("CN"); expect(text).toContain("WORLD"); expect(text).toContain("이전 패치 통계");
+    expect(text).not.toContain("CN"); expect(text).not.toContain("WORLD"); expect(text).not.toContain("Data provider"); expect(text).toContain("이전 패치 통계");
     const rows = await page.$$eval('[aria-label="챔피언별 선택 통계"] ul > li', items => items.map(item => item.textContent ?? ""));
-    expect(rows[0]).toContain("123,456,789,012"); expect(rows[1]).not.toContain("출처 제공 표본");
+    expect(rows[0]).toContain("123,456,789,012"); expect(rows[1]).not.toContain("표본 ");
     expect(rows[2]).toContain("0.00%"); expect(rows[3]).toContain("미제공");
     expect(rows[0]).toContain("공격 사거리");
     await page.click('[aria-label="통계 증강 등급"] button[data-rarity="gold"]');
@@ -195,18 +205,23 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     expect(await page.$eval('[aria-label="챔피언별 선택 통계"]', node => node.textContent)).toContain("조건에 맞는 증강이 없습니다");
     await page.click('[aria-label="통계 필터 초기화"]');
     expect(await page.$$eval('[aria-label="챔피언별 선택 통계"] ul > li', items => items.length)).toBe(4);
+    await openChampionPicker(page);
     await page.type('input[aria-label="통계 챔피언 검색"]', "ㄹㅅ");
-    expect(await page.$eval(select, node => (node as HTMLSelectElement).value)).toBe("64");
-    expect(await page.$$eval(`${select} option`, items => items.length)).toBe(1);
+    expect(await page.$eval(selected, node => node.getAttribute("aria-pressed"))).toBe("true");
+    expect(await page.$$eval('[aria-label="통계 챔피언 목록"] button', items => items.length)).toBe(1);
+    expect(await page.$eval(`${selected} img`, node => node.getAttribute("src"))).toContain("/16.21.1/img/champion/Lux.png");
+    await page.type('input[aria-label="통계 챔피언 검색"]', "없는챔피언");
+    expect(await page.$eval('[aria-label="챔피언별 선택 통계"] h3', node => node.textContent)).toContain("럭스");
+    expect(await page.$eval('[aria-label="통계 챔피언 목록"]', node => node.textContent)).toContain("일치하는 챔피언이 없습니다");
     expect(await noOverflow()).toBe(true);
     await page.screenshot({ path: `tmp/lol-mayhem-review/champion-stats-${width}x${height}.png`, fullPage: true });
     await page.click('[aria-label="증바람 보기"] button:nth-child(2)');
     expect(await page.$$eval('ul[aria-label="증강 목록"] > li', items => items.length)).toBe(12);
     await page.click('[aria-label="증바람 보기"] button:first-child');
-    expect(await page.$(select)).not.toBeNull();
-    await page.goto(`${base}/stats-empty`, { waitUntil: "networkidle0" }); await page.select(select, "63");
+    expect(await page.$('[aria-label="챔피언 선택 열기"]')).not.toBeNull();
+    await page.goto(`${base}/stats-empty`, { waitUntil: "networkidle0" });
     await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("아직 없습니다"));
-    await page.goto(`${base}/stats-error`, { waitUntil: "networkidle0" }); await page.select(select, "63");
+    await page.goto(`${base}/stats-error`, { waitUntil: "networkidle0" });
     await page.waitForSelector('[aria-label="챔피언별 선택 통계"] [role="alert"]');
     expect(await page.$eval('[aria-label="챔피언별 선택 통계"]', node => node.textContent)).toContain("다시 시도");
     expect(errors).toEqual([]); await page.close();
@@ -218,7 +233,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const sent = new Promise<void>(resolve => server.once("delayed-stats-sent", resolve));
     await page.goto(`${base}/stats-race`, { waitUntil: "domcontentloaded" });
     await started;
-    await page.select('select[aria-label="통계 챔피언 선택"]', "64");
+    await chooseChampion(page, "64");
     await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("88.88%"));
     await sent;
     await page.waitForNetworkIdle({ idleTime: 500 });
