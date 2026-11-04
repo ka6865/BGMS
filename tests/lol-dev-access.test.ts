@@ -60,21 +60,21 @@ describe("requireLolDevAdmin", () => {
       vi.stubEnv("LOL_DEV_OWNER_USER_ID", legacyOwner);
       for (const id of [adminId, otherAdminId]) {
         configureAdmin(id);
-        expect(await requireLolDevAdmin()).toEqual({ ok: true });
+        expect(await requireLolDevAdmin()).toEqual({ ok: true, userId: id });
         expect(mocks.eq).toHaveBeenLastCalledWith("id", id);
       }
       expect(mocks.single).toHaveBeenCalledTimes(2);
     },
   );
 
-  it("현재 관리자는 데이터 필드 노출 없이 성공한다", async () => {
+  it("현재 관리자의 검수 식별자만 돌려주고 프로필은 노출하지 않는다", async () => {
     configureAdmin(adminId, {
       role: "admin",
       nickname: "private",
       extra: "private",
     });
 
-    expect(await requireLolDevAdmin()).toEqual({ ok: true });
+    expect(await requireLolDevAdmin()).toEqual({ ok: true, userId: adminId });
     expect(mocks.from).toHaveBeenCalledWith("profiles");
     expect(mocks.eq).toHaveBeenCalledWith("id", adminId);
   });
@@ -131,7 +131,7 @@ describe("requireLolDevAdmin", () => {
   });
 
   it("각 요청에서 관리자 역할을 다시 확인한다", async () => {
-    expect(await requireLolDevAdmin()).toEqual({ ok: true });
+    expect(await requireLolDevAdmin()).toEqual({ ok: true, userId: adminId });
     mocks.single.mockResolvedValueOnce({ data: { role: "user" }, error: null });
 
     expect(await requireLolDevAdmin()).toMatchObject({

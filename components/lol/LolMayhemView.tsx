@@ -1,6 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { LolChampion } from "@/lib/lol/champions";
+import type { PublicMayhemDataset } from "@/lib/lol/mayhemDatasetView";
+import LolMayhemDatasetView from "./LolMayhemDatasetView";
 import {
   LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments,
   type LolAugmentRarity, type LolMayhemCatalog,
@@ -10,7 +13,7 @@ const rarityColors: Record<LolAugmentRarity, string> = { prismatic: "text-fuchsi
 const chip = (active: boolean) => `min-h-11 rounded-lg border px-3 text-sm font-semibold transition ${active
   ? "border-amber-400 bg-amber-400/10 text-amber-300" : "border-zinc-700 text-zinc-400 hover:text-zinc-100"}`;
 
-export default function LolMayhemView({ catalog, error = false }: { catalog: LolMayhemCatalog | null; error?: boolean }) {
+export default function LolMayhemView({ catalog, error = false, dataset, champions = [] }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[] }) {
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [newOnly, setNewOnly] = useState(false);
@@ -21,6 +24,10 @@ export default function LolMayhemView({ catalog, error = false }: { catalog: Lol
   return <main className="mx-auto w-full max-w-5xl px-4 py-6 text-zinc-100 sm:px-6">
     <h1 className="text-xl font-bold">증바람 증강</h1>
     <p className="mt-1 text-sm text-zinc-400">무작위 총력전: 아수라장의 현재 증강을 찾아볼 수 있습니다.</p>
+    {catalog && dataset && <details className="mt-4 rounded-lg border border-zinc-800 px-3">
+      <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-amber-300">챔피언별 해외 조합·전체 선택률</summary>
+      <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog} />
+    </details>}
     {!catalog ? <p role={error ? "alert" : undefined} className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">
       {error ? "증강 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." : "아직 게시된 증강 정보가 없습니다."}
     </p> : <>

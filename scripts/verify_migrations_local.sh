@@ -141,6 +141,8 @@ MIGRATIONS=(
   "20261031040000_lol_master_publication_delete_where"
   "20261102183251_pubg_rankings_searched_players"
   "20261103135922_linked_member_performance_retention"
+  "20261103192202_lol_mayhem_datasets"
+  "20261103193039_lol_mayhem_combo_group_capacity"
 )
 
 cleanup() {
@@ -539,6 +541,7 @@ echo "  ✅ 계정 삭제와 동시에 들어온 LoL 보관본 저장을 거절"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-champion-bans-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-ranking-publication-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-champion-stats-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-mayhem-dataset-scenarios.sql
 # 같은 버킷의 동시 호출은 정확히 한 번만 허용한다.
 "${PSQL[@]}" -c "set role service_role; delete from public.lol_public_rate_limits where bucket_key = 'search:' || repeat('e', 64);"
 lol_limit_pids=()

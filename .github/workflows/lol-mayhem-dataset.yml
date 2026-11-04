@@ -1,0 +1,44 @@
+name: LoL 증바람 해외 데이터 수집
+on:
+  schedule:
+    - cron: '43 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '다운로드와 검증만 실행'
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: lol-mayhem-dataset
+  cancel-in-progress: false
+jobs:
+  collect:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' || vars.LOL_MAYHEM_DATASET_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: 원본 보관과 검수 후보 생성
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LOL_PERSISTENCE_ENABLED: 'true'
+          LOL_MAYHEM_DATASET_ENABLED: ${{ vars.LOL_MAYHEM_DATASET_ENABLED }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' && "$DRY_RUN" != 'false' ]]; then
+            npx tsx scripts/lol_mayhem_dataset_sync.ts --dry-run
+          else
+            npx tsx scripts/lol_mayhem_dataset_sync.ts --apply
+          fi

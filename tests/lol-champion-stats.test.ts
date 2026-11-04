@@ -4,7 +4,9 @@ import {
   classifyLolItems, extractLolStatMatch, lolSkillOrder, lolStatTierFilter, lolStatWantsTimeline, type LolItemCatalog,
 } from "../lib/lol/championStats";
 import {
-  CollectorRiotError, LOL_STAT_BUCKETS, parseCollectorArgs, runLolStatCollector, type CollectorCursor, type CollectorDeps,
+  buildLolStatCollectorStatusUpdate, CollectorRiotError, LOL_STAT_BUCKETS, parseCollectorArgs,
+  recordLolStatCollectorStatus, runLolStatCollector, withLolStatCollectorLease,
+  type CollectorCursor, type CollectorDeps, type CollectorSummary,
 } from "../scripts/lol_collect_champion_stats";
 
 const positions = ["TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY"];
@@ -200,10 +202,23 @@ describe("챔피언 통계 수집기", () => {
     } });
     const summary = await runLolStatCollector(retry.deps, options({ maxMatches: 2 }));
     expect(summary.matches).toBe(2);
-    expect(retry.sleeps).toContain(31_000);
+    expect(retry.sleeps.reduce((sum, ms) => sum + ms, 0)).toBeGreaterThanOrEqual(31_000);
     const expired = collectorDeps({ riot: async () => { throw new CollectorRiotError("key_or_permission"); } });
     expect(await runLolStatCollector(expired.deps, options())).toMatchObject({ stopReason: "key_or_permission", matches: 0 });
     expect(expired.saved).toHaveLength(1);
+  });
+
+  it("남은 실행 예산을 넘는 Retry-After는 기다리지 않고 커서를 저장한다", async () => {
+    const retry = collectorDeps({ riot: async () => { throw new CollectorRiotError("rate_limited", 1800); } });
+    expect(await runLolStatCollector(retry.deps, options({ maxMinutes: 15, maxMatches: 0 }))).toMatchObject({ stopReason: "limit", matches: 0, riotCalls: 1 });
+    expect(retry.sleeps).toEqual([]); expect(retry.saved).toHaveLength(1);
+  });
+
+  it("호출 제한 대기 중에도 중단 신호를 확인한다", async () => {
+    let stop = false;
+    const retry = collectorDeps({ riot: async () => { throw new CollectorRiotError("rate_limited", 30); }, stopped: () => stop,
+      sleep: async () => { stop = true; } });
+    expect(await runLolStatCollector(retry.deps, options())).toMatchObject({ stopReason: "stopped", riotCalls: 1 });
   });
 
   it("dry-run은 저장하지 않고, timeline은 비율 1이면 경기마다 호출한다", async () => {
@@ -230,6 +245,54 @@ describe("챔피언 통계 수집기", () => {
     expect(parseCollectorArgs(["--apply", "--per-2min=40", "--timeline-ratio=0.25"], { LOL_COLLECT_ENABLED: "true" }))
       .toMatchObject({ apply: true, per2Min: 40, timelineRatio: 0.25, maxMatches: 0 });
     expect(parseCollectorArgs(["--dry-run"], {})).toMatchObject({ apply: false, per2Min: 20, timelineRatio: 0.5, maxMatches: 3 });
+  });
+
+  it("수집 도중 실패해도 collection lease를 해제한다", async () => {
+    let released = false;
+    await expect(withLolStatCollectorLease(
+      async () => { throw new Error("collector failed"); },
+      async () => { released = true; },
+    )).rejects.toThrow("collector failed");
+    expect(released).toBe(true);
+  });
+
+  it("상태 행은 실행 수·수집 시각·신규 집계 수와 PII 없는 오류 코드를 기록한다", () => {
+    const previous = {
+      last_success_at: "2026-11-03T00:00:00.000Z",
+      last_data_changed_at: "2026-11-02T00:00:00.000Z",
+      consecutive_failures: 2,
+      counts: { runs: 7 },
+    };
+    const summary: CollectorSummary = {
+      dryRun: false, stopReason: "limit", riotCalls: 30, seeds: 4, matches: 6, skipped: 1,
+      timelines: 3, duplicates: 2, failures: 0, byTier: { GOLD: 6 },
+    };
+    const checkedAt = "2026-11-04T00:00:00.000Z";
+    const finishedAt = "2026-11-04T00:15:00.000Z";
+    const succeeded = buildLolStatCollectorStatusUpdate(previous, checkedAt, finishedAt, summary);
+    expect(succeeded).toMatchObject({
+      job_key: "champion-stats", last_checked_at: checkedAt, last_success_at: finishedAt,
+      last_data_changed_at: finishedAt, last_error_code: null, consecutive_failures: 0, updated_at: finishedAt,
+      counts: { runs: 8, riot_calls: 30, seeds: 4, matches: 6, timelines: 3, duplicates: 2, failures: 0, stop_reason: "limit" },
+    });
+
+    const failed = buildLolStatCollectorStatusUpdate(previous, checkedAt, finishedAt,
+      { ...summary, stopReason: "key_or_permission" }, "puuid:private-value");
+    expect(failed).toMatchObject({
+      last_success_at: previous.last_success_at, last_error_code: "collector_failed", consecutive_failures: 3,
+    });
+    expect(JSON.stringify(failed)).not.toContain("private-value");
+  });
+
+  it("상태 테이블 미적용·쓰기 실패는 수집 결과를 막지 않는다", async () => {
+    let upsertCalled = false;
+    const recorded = await recordLolStatCollectorStatus(
+      async () => { throw new Error("relation missing"); },
+      async () => { upsertCalled = true; },
+      "2026-11-04T00:00:00.000Z", "2026-11-04T00:15:00.000Z", null, "collector_failed",
+    );
+    expect(recorded).toBe(false);
+    expect(upsertCalled).toBe(false);
   });
 });
 

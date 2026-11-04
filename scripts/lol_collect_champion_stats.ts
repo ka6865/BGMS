@@ -42,6 +42,97 @@ export type CollectorSummary = {
   dryRun: boolean; stopReason: string; riotCalls: number; seeds: number; matches: number; skipped: number;
   timelines: number; duplicates: number; failures: number; byTier: Record<string, number>;
 };
+export type LolStatCollectorStatusPrevious = {
+  last_success_at?: string | null;
+  last_data_changed_at?: string | null;
+  consecutive_failures?: number | null;
+  counts?: unknown;
+};
+export type LolStatCollectorStatusUpdate = {
+  job_key: "champion-stats";
+  last_checked_at: string;
+  last_success_at: string | null;
+  last_data_changed_at: string | null;
+  last_error_code: string | null;
+  consecutive_failures: number;
+  updated_at: string;
+  counts: {
+    runs: number;
+    riot_calls: number;
+    seeds: number;
+    matches: number;
+    skipped: number;
+    timelines: number;
+    duplicates: number;
+    failures: number;
+    by_tier: Record<string, number>;
+    stop_reason: string;
+  };
+};
+
+const STATUS_CODES = ["limit", "done", "stopped", "rate_limited", "congested", "busy", "key_or_permission", "unconfigured", "not_found", "timeout", "upstream", "persistence", "collector_failed"];
+const statusCode = (value: unknown) => typeof value === "string" && STATUS_CODES.includes(value) ? value : "collector_failed";
+const safeCount = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+
+export function buildLolStatCollectorStatusUpdate(
+  previous: LolStatCollectorStatusPrevious | null,
+  checkedAt: string,
+  finishedAt: string,
+  summary: CollectorSummary | null,
+  failureCode?: unknown,
+  appliedMatches = 0,
+): LolStatCollectorStatusUpdate {
+  const complete = summary !== null && !summary.dryRun && (summary.stopReason === "limit" || summary.stopReason === "done") && failureCode === undefined;
+  const rawErrorCode = failureCode ?? (complete ? null : summary?.stopReason ?? "collector_failed");
+  const previousCounts = previous?.counts && typeof previous.counts === "object" && !Array.isArray(previous.counts)
+    ? previous.counts as Record<string, unknown> : {};
+  const matches = summary?.matches ?? safeCount(appliedMatches);
+  const stopReason = summary?.stopReason ?? (rawErrorCode === null ? "collector_failed" : statusCode(rawErrorCode));
+  return {
+    job_key: "champion-stats",
+    last_checked_at: checkedAt,
+    last_success_at: complete ? finishedAt : previous?.last_success_at ?? null,
+    last_data_changed_at: matches > 0 ? finishedAt : previous?.last_data_changed_at ?? null,
+    last_error_code: rawErrorCode === null ? null : statusCode(rawErrorCode),
+    consecutive_failures: complete ? 0 : safeCount(previous?.consecutive_failures) + 1,
+    updated_at: finishedAt,
+    counts: {
+      runs: safeCount(previousCounts.runs) + 1,
+      riot_calls: summary?.riotCalls ?? 0,
+      seeds: summary?.seeds ?? 0,
+      matches,
+      skipped: summary?.skipped ?? 0,
+      timelines: summary?.timelines ?? 0,
+      duplicates: summary?.duplicates ?? 0,
+      failures: summary?.failures ?? 0,
+      by_tier: summary?.byTier ?? {},
+      stop_reason: statusCode(stopReason),
+    },
+  };
+}
+
+export async function recordLolStatCollectorStatus(
+  readPrevious: () => Promise<LolStatCollectorStatusPrevious | null>,
+  upsert: (status: LolStatCollectorStatusUpdate) => Promise<void>,
+  checkedAt: string,
+  finishedAt: string,
+  summary: CollectorSummary | null,
+  failureCode?: unknown,
+  appliedMatches = 0,
+): Promise<boolean> {
+  try {
+    await upsert(buildLolStatCollectorStatusUpdate(await readPrevious(), checkedAt, finishedAt, summary, failureCode, appliedMatches));
+    return true;
+  } catch {
+    // 상태 테이블은 별도 migration과 배포될 수 있어 수집 결과를 막지 않는다.
+    return false;
+  }
+}
+
+export async function withLolStatCollectorLease<T>(run: () => Promise<T>, release: () => Promise<void>): Promise<T> {
+  try { return await run(); }
+  finally { await release(); }
+}
 
 export function parseCollectorArgs(args: string[], env: Record<string, string | undefined> = process.env): CollectorOptions {
   const value = (name: string) => args.find(arg => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -86,12 +177,24 @@ export async function runLolStatCollector(deps: CollectorDeps, options: Collecto
 
   const timeUp = () => (options.maxMinutes > 0 && deps.now() - startedAt >= options.maxMinutes * 60_000)
     || (options.maxMatches > 0 && summary.matches + summary.skipped >= options.maxMatches);
+  const waitWithinBudget = async (milliseconds: number, interruptible = false) => {
+    if (timeUp() || (options.maxMinutes > 0 && milliseconds > startedAt + options.maxMinutes * 60_000 - deps.now())) throw new CollectorRiotError("limit");
+    for (let remaining = milliseconds; remaining > 0;) {
+      if (deps.stopped()) throw new CollectorRiotError("stopped");
+      if (timeUp()) throw new CollectorRiotError("limit");
+      const step = interruptible ? Math.min(remaining, 1000) : remaining;
+      await deps.sleep(step);
+      remaining -= step;
+    }
+    if (deps.stopped()) throw new CollectorRiotError("stopped");
+  };
   // 운영 검색과 함께 쓰는 공유 제한 위에 수집기 자체 간격을 둔다. 제한·혼잡은 기다렸다가 같은 요청을 다시 보낸다.
   const call = async (host: "kr" | "asia", path: string, limit?: number): Promise<unknown | null> => {
     for (let attempt = 0; attempt < 6; attempt += 1) {
       if (deps.stopped()) throw new CollectorRiotError("stopped");
+      if (timeUp()) throw new CollectorRiotError("limit");
       const wait = lastCall + interval - deps.now();
-      if (wait > 0) await deps.sleep(wait);
+      if (wait > 0) await waitWithinBudget(wait);
       lastCall = deps.now();
       summary.riotCalls += 1;
       try {
@@ -103,10 +206,10 @@ export async function runLolStatCollector(deps: CollectorDeps, options: Collecto
         if (kind === "not_found") return null;
         if (kind === "rate_limited" || kind === "congested" || kind === "busy") {
           deps.log(`[lol-stats] ${kind} ${retry ?? 5}초 대기`);
-          await deps.sleep(((retry ?? 5) + 1) * 1000);
+          await waitWithinBudget(((retry ?? 5) + 1) * 1000, true);
           continue;
         }
-        if (kind === "persistence") { await deps.sleep(30_000); continue; }
+        if (kind === "persistence") { await waitWithinBudget(30_000, true); continue; }
         return null;
       }
     }
@@ -190,10 +293,17 @@ export async function runLolStatCollector(deps: CollectorDeps, options: Collecto
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let stop = false;
+  let options: CollectorOptions | null = null;
+  let checkedAt: string | null = null;
+  let summary: CollectorSummary | null = null;
+  let appliedMatches = 0;
+  let statusAttempted = false;
+  let persistStatus: ((result: CollectorSummary | null, failureCode?: unknown) => Promise<void>) | null = null;
   process.on("SIGINT", () => { if (stop) process.exit(130); stop = true; console.log("[lol-stats] 현재 경기까지 저장하고 멈춥니다."); });
   process.on("SIGTERM", () => { stop = true; });
   try {
-    const options = parseCollectorArgs(process.argv.slice(2));
+    const parsedOptions = parseCollectorArgs(process.argv.slice(2));
+    options = parsedOptions;
     const { register } = await import("node:module");
     register("data:text/javascript," + encodeURIComponent(`
       export async function resolve(specifier, context, nextResolve) {
@@ -212,7 +322,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const leaseKey = "ops:lol-stat-collector";
     let lease: { token: string; at: number } | null = null;
     const holdLease = async () => {
-      if (!options.apply) return;
+      if (!parsedOptions.apply) return;
       if (lease && Date.now() - lease.at < 60_000) return;
       if (lease) await db.rpc("release_lol_collection_lease", { p_key: leaseKey, p_token: lease.token }).abortSignal(timeout());
       const { data, error } = await db.rpc("acquire_lol_collection_lease", { p_key: leaseKey, p_ttl_seconds: 120 }).abortSignal(timeout());
@@ -220,60 +330,99 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       if (error || !row?.lease_token) throw new Error("다른 수집기가 실행 중입니다.");
       lease = { token: row.lease_token, at: Date.now() };
     };
-    await holdLease();
-    const summary = await runLolStatCollector({
-      riot: async (host, path, limit) => {
-        await holdLease();
-        try { return await requestJson(host, path, 0, true, undefined, limit); }
-        catch (error) {
-          if (error instanceof RiotSearchError) throw new CollectorRiotError(error.kind, error.retryAfterSeconds);
-          throw error;
-        }
-      },
-      loadCursor: async () => {
-        const { data, error } = await db.from("lol_stat_collector_state").select("cursor").eq("singleton", true).abortSignal(timeout()).maybeSingle();
-        if (error) throw new Error("수집 위치를 읽지 못했습니다.");
-        return (data?.cursor as CollectorCursor | undefined) ?? null;
-      },
-      saveCursor: async cursor => {
-        const { error } = await db.from("lol_stat_collector_state").upsert({ singleton: true, cursor, updated_at: new Date().toISOString() }).abortSignal(timeout());
-        if (error) throw new Error("수집 위치를 저장하지 못했습니다.");
-      },
-      filterNew: async ids => {
-        const { data, error } = await db.from("lol_stat_processed_matches").select("match_id").in("match_id", ids).abortSignal(timeout());
-        if (error) throw new CollectorRiotError("persistence");
-        const seen = new Set((data ?? []).map(row => row.match_id));
-        return ids.filter(id => !seen.has(id));
-      },
-      ingest: async (matchId, tier, extract) => {
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const { data, error } = await db.rpc("ingest_lol_stat_match", {
-            p_match_id: matchId, p_patch: extract.patch, p_queue_id: extract.queueId, p_tier: tier,
-            p_has_timeline: extract.hasTimeline, p_skipped_reason: extract.skipped, p_payload: extract.payload ?? {},
-          }).abortSignal(timeout());
-          if (!error) return data === true;
-          await new Promise(resolve => setTimeout(resolve, 5_000));
-        }
-        throw new Error("집계 저장에 실패했습니다.");
-      },
-      items: async () => {
-        const version = await getLolDataDragonVersion();
-        const response = await fetch(`https://ddragon.leagueoflegends.com/cdn/${version}/data/ko_KR/item.json`, { redirect: "error", signal: AbortSignal.timeout(10_000) });
-        if (!response.ok) throw new Error("아이템 정보를 받지 못했습니다.");
-        return classifyLolItems(await response.json());
-      },
-      sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
-      now: () => Date.now(),
-      log: line => console.log(line),
-      stopped: () => stop,
-    }, options);
-    if (lease) await db.rpc("release_lol_collection_lease", { p_key: leaseKey, p_token: (lease as { token: string }).token }).abortSignal(timeout());
-    console.log(JSON.stringify(summary, null, 2));
-    if (summary.stopReason === "key_or_permission" || summary.stopReason === "unconfigured") {
+    const recordStatus = async (result: CollectorSummary | null, failureCode?: unknown) => {
+      const runCheckedAt = checkedAt;
+      if (!parsedOptions.apply || !runCheckedAt) return;
+      statusAttempted = true;
+      const recorded = await recordLolStatCollectorStatus(
+        async () => {
+          const { data, error } = await db.from("lol_data_sync_status").select("last_success_at,last_data_changed_at,consecutive_failures,counts")
+            .eq("job_key", "champion-stats").abortSignal(timeout()).maybeSingle();
+          if (error) throw new Error("status_read_failed");
+          return data as LolStatCollectorStatusPrevious | null;
+        },
+        async status => {
+          const { error } = await db.from("lol_data_sync_status").upsert(status, { onConflict: "job_key" }).abortSignal(timeout());
+          if (error) throw new Error("status_write_failed");
+        },
+        runCheckedAt, new Date().toISOString(), result, failureCode, appliedMatches,
+      );
+      if (!recorded) console.warn("[lol-stats] status_write_skipped");
+    };
+    persistStatus = recordStatus;
+
+    const result = await withLolStatCollectorLease(async () => {
+      await holdLease();
+      if (parsedOptions.apply) checkedAt = new Date().toISOString();
+      try {
+        summary = await runLolStatCollector({
+          riot: async (host, path, limit) => {
+            await holdLease();
+            try { return await requestJson(host, path, 0, true, undefined, limit); }
+            catch (error) {
+              if (error instanceof RiotSearchError) throw new CollectorRiotError(error.kind, error.retryAfterSeconds);
+              throw error;
+            }
+          },
+          loadCursor: async () => {
+            const { data, error } = await db.from("lol_stat_collector_state").select("cursor").eq("singleton", true).abortSignal(timeout()).maybeSingle();
+            if (error) throw new Error("수집 위치를 읽지 못했습니다.");
+            return (data?.cursor as CollectorCursor | undefined) ?? null;
+          },
+          saveCursor: async cursor => {
+            const { error } = await db.from("lol_stat_collector_state").upsert({ singleton: true, cursor, updated_at: new Date().toISOString() }).abortSignal(timeout());
+            if (error) throw new Error("수집 위치를 저장하지 못했습니다.");
+          },
+          filterNew: async ids => {
+            const { data, error } = await db.from("lol_stat_processed_matches").select("match_id").in("match_id", ids).abortSignal(timeout());
+            if (error) throw new CollectorRiotError("persistence");
+            const seen = new Set((data ?? []).map(row => row.match_id));
+            return ids.filter(id => !seen.has(id));
+          },
+          ingest: async (matchId, tier, extract) => {
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              const { data, error } = await db.rpc("ingest_lol_stat_match", {
+                p_match_id: matchId, p_patch: extract.patch, p_queue_id: extract.queueId, p_tier: tier,
+                p_has_timeline: extract.hasTimeline, p_skipped_reason: extract.skipped, p_payload: extract.payload ?? {},
+              }).abortSignal(timeout());
+              if (!error) {
+                if (data === true && !extract.skipped) appliedMatches += 1;
+                return data === true;
+              }
+              await new Promise(resolve => setTimeout(resolve, 5_000));
+            }
+            throw new Error("집계 저장에 실패했습니다.");
+          },
+          items: async () => {
+            const version = await getLolDataDragonVersion();
+            const response = await fetch(`https://ddragon.leagueoflegends.com/cdn/${version}/data/ko_KR/item.json`, { redirect: "error", signal: AbortSignal.timeout(10_000) });
+            if (!response.ok) throw new Error("아이템 정보를 받지 못했습니다.");
+            return classifyLolItems(await response.json());
+          },
+          sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+          now: () => Date.now(),
+          log: line => console.log(line),
+          stopped: () => stop,
+        }, parsedOptions);
+      } catch (error) {
+        await recordStatus(summary, error instanceof CollectorRiotError ? error.kind : undefined);
+        throw error;
+      }
+      await recordStatus(summary);
+      return summary;
+    }, async () => {
+      const activeLease = lease;
+      if (activeLease) await db.rpc("release_lol_collection_lease", { p_key: leaseKey, p_token: activeLease.token }).abortSignal(timeout());
+    });
+    console.log(JSON.stringify(result, null, 2));
+    if (result.stopReason === "key_or_permission" || result.stopReason === "unconfigured") {
       console.error("[lol-stats] Riot 키가 만료됐거나 권한이 없습니다. .env.local의 RIOT_API_KEY를 갱신한 뒤 다시 실행하면 이어서 수집합니다.");
       process.exitCode = 2;
     }
   } catch (error) {
+    if (options?.apply && checkedAt && persistStatus && !statusAttempted) {
+      await persistStatus(summary, error instanceof CollectorRiotError ? error.kind : undefined);
+    }
     console.error(`[lol-stats] 수집 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
     process.exitCode = 1;
   }
