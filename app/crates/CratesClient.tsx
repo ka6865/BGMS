@@ -442,7 +442,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           </div>
         </details>
         <p className="hidden sm:flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
-          <a href="https://pubg.com/ko/game-info/probability/pc/11366" target="_blank" rel="noopener noreferrer" className="py-2 underline underline-offset-4 hover:text-slate-200">
+          <a href="https://pubg.com/ko/game-info/probability/pc/11366" target="_blank" rel="noopener noreferrer" className="inline-flex items-center min-h-11 underline underline-offset-4 hover:text-slate-200">
             공식 확률표 #44.1
           </a>
         </p>
@@ -690,7 +690,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
               <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-850 w-fit shrink-0">
                 <button
                   onClick={() => setDrawSubTab("shop")}
-                  className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  className={`flex items-center gap-1.5 min-h-11 px-4 sm:px-6 py-3 rounded-lg text-xs font-black transition-all cursor-pointer ${
                     drawSubTab === "shop"
                       ? "bg-slate-850 text-white shadow"
                       : "text-slate-400 hover:text-slate-200"
@@ -701,7 +701,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 </button>
                 <button
                   onClick={() => setDrawSubTab("inventory")}
-                  className={`flex items-center gap-1.5 px-4 sm:px-6 py-3 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  className={`flex items-center gap-1.5 min-h-11 px-4 sm:px-6 py-3 rounded-lg text-xs font-black transition-all cursor-pointer ${
                     drawSubTab === "inventory"
                       ? "bg-slate-850 text-white shadow"
                       : "text-slate-400 hover:text-slate-200"
