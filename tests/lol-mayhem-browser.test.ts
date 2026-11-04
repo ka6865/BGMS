@@ -221,6 +221,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     await page.select('select[aria-label="통계 챔피언 선택"]', "64");
     await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("88.88%"));
     await sent;
+    await page.waitForNetworkIdle({ idleTime: 500 });
     const text = await page.$eval('[aria-label="챔피언별 선택 통계"]', node => node.textContent);
     expect(text).toContain("럭스"); expect(text).toContain("88.88%"); expect(text).not.toContain("6.97%");
     await page.close();
