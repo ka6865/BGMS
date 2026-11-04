@@ -1,3 +1,4 @@
+import OfficialCatalog from "@/components/game-data/OfficialCatalog";
 import { getBreadcrumbJsonLd } from '@/lib/seo-config';
 import JsonLd from '@/components/seo/JsonLd';
 import WeaponsClient from './WeaponsClient';
@@ -23,6 +24,7 @@ export default async function WeaponsPage() {
     <>
       <JsonLd data={jsonLd} />
       <WeaponsClient />
+      <OfficialCatalog category="weapons" />
     </>
   );
 }

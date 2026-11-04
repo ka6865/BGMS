@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/server/adminGuard";
 import { recordAdminAudit } from "@/lib/server/adminAudit";
+import { hasTrunkCapacityEvidence } from "@/lib/patch-notes/weaponValidate";
 
 interface ApplyResultRow {
   change_id: string;
@@ -26,6 +27,18 @@ export async function POST(request: Request) {
 
   if (typeof proposalId !== "string" || proposalId.length === 0) {
     return NextResponse.json({ error: "proposalId 가 필요합니다." }, { status: 400 });
+  }
+
+  const { data: accepted, error: readError } = await admin.supabaseAdmin
+    .from("weapon_patch_proposal_changes")
+    .select("new_value,evidence_quote")
+    .eq("proposal_id", proposalId)
+    .eq("decision", "accepted")
+    .eq("target_table", "vehicles")
+    .eq("column_name", "trunk_capacity");
+  if (readError) return NextResponse.json({ error: "반영 전 제안 검증에 실패했습니다." }, { status: 500 });
+  if ((accepted ?? []).some((row) => !hasTrunkCapacityEvidence(row.evidence_quote, row.new_value))) {
+    return NextResponse.json({ error: "트렁크 용량 근거를 확인할 수 없는 승인 항목이 있습니다. 해당 항목을 거부해 주세요." }, { status: 400 });
   }
 
   const { data, error } = await admin.supabaseAdmin.rpc("apply_weapon_patch_proposal", {
