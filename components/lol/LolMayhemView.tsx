@@ -18,13 +18,18 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [newOnly, setNewOnly] = useState(false);
+  const [view, setView] = useState(championStatsEnabled ? "champions" : "catalog");
   const augments = catalog?.augments;
   const visible = useMemo(() => filterLolMayhemAugments(augments ?? [], query, rarity, newOnly), [augments, query, rarity, newOnly]);
   const newCount = augments?.filter(augment => augment.isNew).length ?? 0;
 
   return <main className="mx-auto w-full max-w-5xl px-4 py-6 text-zinc-100 sm:px-6">
     <h1 className="text-xl font-bold">증바람 증강</h1>
-    <p className="mt-1 text-sm text-zinc-400">무작위 총력전: 아수라장의 현재 증강을 찾아볼 수 있습니다.</p>
+    <p className="mt-1 text-sm text-zinc-400">무작위 총력전: 아수라장의 챔피언별 선택 통계와 증강 도감입니다.</p>
+    {championStatsEnabled && <div role="group" aria-label="증바람 보기" className="mt-5 flex flex-wrap gap-2">
+      <button aria-pressed={view === "champions"} className={chip(view === "champions")} onClick={() => setView("champions")}>챔피언별 증강</button>
+      <button aria-pressed={view === "catalog"} className={chip(view === "catalog")} onClick={() => setView("catalog")}>전체 증강 도감</button>
+    </div>}
     {catalog && dataset && <details className="mt-4 rounded-lg border border-zinc-800 px-3">
       <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-amber-300">챔피언별 해외 조합·전체 선택률</summary>
       <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog} />
@@ -36,7 +41,8 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
         패치 {catalog.displayPatch} · 증강 {catalog.augments.length}개 · 신규 {newCount}개
         {catalog.notesUrl && <> · <a href={catalog.notesUrl} target="_blank" rel="noreferrer" className="text-amber-300 underline underline-offset-2">공식 패치 노트</a></>}
       </p>
-      <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+      {championStatsEnabled && view === "champions" && <LolMayhemChampionStats enabled patch={catalog.clientPatch} champions={champions} catalog={catalog} />}
+      {view === "catalog" && <><div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
         <input
           type="search" value={query} onChange={event => setQuery(event.target.value)}
           placeholder="이름이나 효과로 검색" aria-label="증강 검색"
@@ -71,8 +77,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
       {catalog.removed.length > 0 && <section aria-label="삭제된 증강" className="mt-6 border-t border-zinc-800 pt-4">
         <h2 className="text-sm font-semibold">패치 {catalog.displayPatch}에서 삭제</h2>
         <p className="mt-1 break-words text-sm leading-6 text-zinc-400">{catalog.removed.join(", ")}</p>
-      </section>}
-      {championStatsEnabled && <LolMayhemChampionStats enabled patch={catalog.clientPatch} champions={champions} catalog={catalog} />}
+      </section>}</>}
       <p className="mt-6 text-xs leading-5 text-zinc-500">
         증강 이름·설명은 게임 클라이언트 자료(CommunityDragon)를 기준으로 합니다. Riot 정책에 따라 증강 승률은 제공하지 않으며,
         Riot API가 아수라장 경기를 공개하지 않아 전적에도 표시되지 않습니다.
