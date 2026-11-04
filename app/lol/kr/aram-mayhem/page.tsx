@@ -3,10 +3,11 @@ import { requireLolPublicPage } from "@/lib/lol/publicAccess.server";
 import { getCachedLolAugmentCatalog } from "@/lib/lol/augments/catalog.server";
 import LolMayhemView from "@/components/lol/LolMayhemView";
 import { getPublicMayhemDataset } from "@/lib/lol/mayhemDatasetStore.server";
-// shortcut: 패치 고정 티어이며 공급원 버전 변경 때 스냅샷을 갱신한다.
+// 새 저장 경로를 활성화하기 전의 공개 화면을 유지하는 전환용 자료다.
 import tierSnapshot from "@/lib/lol/data/mayhem-champion-tiers.json";
 import { parseMayhemChampionTiers } from "@/lib/lol/mayhemChampionTiers";
 import { getLolChampions } from "@/lib/lol/champions.server";
+import { getPublicReference, referencePublicEnabled } from "@/lib/lol/mayhemReferenceStore.server";
 
 export const metadata: Metadata = { title: { absolute: "BGMS | LoL 증바람 증강" } };
 
@@ -18,5 +19,8 @@ export default async function LolAramMayhemPage() {
   const championStatsEnabled = process.env.LOL_MAYHEM_CHAMPION_DATASET_ENABLED === "true";
   const itemsEnabled = process.env.LOL_MAYHEM_ITEMS_ENABLED === "true";
   const champions = dataset || championStatsEnabled || itemsEnabled ? await getLolChampions() : null;
-  return <LolMayhemView catalog={catalog?.view ?? null} error={catalog === undefined} dataset={dataset} champions={champions?.champions} championStatsEnabled={championStatsEnabled} championVersion={champions?.version} itemsEnabled={itemsEnabled} championTiers={parseMayhemChampionTiers(tierSnapshot)} patchRankingsEnabled />;
+  const championTiers = referencePublicEnabled()
+    ? catalog ? await getPublicReference("champion_tiers", catalog.view.clientPatch).catch(() => null) : null
+    : parseMayhemChampionTiers(tierSnapshot);
+  return <LolMayhemView catalog={catalog?.view ?? null} error={catalog === undefined} dataset={dataset} champions={champions?.champions} championStatsEnabled={championStatsEnabled} championVersion={champions?.version} itemsEnabled={itemsEnabled} championTiers={championTiers} patchRankingsEnabled />;
 }

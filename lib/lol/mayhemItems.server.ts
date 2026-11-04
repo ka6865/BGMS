@@ -1,6 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import { parseMayhemItemRatings, withMayhemItemMetadata, type MayhemItemRatings } from "./mayhemItems";
+import { getPublicReference, referencePublicEnabled } from "./mayhemReferenceStore.server";
 
 async function json(url: string, maxBytes: number): Promise<unknown> {
   const response = await fetch(url, { cache: "no-store", redirect: "error", signal: AbortSignal.timeout(10_000), headers: { Accept: "application/json" } });
@@ -44,5 +45,6 @@ const ratings = unstable_cache(async (championId: number): Promise<MayhemItemRat
 
 export async function getMayhemItemRatings(championId: number): Promise<MayhemItemRatings | null> {
   if (!Number.isSafeInteger(championId) || championId < 1 || championId > 99999) throw new Error("invalid_champion_id");
+  if (referencePublicEnabled()) return getPublicReference("item_ratings", undefined, championId);
   return ratings(championId);
 }

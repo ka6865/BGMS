@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { createServiceRoleSupabase } from '@/lib/server/serviceRoleSupabase.server';
 import { createSourceDownloader } from './augments/ingest';
 import { createChampionSource } from './mayhemChampionSource';
+import { captureChampionTierList } from './mayhemReferenceIngest.server';
 import { createChampionDatasetCandidate, getChampionDatasetReadiness } from './mayhemChampionDatasetStore.server';
 import { CHAMPION_DATASET_PREFIX as PREFIX, CHAMPION_DATASET_MAX_BATCH_BYTES, CHAMPION_DATASET_MAX_FILE_BYTES,
   normalizeChampionAugments, validateChampionStatsFile, type ChampionDatasetManifest, type ChampionManifestFile } from './mayhemChampionDataset';
@@ -28,7 +29,9 @@ export async function ingestChampionDataset(options:{apply:boolean}):Promise<Cha
     if(Date.now()-startedAt>540_000)throw new Error('stats_sync_deadline');
     if(token && (force||Date.now()-lastRenew>30_000)){await rpc('renew_lol_mayhem_champion_dataset_lease',{p_token:token});lastRenew=Date.now();}
   }
-  const api=createChampionSource({apiKey:process.env.LOL_MAYHEM_STATS_API_KEY,beforeRequest:()=>renew()});
+  const api=createChampionSource({apiKey:process.env.LOL_MAYHEM_STATS_API_KEY,beforeRequest:()=>renew(),onChampionList:async list=>{
+    if(options.apply)try{await captureChampionTierList(list);}catch{console.warn('[lol-mayhem-reference] tier_capture_deferred');}
+  }});
   async function read(path:string,limit=CHAMPION_DATASET_MAX_FILE_BYTES):Promise<string|null>{
     await renew();const result=await storage.download(path);
     if(result.error){const status=String((result.error as {statusCode?:unknown;status?:unknown}).statusCode??(result.error as {status?:unknown}).status);if(status==='404'||status==='400'&&/not found/i.test(result.error.message??''))return null;throw new Error('stats_storage_error');}

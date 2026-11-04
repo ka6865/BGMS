@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MayhemDatasetAdminData } from "@/lib/lol/mayhemDatasetView";
 import LolMayhemChampionDatasetReview from "@/components/lol/LolMayhemChampionDatasetReview";
+import LolMayhemReferenceReview from "@/components/lol/LolMayhemReferenceReview";
 
 const button = "inline-flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 px-3 text-sm hover:bg-zinc-800 disabled:opacity-40";
 const input = "min-h-11 w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm";
 const date = (value: string | null) => value ? new Date(value).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) + " KST" : "기록 없음";
 const status: Record<string, string> = { pending: "검수 대기", validated: "검증 완료", approved: "승인됨", rejected: "제외됨" };
 
-export default function MayhemDatasetReviewPanel() {
+function LolMayhemComboReview() {
   const [data, setData] = useState<MayhemDatasetAdminData | null>(null);
   const [selected, setSelected] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -55,16 +56,7 @@ export default function MayhemDatasetReviewPanel() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "요청에 실패했습니다."); }
     finally { setBusy(false); }
   }
-  return <main className="mx-auto w-full max-w-5xl space-y-5 p-4 text-zinc-100 sm:p-6" data-testid="mayhem-dataset-review">
-    <header>
-      <h1 className="text-xl font-semibold">증바람 해외 데이터셋 검토</h1>
-      <p className="mt-2 text-sm text-zinc-400">전체 증강 선택률과 외부 추천 조합을 구분해 검수합니다. 챔피언별 등장 가능 여부는 이 자료로 판단하지 않습니다.</p>
-    </header>
-    <LolMayhemChampionDatasetReview />
-    <div className="flex flex-wrap gap-2">
-      <button className={button} disabled={busy} onClick={() => { setError(""); void refresh().catch(() => setError("검토 자료를 불러오지 못했습니다.")); }}>상태 새로고침</button>
-      <button className={button} disabled={busy} onClick={() => void act("sync")}>{busy ? "처리 중…" : "원본 확인·매핑 반영"}</button>
-    </div>
+  return <section aria-label="증강 조합과 매핑" className="space-y-5">
     {error && <p role="alert" className="break-words text-sm text-red-300">{error}</p>}
     {message && <p role="status" className="text-sm text-emerald-300">{message}</p>}
     {!data && !error && <p role="status">자료를 불러오는 중입니다.</p>}
@@ -85,14 +77,19 @@ export default function MayhemDatasetReviewPanel() {
       </label>
       {release && <>
         <section className="space-y-2 text-sm" aria-label="수집본 정보">
-          <p className="break-all">원본 버전 {release.upstream_release_id}</p>
-          <p className="text-zinc-400">확인 {date(release.fetched_at)} · 원본 통계일 {release.metadata.sourceStatsDate ?? "미제공"}</p>
-          <p>전체 증강 {release.metadata.augments ?? 0}행 · 외부 조합 {release.metadata.combos ?? 0}묶음</p>
-          <p>미매핑 {release.metadata.unknown_count ?? 0}개 · 상태 {status[release.status] ?? release.status}</p>
-          <div className="flex flex-wrap gap-2">{(["augments", "combos"] as const).map(kind => <a key={kind} className={button} href={`/api/admin/lol/mayhem-datasets?download=${release.id}&kind=${kind}`}>{kind === "augments" ? "선택률 원본 내려받기" : "조합 원본 내려받기"}</a>)}</div>
+          <h2 className="font-semibold">현재 후보 · {status[release.status] ?? release.status}</h2>
+          <p>조합 검수 패치 {release.verified_client_patch} · 원본 통계일 {release.metadata.sourceStatsDate ?? "미제공"}</p>
+          <p className="text-zinc-400">전체 선택률 {release.metadata.augments ?? 0}행 · 외부 조합 {release.metadata.combos ?? 0}묶음 · 미매핑 {release.metadata.unknown_count ?? 0}개</p>
           <p className="text-zinc-400">현재 공개본 {publication ? `#${publication.release_id} · ${date(publication.published_at)}` : "없음"}</p>
+          <p className="text-sm">{release.metadata.unknown_count ? "다음 단계: 미매핑 증강을 확인하고 매핑을 저장하세요." : release.status === "pending" || release.status === "validated" ? "다음 단계: 후보와 매핑을 확인한 뒤 검수 승인하세요." : release.status === "approved" && publication?.release_id !== release.id ? "다음 단계: 승인본 공개 전 내용을 다시 확인하세요." : "현재 후보는 공개 상태입니다."}</p>
+          <details><summary className="min-h-11 cursor-pointer content-center text-sm text-zinc-400">상세 정보</summary><div className="space-y-2 break-all pb-2 text-zinc-400">
+            <p>원본 버전 {release.upstream_release_id} · 수집 {date(release.fetched_at)}</p>
+            <div className="flex flex-wrap gap-2">{(["augments", "combos"] as const).map(kind => <a key={kind} className={button} href={`/api/admin/lol/mayhem-datasets?download=${release.id}&kind=${kind}`}>{kind === "augments" ? "선택률 원본 내려받기" : "조합 원본 내려받기"}</a>)}</div>
+          </div></details>
         </section>
-        <form className="space-y-3 border-y border-zinc-800 py-4" onSubmit={event => { event.preventDefault(); void act("map"); }}>
+        <details open={!!release.metadata.unknown_count} className="border-y border-zinc-800 py-2">
+          <summary className="min-h-11 cursor-pointer content-center text-sm">증강 이름 연결 · 미연결 {release.metadata.unknown_count ?? 0}개</summary>
+          <form className="space-y-3 py-3" onSubmit={event => { event.preventDefault(); void act("map"); }}>
           <h2 className="font-semibold">증강 ID 매핑 검토</h2>
           <p className="text-sm text-zinc-400">원본과 공식 설명을 대조한 항목만 저장하세요. 저장 후 원본 확인·매핑 반영으로 후보를 다시 생성합니다.</p>
           <label className="block space-y-2 text-sm"><span>매핑 패치</span><select aria-label="매핑 패치" className={input} disabled={busy} value={mappingPatch} onChange={event => { setMappingPatchChoice(event.target.value); setPlatformId(""); }}>
@@ -109,18 +106,41 @@ export default function MayhemDatasetReviewPanel() {
           <label className="block space-y-2 text-sm"><span>검토 근거</span><textarea className={`${input} min-h-24 py-3`} value={evidence} required minLength={10} maxLength={2048} disabled={busy} onChange={event => setEvidence(event.target.value)} placeholder="이름·설명·등급을 대조한 근거와 출처" /></label>
           <button type="submit" className={button} disabled={busy || !externalId || !platformId || evidence.trim().length < 10}>확인한 매핑 저장</button>
           <details><summary className="min-h-11 cursor-pointer content-center text-sm">이 패치의 저장된 매핑</summary><ul className="space-y-2 text-xs text-zinc-400">{data.mappings.filter(mapping => mapping.client_patch === mappingPatch).map(mapping => <li key={mapping.external_id} className="break-words">{mapping.external_id} → {mapping.platform_id} · {mapping.status}</li>)}</ul></details>
-        </form>
+          </form>
+        </details>
         <section aria-label="데이터셋 승인과 공개" className="space-y-3">
-          <label className="block space-y-2 text-sm"><span>후보 제외 사유 · 제외할 때만 10자 이상 입력</span><textarea aria-label="후보 제외 사유" className={`${input} min-h-24 py-3`} disabled={busy} maxLength={2048} value={reviewReason} onChange={event => setReviewReason(event.target.value)} /></label>
           <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" disabled={busy} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />#{release.id} 원본·매핑·검수 패치를 확인했습니다.</label>
-          <div className="flex flex-wrap gap-2">
-            <button className={button} disabled={busy || !confirmed || !!release.metadata.unknown_count || !["pending", "validated"].includes(release.status)} onClick={() => void act("approve")}>검수 승인</button>
-            <button className={button} disabled={busy || !confirmed || release.status !== "approved" || publication?.release_id === release.id} onClick={() => void act("publish")}>승인본 공개</button>
-            <button className={button} disabled={busy || !confirmed || release.status === "approved" || release.status === "rejected" || reviewReason.trim().length < 10} onClick={() => void act("reject")}>후보 제외</button>
-            <button className={button} disabled={busy || !confirmed || publication?.previous_release_id !== release.id} onClick={() => void act("rollback")}>이전 공개본으로 복구</button>
-          </div>
+          {release.status === "pending" || release.status === "validated" ? <button className={button} disabled={busy || !confirmed || !!release.metadata.unknown_count} onClick={() => void act("approve")}>검수 승인</button>
+            : release.status === "approved" && publication?.release_id !== release.id ? <button className={button} disabled={busy || !confirmed} onClick={() => void act("publish")}>승인본 공개</button>
+              : <p role="status" className="text-sm text-zinc-400">현재 후보는 공개되어 있습니다.</p>}
+          <details><summary className="min-h-11 cursor-pointer content-center text-sm">기타 작업</summary><div className="space-y-3 py-2">
+            <label className="block space-y-2 text-sm"><span>후보 제외 사유 · 제외 시 10자 이상</span><textarea aria-label="후보 제외 사유" className={`${input} min-h-24 py-3`} disabled={busy} maxLength={2048} value={reviewReason} onChange={event => setReviewReason(event.target.value)} /></label>
+            <div className="flex flex-wrap gap-2">
+              <button className={button} disabled={busy || !confirmed || release.status === "approved" || release.status === "rejected" || reviewReason.trim().length < 10} onClick={() => void act("reject")}>후보 제외</button>
+              <button className={button} disabled={busy || !confirmed || publication?.previous_release_id !== release.id} onClick={() => void act("rollback")}>이전 공개본으로 복구</button>
+            </div>
+          </div></details>
         </section>
       </>}
     </>}
+    <div className="flex flex-wrap gap-2 border-t border-zinc-800 pt-4">
+      <button className={button} disabled={busy} onClick={() => { setError(""); void refresh().catch(() => setError("검토 자료를 불러오지 못했습니다.")); }}>상태 새로고침</button>
+      <button className={button} disabled={busy} onClick={() => void act("sync")}>{busy ? "처리 중…" : "원본 확인·매핑 반영"}</button>
+    </div>
+  </section>;
+}
+
+const tabs = ["챔피언 증강 통계", "티어·아이템·패치 순위", "증강 조합·매핑"] as const;
+
+export default function MayhemDatasetReviewPanel() {
+  const [tab, setTab] = useState<(typeof tabs)[number]>(tabs[0]);
+  return <main className="mx-auto w-full max-w-5xl space-y-5 p-4 text-zinc-100 sm:p-6" data-testid="mayhem-dataset-review">
+    <header><h1 className="text-xl font-semibold">증바람 데이터 관리</h1></header>
+    <nav aria-label="증바람 데이터 종류" className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="tablist">
+      {tabs.map((label, index) => <button key={label} id={`mayhem-tab-${index}`} type="button" role="tab" aria-selected={tab === label} aria-controls={`mayhem-panel-${index}`} className={`${button} ${tab === label ? "border-zinc-400 bg-zinc-800 text-white" : "text-zinc-300"}`} onClick={() => setTab(label)}>{label}</button>)}
+    </nav>
+    <section id={`mayhem-panel-${tabs.indexOf(tab)}`} role="tabpanel" aria-labelledby={`mayhem-tab-${tabs.indexOf(tab)}`}>
+      {tab === tabs[0] ? <LolMayhemChampionDatasetReview /> : tab === tabs[1] ? <LolMayhemReferenceReview /> : <LolMayhemComboReview />}
+    </section>
   </main>;
 }

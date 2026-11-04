@@ -16,6 +16,12 @@ describe('제3자 통계 API 수집 경계',()=>{
   const wait=vi.fn(async()=>{}); const api=createChampionSource({fetcher,apiKey:'test-key',wait});
   expect(await api.champions(meta)).toEqual([29,99]);expect(fetcher.mock.calls[0][1]).toMatchObject({method:'HEAD',redirect:'error',headers:{'x-api-key':'test-key'}});expect(wait).toHaveBeenCalled();
  });
+ it('목록 hook은 기존 paid GET 응답을 그대로 전달하고 champions()의 ID 반환을 유지한다',async()=>{
+  const value={meta,data:[{id:99},{id:29}]};const body=JSON.stringify(value);
+  const fetcher=vi.fn().mockResolvedValueOnce(new Response(null,{headers:{'x-credits-remaining':'200'}})).mockResolvedValueOnce(response(value));
+  const onChampionList=vi.fn(async()=>{});const api=createChampionSource({fetcher,apiKey:'test-key',wait:async()=>{},onChampionList});
+  expect(await api.champions(meta)).toEqual([29,99]);expect(onChampionList).toHaveBeenCalledWith({body,value,ids:[29,99]});expect(fetcher).toHaveBeenCalledTimes(2);
+ });
  it('잔여 quota25 이하·429·외부 redirect는 중단한다',async()=>{
   const low=vi.fn(async()=>new Response(null,{headers:{'x-credits-remaining':'25'}}));
   await expect(createChampionSource({fetcher:low,apiKey:'test'}).champions(meta)).rejects.toThrow('stats_quota_deferred');expect(low).toHaveBeenCalledTimes(1);

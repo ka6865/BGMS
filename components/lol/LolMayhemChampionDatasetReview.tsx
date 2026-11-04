@@ -6,6 +6,8 @@ import type { ChampionDatasetAdminData, ChampionDatasetReadiness } from "@/lib/l
 const button = "inline-flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 px-3 text-sm hover:bg-zinc-800 disabled:opacity-40";
 const input = "min-h-11 w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm";
 const labels: Record<keyof ChampionDatasetReadiness, string> = { apiKeyConfigured: "API 키 설정", reuseConfirmed: "재사용 조건 확인", enabled: "기능 활성화", persistenceEnabled: "영속 저장 활성화" };
+const status: Record<string, string> = { pending: "검수 대기", approved: "승인됨", rejected: "제외됨" };
+const date = (value: string | null) => value ? `${new Date(value).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })} KST` : "기록 없음";
 
 export default function LolMayhemChampionDatasetReview() {
   const [data, setData] = useState<(ChampionDatasetAdminData & { databaseAvailable?: boolean }) | null>(null);
@@ -49,39 +51,51 @@ export default function LolMayhemChampionDatasetReview() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "검토 요청에 실패했습니다."); }
     finally { setBusy(false); }
   }
+  const primary = release?.status === "pending" ? "approve" : release?.status === "approved" && publication?.release_id !== release.id ? "publish" : null;
 
-  return <section aria-label="챔피언 통계 데이터셋 검토" className="space-y-4 border-y border-zinc-800 py-5">
-    <header><h2 className="text-lg font-semibold">챔피언별 선택 통계 검토</h2><p className="mt-1 text-sm text-zinc-400">수집은 CLI에서만 실행합니다. 이 화면은 후보 검토와 공개 상태 변경을 담당합니다.</p></header>
+  return <section aria-label="챔피언 통계 데이터셋 검토" className="space-y-4">
+    <header><h2 className="text-lg font-semibold">챔피언 증강 통계</h2><p className="mt-1 text-sm text-zinc-400">CN 출처의 챔피언별 통계입니다. 전체 증강 순위나 증강 등장 가능 여부와는 다른 자료입니다.</p></header>
     {!data && !error && <p role="status" className="text-sm text-zinc-400">검토 상태를 불러오는 중입니다.</p>}
+    {error && <p role="alert" className="break-words text-sm text-red-300">{error}</p>}
     {data && <>
-      <div className="flex flex-wrap gap-2 text-xs">{(Object.entries(labels) as [keyof ChampionDatasetReadiness, string][]).map(([key, label]) => <span key={key} className={`rounded border px-2 py-1 ${data.readiness[key] ? "border-emerald-800 text-emerald-300" : "border-amber-800 text-amber-300"}`}>{label}: {data.readiness[key] ? "준비됨" : "미설정"}</span>)}</div>
-      {!data.databaseAvailable && <p className="text-sm text-amber-300">키·사용 조건 또는 영속 저장을 확인할 수 없어 데이터베이스 조회를 생략했습니다.</p>}
-      {data.sync.map(row => <p key={row.job_key} className="break-words text-xs text-zinc-400">수집 상태 {row.job_key} · 확인 {row.last_checked_at ?? "기록 없음"} · {row.last_error_code ?? "오류 없음"}</p>)}
       {!data.releases.length ? <p className="text-sm text-zinc-400">검토할 챔피언 통계 후보가 없습니다.</p> : <>
         <label className="block space-y-2 text-sm"><span>검토 후보</span><select aria-label="챔피언 통계 후보" className={input} disabled={busy} value={release?.id ?? ""} onChange={event => { setSelected(Number(event.target.value)); setConfirmed(false); setReason(""); }}>
-          {data.releases.map(row => <option key={row.id} value={row.id}>#{row.id} · {row.client_patch} · {row.status}</option>)}
+          {data.releases.map(row => <option key={row.id} value={row.id}>패치 {row.client_patch} · {date(row.fetched_at)} · {status[row.status] ?? row.status}</option>)}
         </select></label>
         {release && <>
-        <div className="space-y-1 break-words text-sm" aria-label="챔피언 통계 후보 정보">
-          <p>원천 버전 {release.upstream_version} · 원천 패치 {release.metadata.clientPatch} · 통계 기준일 {release.source_data_date} · 수집 {release.fetched_at}</p>
-          <p className="text-zinc-400">예상 챔피언 {release.metadata.expectedChampionIds.length}명 · 수집 파일 {release.metadata.files.length}개 · {completeManifest ? "manifest 검사 완료" : "manifest 검증 누락"} · 카탈로그 {release.metadata.catalogHash}</p>
-          <p className="text-zinc-400">출처 표기: {release.metadata.attribution} · 사용 조건: {release.metadata.rightsBasis}</p>
-          <p className="text-zinc-400">선택률 분모는 미확인입니다. 파일별 선택률·표본 수의 출처 범위를 구분해 확인해야 합니다.</p>
-          <p className="text-zinc-400">현재 공개본 {publication ? `#${publication.release_id}` : "없음"} · 후보 상태 {release.status}</p>
-        </div>
-        <label className="block space-y-2 text-sm"><span>제외 사유 (제외 시 10자 이상)</span><textarea className={`${input} min-h-20 py-3`} maxLength={2048} disabled={busy} value={reason} onChange={event => setReason(event.target.value)} /></label>
-        <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" disabled={busy || !canWrite} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />패치·출처·분모·사용 조건과 현재 공개 상태를 확인했습니다.</label>
-        <div className="flex flex-wrap gap-2">
-          <button className={button} disabled={!canApply || !completeManifest || !confirmed || busy || release.status !== "pending"} onClick={() => void act("approve")}>검수 승인</button>
-          <button className={button} disabled={!canWrite || !confirmed || busy || release.status !== "pending" || reason.trim().length < 10} onClick={() => void act("reject")}>후보 제외</button>
-          <button className={button} disabled={!canApply || !completeManifest || !confirmed || busy || release.status !== "approved" || publication?.release_id === release.id} onClick={() => void act("publish")}>승인본 공개</button>
-          <button className={button} disabled={!canWrite || !confirmed || busy || !publication || publication.previous_release_id !== release.id} onClick={() => void act("rollback")}>이전 공개본으로 복구</button>
-        </div>
+          <div className="space-y-2 break-words text-sm" aria-label="챔피언 통계 후보 정보">
+            <p><strong>현재 후보:</strong> 패치 {release.client_patch} · 통계일 {release.source_data_date} · {status[release.status] ?? release.status}</p>
+            <p><strong>현재 공개본:</strong> {publication ? `패치 ${publication.client_patch} · ${date(publication.published_at)}` : "없음"}</p>
+            <p>{primary === "approve" ? "다음 단계: 출처와 통계를 확인한 뒤 검수 승인하세요." : primary === "publish" ? "다음 단계: 승인된 통계를 확인한 뒤 공개하세요." : release.status === "rejected" ? "이 후보는 제외되었습니다." : "현재 후보가 공개되어 있습니다."}</p>
+            <p className="text-zinc-400">CN 챔피언별 선택 통계이며 선택률 분모와 증강 등장 가능 여부는 확인되지 않았습니다.</p>
+          </div>
+          {primary && <>
+            <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" disabled={busy || !canWrite} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />출처·통계일·현재 공개 상태를 확인했습니다.</label>
+            <button className={button} disabled={!canWrite || !canApply || !completeManifest || !confirmed || busy} onClick={() => void act(primary)}>{busy ? "처리 중…" : primary === "approve" ? "검수 승인" : "승인본 공개"}</button>
+            {(!canWrite || !canApply || !completeManifest) && <p className="text-sm text-amber-300">저장·사용 조건 또는 후보 파일 검증을 확인해야 진행할 수 있습니다.</p>}
+          </>}
+          <details><summary className="min-h-11 cursor-pointer content-center text-sm">상세 정보 · 운영 설정</summary><div className="space-y-2 break-all pb-2 text-sm text-zinc-400">
+            <p>원천 버전 {release.upstream_version} · 수집 {date(release.fetched_at)} · 예상 챔피언 {release.metadata.expectedChampionIds.length}명 · 파일 {release.metadata.files.length}개</p>
+            <p>출처 표기: {release.metadata.attribution} · 사용 조건: {release.metadata.rightsBasis}</p>
+            <p>{completeManifest ? "후보 파일 검증 완료" : "후보 파일 검증 누락"} · 카탈로그 해시 {release.metadata.catalogHash}</p>
+            {release.metadata.files.map(file => <p key={file.championId}>챔피언 {file.championId}: {file.rawPath} · {file.normalizedPath}</p>)}
+            <div className="flex flex-wrap gap-2">{(Object.entries(labels) as [keyof ChampionDatasetReadiness, string][]).map(([key, label]) => <span key={key} className={`rounded border px-2 py-1 ${data.readiness[key] ? "border-emerald-800 text-emerald-300" : "border-amber-800 text-amber-300"}`}>{label}: {data.readiness[key] ? "준비됨" : "미설정"}</span>)}</div>
+            {!data.databaseAvailable && <p className="text-amber-300">데이터베이스 상태를 확인할 수 없습니다.</p>}
+            {data.sync.map(row => <p key={row.job_key}>수집 상태 {row.job_key} · 확인 {date(row.last_checked_at)} · 최근 성공 {date(row.last_success_at)} · {row.last_error_code ?? "오류 없음"}</p>)}
+          </div></details>
+          <details><summary className="min-h-11 cursor-pointer content-center text-sm">기타 작업</summary><div className="space-y-3 py-2">
+            <label className="block space-y-2 text-sm"><span>후보 제외 사유 · 제외 시 10자 이상</span><textarea aria-label="후보 제외 사유" className={`${input} min-h-20 py-3`} disabled={busy} maxLength={2048} value={reason} onChange={event => setReason(event.target.value)} /></label>
+            <label className="flex min-h-11 items-center gap-3 text-sm"><input type="checkbox" disabled={busy || !canWrite} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />현재 후보와 공개 상태를 확인했습니다.</label>
+            <div className="flex flex-wrap gap-2">
+              <button className={button} disabled={!canWrite || !confirmed || busy || release.status !== "pending" || reason.trim().length < 10} onClick={() => void act("reject")}>후보 제외</button>
+              <button className={button} disabled={!canWrite || !confirmed || busy || publication?.release_id !== release.id || publication.previous_release_id === null} onClick={() => void act("rollback")}>이전 공개본으로 복구</button>
+            </div>
+          </div></details>
         </>}
       </>}
     </>}
-    {error && <p role="alert" className="break-words text-sm text-red-300">{error} <button className={`${button} ml-2`} onClick={() => { setError(""); void refresh().catch(() => setError("챔피언 통계 검토 상태를 불러오지 못했습니다.")); }}>다시 시도</button></p>}
+    {error && <button className={button} onClick={() => { setError(""); void refresh().catch(() => setError("챔피언 통계 검토 상태를 불러오지 못했습니다.")); }}>다시 시도</button>}
     {message && <p role="status" className="text-sm text-emerald-300">{message}</p>}
-    <button className={button} disabled={busy} onClick={() => void refresh().catch(() => setError("챔피언 통계 검토 상태를 불러오지 못했습니다."))}>챔피언 통계 상태 새로고침</button>
+    <button className={button} disabled={busy} onClick={() => void refresh().catch(() => setError("챔피언 통계 검토 상태를 불러오지 못했습니다."))}>상태 새로고침</button>
   </section>;
 }

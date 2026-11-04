@@ -2,7 +2,7 @@ import { CHAMPION_DATASET_MAX_FILE_BYTES } from './mayhemChampionDataset';
 export type ChampionSourceVersion = { gamePatch: string; dataVersion: string; schemaVersion: 1 };
 const ROOT='https://data.dtodo.cn/api/v1/ko';
 const RESERVE=25;
-export function createChampionSource(options: { fetcher?: typeof fetch; apiKey?: string; wait?: (ms:number)=>Promise<void>; beforeRequest?:()=>Promise<void> } = {}) {
+export function createChampionSource(options: { fetcher?: typeof fetch; apiKey?: string; wait?: (ms:number)=>Promise<void>; beforeRequest?:()=>Promise<void>; onChampionList?:(response:{body:string;value:unknown;ids:number[]})=>Promise<void> } = {}) {
   const fetcher=options.fetcher ?? fetch; const wait=options.wait ?? (ms=>new Promise(resolve=>setTimeout(resolve,ms)));
   let remaining: number | null=null; let previousRequest=0;
   async function request(path:string, paid=false, head=false) {
@@ -37,17 +37,18 @@ export function createChampionSource(options: { fetcher?: typeof fetch; apiKey?:
       || typeof v.dataVersion!=='string' || !/^\d+\.\d+\.\d+$/.test(v.dataVersion) || !v.dataVersion.startsWith(`${v.gamePatch}.`)) throw new Error('stats_source_config');
     return {gamePatch:v.gamePatch,dataVersion:v.dataVersion,schemaVersion:1};
   }
-  async function champions(version:ChampionSourceVersion):Promise<number[]> {
+  async function championList(version:ChampionSourceVersion):Promise<{body:string;value:unknown;ids:number[]}> {
     await request('champions.json',true,true);
-    const {value}=await request('champions.json',true);const envelope=value as {meta?:ChampionSourceVersion;data?:Array<{id?:unknown}>}|null;
+    const {body,value}=await request('champions.json',true);const envelope=value as {meta?:ChampionSourceVersion;data?:Array<{id?:unknown}>}|null;
     if (envelope?.meta?.gamePatch!==version.gamePatch || envelope.meta.dataVersion!==version.dataVersion || !Array.isArray(envelope.data) || !envelope.data.length || envelope.data.length>300) throw new Error('stats_source_version');
     const ids=envelope.data.map(row=>row?.id);
     if (ids.some(id=>typeof id!=='number'||!Number.isSafeInteger(id)||id<=0||id>99999) || new Set(ids).size!==ids.length) throw new Error('stats_source_champions');
-    return (ids as number[]).sort((a,b)=>a-b);
+    return {body,value,ids:(ids as number[]).sort((a,b)=>a-b)};
   }
+  async function champions(version:ChampionSourceVersion):Promise<number[]> { const response=await championList(version);await options.onChampionList?.(response);return response.ids; }
   async function champion(championId:number) {
     if(!Number.isSafeInteger(championId)||championId<=0||championId>99999)throw new Error('invalid_champion_id');
     return request(`data/champion-augments/${championId}.json`,true);
   }
-  return {config,champions,champion,remaining:()=>remaining};
+  return {config,championList,champions,champion,remaining:()=>remaining};
 }

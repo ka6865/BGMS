@@ -39,6 +39,12 @@ const championStats: PublicChampionStats = { schemaVersion: 1, source: "champion
   ] };
 const championManifest: ChampionDatasetManifest = { schemaVersion: 1, source: "champion_api_v1", cohort: "source_default", clientPatch: "16.21", upstreamVersion: "16.21.1", sourceDataDate: "2026-11-03", catalogHash: "b".repeat(64), expectedChampionIds: [63], files: [], attribution: "Data provider", rightsBasis: "Documented permission basis", normalizerVersion: 1 };
 const championAdminFixture = (): ChampionDatasetAdminData => ({ releases: [{ id: 2, status: "pending", client_patch: "16.21", source_data_date: "2026-11-03", upstream_version: "16.21.1", fetched_at: "2026-11-04T00:00:00Z", metadata: championManifest }], publications: [], sync: [], readiness: { apiKeyConfigured: true, reuseConfirmed: true, enabled: true, persistenceEnabled: true } });
+const referenceAdminFixture = () => ({ enabled: true, releases: ["champion_tiers", "item_ratings", "augment_rankings"].map((kind, index) => ({
+  id: index + 1, kind, source: ["aramgg", "iesdev", "arammayhem"][index], client_patch: "16.21", champion_id: index === 2 ? 0 : 63,
+  upstream_version: "1.2.3", source_data_date: "2026-11-03", raw_hash: "a".repeat(64), normalized_hash: "b".repeat(64),
+  raw_path: "external/mayhem-reference/raw.json", normalized_path: "external/mayhem-reference/normalized.json", raw_bytes: 10, normalized_bytes: 20,
+  attribution: "출처 표기", rights_basis: "사용 허가", status: "pending", fetched_at: "2026-11-04T00:00:00Z", reviewed_at: null,
+})), publications: [], sync: [] });
 const adminFixture = (): MayhemDatasetAdminData => ({ releases: [{ id: 1, verified_client_patch: "16.22", upstream_release_id: "source:" + "x".repeat(100), status: "pending", fetched_at: "2026-11-04T00:00:00Z",
   metadata: { unknown_count: 1, unknownExternalIds: ["augment!"], sourceStatsDate: "2026-11-02", sourceClientPatch: "16.21" } }], publications: [], mappings: [],
   augments: [{ platformId: 1, name: "아주 긴 공식 증강 이름으로 줄바꿈을 확인합니다", patch: "16.21" }, { platformId: 2, name: "검수 패치 전용 증강", patch: "16.22" }],
@@ -76,6 +82,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
           });
         } else res.end(JSON.stringify(admin));
         return;
+      }
+      if (req.url === "/api/admin/lol/mayhem-references") {
+        res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ ok: true, ...referenceAdminFixture() })); return;
       }
       if (req.url?.startsWith("/rankings")) rankingMode=req.url.slice(1);
       if (req.url?.startsWith("/api/lol/mayhem/patch-rankings")) {
@@ -206,6 +215,12 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `tmp/lol-mayhem-review/dataset-${width}x${height}.png`, fullPage: true });
     await page.goto(`${base}/admin`, { waitUntil: "networkidle0" });
+    expect(await page.$eval("h1", node => node.textContent)).toBe("증바람 데이터 관리");
+    await page.waitForSelector('[aria-label="챔피언 통계 후보"]');
+    await page.click('[role="tab"]:nth-child(2)');
+    await page.waitForSelector('[aria-label="검토 후보"]');
+    expect(await page.$eval('[aria-label="참조 자료 요약"]', node => node.textContent)).toContain("챔피언 ID 63");
+    await page.click('[role="tab"]:nth-child(3)');
     await page.waitForSelector('select[aria-label="외부 증강 ID"]');
     const disabled = () => page.$eval('[aria-label="데이터셋 승인과 공개"] button', node => (node as HTMLButtonElement).disabled);
     await page.click('[aria-label="데이터셋 승인과 공개"] input[type="checkbox"]'); expect(await disabled()).toBe(true);
@@ -215,8 +230,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     await page.type("form textarea", "공식 이름·등급·효과를 원본과 대조했습니다.");
     await page.click('button[type="submit"]');
     await page.waitForFunction(() => document.querySelector('[aria-label="수집본 정보"]')?.textContent?.includes("미매핑 0개"));
+    await page.waitForFunction(() => [...document.querySelectorAll("details")].some(node => !node.open && node.querySelector("summary")?.textContent?.includes("미연결 0개")));
     await page.click('[aria-label="데이터셋 승인과 공개"] input[type="checkbox"]'); expect(await disabled()).toBe(false);
-    expect(await page.$$eval("button, select, textarea", nodes => nodes.every(node => node.getBoundingClientRect().height >= 44))).toBe(true);
+    expect(await page.$$eval("button, select, textarea", nodes => (nodes as HTMLElement[]).filter(node => node.offsetParent !== null).every(node => node.getBoundingClientRect().height >= 44))).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `tmp/lol-mayhem-review/admin-${width}x${height}.png`, fullPage: true });
     await page.close();
