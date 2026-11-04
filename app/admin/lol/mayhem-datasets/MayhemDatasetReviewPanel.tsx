@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MayhemDatasetAdminData } from "@/lib/lol/mayhemDatasetView";
 import LolMayhemChampionDatasetReview from "@/components/lol/LolMayhemChampionDatasetReview";
 import LolMayhemReferenceReview from "@/components/lol/LolMayhemReferenceReview";
+import LolMayhemUpdateSummary from "@/components/lol/LolMayhemUpdateSummary";
 
 const button = "inline-flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 px-3 text-sm hover:bg-zinc-800 disabled:opacity-40";
 const input = "min-h-11 w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm";
@@ -134,13 +135,20 @@ const tabs = ["챔피언 증강 통계", "티어·아이템·패치 순위", "�
 
 export default function MayhemDatasetReviewPanel() {
   const [tab, setTab] = useState<(typeof tabs)[number]>(tabs[0]);
+  const [advanced, setAdvanced] = useState(false);
   return <main className="mx-auto w-full max-w-5xl space-y-5 p-4 text-zinc-100 sm:p-6" data-testid="mayhem-dataset-review">
     <header><h1 className="text-xl font-semibold">증바람 데이터 관리</h1></header>
-    <nav aria-label="증바람 데이터 종류" className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="tablist">
-      {tabs.map((label, index) => <button key={label} id={`mayhem-tab-${index}`} type="button" role="tab" aria-selected={tab === label} aria-controls={`mayhem-panel-${index}`} className={`${button} ${tab === label ? "border-zinc-400 bg-zinc-800 text-white" : "text-zinc-300"}`} onClick={() => setTab(label)}>{label}</button>)}
-    </nav>
-    <section id={`mayhem-panel-${tabs.indexOf(tab)}`} role="tabpanel" aria-labelledby={`mayhem-tab-${tabs.indexOf(tab)}`}>
-      {tab === tabs[0] ? <LolMayhemChampionDatasetReview /> : tab === tabs[1] ? <LolMayhemReferenceReview /> : <LolMayhemComboReview />}
-    </section>
+    <LolMayhemUpdateSummary />
+    <details className="border-t border-zinc-800 pt-2" onToggle={event => setAdvanced(event.currentTarget.open)}>
+      <summary className="min-h-11 cursor-pointer content-center text-sm text-zinc-400">이전 자료·문제 해결</summary>
+      {advanced && <div className="space-y-4 pt-3">
+        <nav aria-label="증바람 데이터 종류" className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="tablist">
+          {tabs.map((label, index) => <button key={label} id={`mayhem-tab-${index}`} type="button" role="tab" aria-selected={tab === label} aria-controls={`mayhem-panel-${index}`} className={`${button} ${tab === label ? "border-zinc-400 bg-zinc-800 text-white" : "text-zinc-300"}`} onClick={() => setTab(label)}>{label}</button>)}
+        </nav>
+        <section id={`mayhem-panel-${tabs.indexOf(tab)}`} role="tabpanel" aria-labelledby={`mayhem-tab-${tabs.indexOf(tab)}`}>
+          {tab === tabs[0] ? <LolMayhemChampionDatasetReview /> : tab === tabs[1] ? <LolMayhemReferenceReview /> : <LolMayhemComboReview />}
+        </section>
+      </div>}
+    </details>
   </main>;
 }

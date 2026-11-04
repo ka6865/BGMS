@@ -39,12 +39,12 @@ const championStats: PublicChampionStats = { schemaVersion: 1, source: "champion
   ] };
 const championManifest: ChampionDatasetManifest = { schemaVersion: 1, source: "champion_api_v1", cohort: "source_default", clientPatch: "16.21", upstreamVersion: "16.21.1", sourceDataDate: "2026-11-03", catalogHash: "b".repeat(64), expectedChampionIds: [63], files: [], attribution: "Data provider", rightsBasis: "Documented permission basis", normalizerVersion: 1 };
 const championAdminFixture = (): ChampionDatasetAdminData => ({ releases: [{ id: 2, status: "pending", client_patch: "16.21", source_data_date: "2026-11-03", upstream_version: "16.21.1", fetched_at: "2026-11-04T00:00:00Z", metadata: championManifest }], publications: [], sync: [], readiness: { apiKeyConfigured: true, reuseConfirmed: true, enabled: true, persistenceEnabled: true } });
-const referenceAdminFixture = () => ({ enabled: true, releases: ["champion_tiers", "item_ratings", "augment_rankings"].map((kind, index) => ({
+const referenceAdminFixture = () => ({ enabled: true, publicEnabled: true, itemsEnabled: true, releases: ["champion_tiers", "item_ratings", "augment_rankings"].map((kind, index) => ({
   id: index + 1, kind, source: ["aramgg", "iesdev", "arammayhem"][index], client_patch: "16.21", champion_id: index === 2 ? 0 : 63,
   upstream_version: "1.2.3", source_data_date: "2026-11-03", raw_hash: "a".repeat(64), normalized_hash: "b".repeat(64),
   raw_path: "external/mayhem-reference/raw.json", normalized_path: "external/mayhem-reference/normalized.json", raw_bytes: 10, normalized_bytes: 20,
   attribution: "출처 표기", rights_basis: "사용 허가", status: "pending", fetched_at: "2026-11-04T00:00:00Z", reviewed_at: null,
-})), publications: [], sync: [] });
+})), publications: [] as Array<{ kind: string; client_patch: string; champion_id: number; release_id: number; previous_release_id: number | null; published_at: string }>, sync: [] });
 const adminFixture = (): MayhemDatasetAdminData => ({ releases: [{ id: 1, verified_client_patch: "16.22", upstream_release_id: "source:" + "x".repeat(100), status: "pending", fetched_at: "2026-11-04T00:00:00Z",
   metadata: { unknown_count: 1, unknownExternalIds: ["augment!"], sourceStatsDate: "2026-11-02", sourceClientPatch: "16.21" } }], publications: [], mappings: [],
   augments: [{ platformId: 1, name: "아주 긴 공식 증강 이름으로 줄바꿈을 확인합니다", patch: "16.21" }, { platformId: 2, name: "검수 패치 전용 증강", patch: "16.22" }],
@@ -66,7 +66,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const { createElement } = await import("react");
     const View = (await import("../components/lol/LolMayhemView")).default;
     const Admin = (await import("../app/admin/lol/mayhem-datasets/MayhemDatasetReviewPanel")).default;
-    let admin = adminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success"; let itemMode = "success"; let historyMode = "success"; let rankingMode = "success";
+    let admin = adminFixture(); let referenceAdmin = referenceAdminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success"; let itemMode = "success"; let historyMode = "success"; let rankingMode = "success";
     server = createServer((req, res) => {
       if (req.url === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css.css); return; }
       if (req.url === "/client.js") { res.setHeader("Content-Type", "text/javascript"); res.end(client.outputFiles[0].text); return; }
@@ -84,7 +84,16 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         return;
       }
       if (req.url === "/api/admin/lol/mayhem-references") {
-        res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ ok: true, ...referenceAdminFixture() })); return;
+        res.setHeader("Content-Type", "application/json");
+        if (req.method === "POST") {
+          let body = ""; req.on("data", chunk => { body += chunk; }); req.on("end", () => {
+            const payload = JSON.parse(body), row = referenceAdmin.releases.find(row => row.id === payload.id)!;
+            if (payload.action === "approve") row.status = "approved";
+            if (payload.action === "publish") referenceAdmin.publications.push({ kind: row.kind, client_patch: row.client_patch, champion_id: row.champion_id, release_id: row.id, previous_release_id: null, published_at: "2026-11-05T00:00:00Z" });
+            res.end(JSON.stringify({ ok: true }));
+          });
+        } else res.end(JSON.stringify(referenceAdmin));
+        return;
       }
       if (req.url?.startsWith("/rankings")) rankingMode=req.url.slice(1);
       if (req.url?.startsWith("/api/lol/mayhem/patch-rankings")) {
@@ -132,7 +141,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         if (itemMode === "items-race" && id === 63) { server.emit("delayed-items-started"); setTimeout(() => { send(); server.emit("delayed-items-sent"); }, 700); } else send();
         return;
       }
-      if (req.url === "/admin") admin = adminFixture();
+      if (req.url === "/admin") { admin = adminFixture(); referenceAdmin = referenceAdminFixture(); }
       if (req.url === "/stats-empty") statsMode = "empty";
       else if (req.url === "/stats-error") statsMode = "error";
       else if (req.url === "/stats-race") statsMode = "race";
@@ -216,6 +225,19 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     await page.screenshot({ path: `tmp/lol-mayhem-review/dataset-${width}x${height}.png`, fullPage: true });
     await page.goto(`${base}/admin`, { waitUntil: "networkidle0" });
     expect(await page.$eval("h1", node => node.textContent)).toBe("증바람 데이터 관리");
+    await page.waitForSelector('article[aria-label="아이템·신발"]');
+    expect(await page.$('[role="tablist"]')).toBeNull();
+    await page.screenshot({ path: `tmp/lol-mayhem-review/admin-simple-${width}x${height}.png`, fullPage: true });
+    await page.click('article[aria-label="아이템·신발"] button');
+    await page.waitForSelector('[aria-label="아이템·신발 적용 확인"]');
+    expect(await page.$eval('[aria-label="아이템·신발 적용 확인"]', n => n.textContent)).toContain("사용자 화면을 갱신");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `tmp/lol-mayhem-review/admin-confirm-${width}x${height}.png`, fullPage: true });
+    await page.click('[aria-label="아이템·신발 적용 확인"] button');
+    await page.waitForFunction(() => document.querySelector('article[aria-label="아이템·신발"]')?.textContent?.includes("적용됨"));
+    expect(await page.$eval('[aria-label="수집 자료와 화면 적용"]', n => n.textContent)).toContain("자료 1개를 적용했습니다.");
+    expect(await page.$eval('article[aria-label="증강 추천 조합"] button', n => (n as HTMLButtonElement).disabled)).toBe(true);
+    await page.click('main[data-testid="mayhem-dataset-review"] > details > summary');
     await page.waitForSelector('[aria-label="챔피언 통계 후보"]');
     await page.click('[role="tab"]:nth-child(2)');
     await page.waitForSelector('[aria-label="검토 후보"]');
