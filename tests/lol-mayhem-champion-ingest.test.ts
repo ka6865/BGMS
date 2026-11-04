@@ -33,8 +33,11 @@ describe('챔피언 통계 수집 운영 경계',()=>{
  it('완전한 manifest 후보를 생성하고 공개 RPC는 호출하지 않는다',async()=>{
   expect(await ingestChampionDataset({apply:true})).toMatchObject({id:42,status:'awaiting_review',champions:2});expect(mocks.candidate).toHaveBeenCalledOnce();expect(mocks.candidate.mock.calls[0][0].metadata.files).toHaveLength(2);expect(mocks.rpc.mock.calls.some(([name])=>String(name).startsWith('review_'))).toBe(false);expect(mocks.rpc).toHaveBeenLastCalledWith('release_lol_collection_lease',{p_key:'ops:lol-mayhem-champion:champion_api_v1',p_token:'token'});
  });
- it('재사용 조건 미확인은 apply를 차단한다',async()=>{
-  vi.stubEnv('LOL_MAYHEM_STATS_REUSE_CONFIRMED','false');await expect(ingestChampionDataset({apply:true})).rejects.toThrow('stats_reuse_unconfirmed');expect(mocks.upload).not.toHaveBeenCalled();
+ it('공개 재사용 확인 전에도 근거가 있는 비공개 후보는 수집한다',async()=>{
+  vi.stubEnv('LOL_MAYHEM_STATS_REUSE_CONFIRMED','false');expect(await ingestChampionDataset({apply:true})).toMatchObject({status:'awaiting_review'});expect(mocks.candidate).toHaveBeenCalledOnce();
+ });
+ it('수집 근거·출처가 없으면 쓰기를 차단한다',async()=>{
+  vi.stubEnv('LOL_MAYHEM_STATS_REUSE_BASIS','');await expect(ingestChampionDataset({apply:true})).rejects.toThrow('stats_collection_basis_missing');expect(mocks.upload).not.toHaveBeenCalled();
  });
  it('저장 예산 초과는 업로드 전에 종료한다',async()=>{
   mocks.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='acquire_lol_collection_lease'?[{lease_token:'token'}]:2*1024**3,error:null}));await expect(ingestChampionDataset({apply:true})).rejects.toThrow('stats_storage_budget');expect(mocks.upload).not.toHaveBeenCalled();
