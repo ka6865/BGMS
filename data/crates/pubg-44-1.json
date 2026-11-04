@@ -1,0 +1,1779 @@
+{
+  "sourceUrl": "https://pubg.com/ko/game-info/probability/pc/11366",
+  "patch": "44.1",
+  "verifiedAt": "2026-11-04",
+  "notes": [
+    "확률은 공식 표의 백분율을 100으로 나눈 값. 확정 지급 재화(아이브 토큰 15개)는 기본 추첨에서 제외한다.",
+    "이 파일은 44.1 공식 표 중 신규 상자(아이브 화물, 큐티 파이 - 밀수품 상자)만 담는다. 다른 상자는 pubg-43-2.json 구성을 그대로 유지한다.",
+    "공식 등급이 -인 크레딧은 UI 기본 등급 COMMON으로 표시한다."
+  ],
+  "images": {
+    "11010184": {
+      "url": "https://cdn.pubgitems.info/i-icons/11010184.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/torso/11010184-badlands-royalty-shirt"
+    },
+    "11010195": {
+      "url": "https://cdn.pubgitems.info/i-icons/11010195.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/torso/11010195-badlands-muscle-shirt-and-vest"
+    },
+    "11010208": {
+      "url": "https://cdn.pubgitems.info/i-icons/11010208.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/torso/11010208-badlands-emissary-tank-top"
+    },
+    "11010215": {
+      "url": "https://cdn.pubgitems.info/i-icons/11010215.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/torso/11010215-jamila-striped-shirt"
+    },
+    "11010221": {
+      "url": "https://cdn.pubgitems.info/i-icons/11010221.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/torso/11010221-safina-open-shoulder-blouse"
+    },
+    "11010507": {
+      "url": "https://cdn.pubgitems.info/i-icons/11010507.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/torso/11010507-tagged-up-jumpsuit"
+    },
+    "11010634": {
+      "url": "https://cdn.pubgitems.info/i-icons/11010634.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/torso/11010634-damsel-in-distress-top"
+    },
+    "11020109": {
+      "url": "https://cdn.pubgitems.info/i-icons/11020109.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/legs/11020109-lucha-royale-wrestler-shorts"
+    },
+    "11020115": {
+      "url": "https://cdn.pubgitems.info/i-icons/11020115.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/legs/11020115-badlands-emissary-tactical-pants"
+    },
+    "11020119": {
+      "url": "https://cdn.pubgitems.info/i-icons/11020119.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/legs/11020119-tactical-drop-knee-pants"
+    },
+    "11020291": {
+      "url": "https://cdn.pubgitems.info/i-icons/11020291.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/legs/11020291-wild-cat-pants"
+    },
+    "11020438": {
+      "url": "https://cdn.pubgitems.info/i-icons/11020438.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/legs/11020438-death-by-love-pants"
+    },
+    "11030085": {
+      "url": "https://cdn.pubgitems.info/i-icons/11030085.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/feet/11030085-smoke-stalker-sneakers"
+    },
+    "11030087": {
+      "url": "https://cdn.pubgitems.info/i-icons/11030087.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/feet/11030087-lucha-royale-wrestler-boots"
+    },
+    "11030088": {
+      "url": "https://cdn.pubgitems.info/i-icons/11030088.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/feet/11030088-badlands-gold-trim-boots"
+    },
+    "11030146": {
+      "url": "https://cdn.pubgitems.info/i-icons/11030146.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/feet/11030146-cheerleader-shoes"
+    },
+    "11030216": {
+      "url": "https://cdn.pubgitems.info/i-icons/11030216.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/feet/11030216-neon-flip-flops"
+    },
+    "11030398": {
+      "url": "https://cdn.pubgitems.info/i-icons/11030398.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/feet/11030398-toon-raider-shoes"
+    },
+    "11050090": {
+      "url": "https://cdn.pubgitems.info/i-icons/11050090.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/outer/11050090-better-luck-shirt"
+    },
+    "11050091": {
+      "url": "https://cdn.pubgitems.info/i-icons/11050091.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/outer/11050091-miramar-beach-shirt"
+    },
+    "11050133": {
+      "url": "https://cdn.pubgitems.info/i-icons/11050133.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/outer/11050133-shiba-crew-hoodie-white"
+    },
+    "11050134": {
+      "url": "https://cdn.pubgitems.info/i-icons/11050134.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/outer/11050134-cow-print-heavy-fur-coat-black"
+    },
+    "11060038": {
+      "url": "https://cdn.pubgitems.info/i-icons/11060038.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/head/11060038-brimless-cap-black"
+    },
+    "11060049": {
+      "url": "https://cdn.pubgitems.info/i-icons/11060049.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/head/11060049-fedora-hat"
+    },
+    "11060211": {
+      "url": "https://cdn.pubgitems.info/i-icons/11060211.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/head/11060211-rainbow-rover-hat-and-goggles"
+    },
+    "11070137": {
+      "url": "https://cdn.pubgitems.info/i-icons/11070137.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/mask/11070137-merry-muffler"
+    },
+    "11080019": {
+      "url": "https://cdn.pubgitems.info/i-icons/11080019.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/eyes/11080019-hexadeathimal-sunglasses"
+    },
+    "11080058": {
+      "url": "https://cdn.pubgitems.info/i-icons/11080058.png",
+      "sourceUrl": "https://pubgitems.info/ko/clothing/eyes/11080058-sleeping-queen-sleep-mask"
+    },
+    "12010021": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010021.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/shotgun/12010021-gold-plate-sawed-off"
+    },
+    "12010023": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010023.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/dmr/12010023-gold-plate-sks"
+    },
+    "12010028": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010028.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/sr/12010028-gold-plate-win94"
+    },
+    "12010030": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010030.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010030-rugged-orange-scar-l"
+    },
+    "12010034": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010034.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010034-rugged-orange-m416"
+    },
+    "12010046": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010046.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010046-gold-plate-groza"
+    },
+    "12010051": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010051.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/sr/12010051-gold-plate-awm"
+    },
+    "12010217": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010217.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/smg/12010217-gold-plate-vector"
+    },
+    "12010218": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010218.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/smg/12010218-gold-plate-ump"
+    },
+    "12010425": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010425.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/misc/12010425-urban-hunter-crossbow"
+    },
+    "12010426": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010426.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/shotgun/12010426-urban-hunter-sawed-off"
+    },
+    "12010427": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010427.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/handgun/12010427-urban-hunter-p92"
+    },
+    "12010429": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010429.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/shotgun/12010429-chain-gang-s12k"
+    },
+    "12010430": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010430.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010430-chain-gang-m16a4"
+    },
+    "12010431": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010431.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/smg/12010431-chain-gang-micro-uzi"
+    },
+    "12010432": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010432.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010432-psycho-killer-scar-l"
+    },
+    "12010434": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010434.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/smg/12010434-psycho-killer-mp5k"
+    },
+    "12010435": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010435.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/lmg/12010435-plaid-to-the-bone-m249"
+    },
+    "12010436": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010436.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010436-plaid-to-the-bone-beryl-m762"
+    },
+    "12010437": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010437.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/dmr/12010437-plaid-to-the-bone-vss"
+    },
+    "12010440": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010440.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/smg/12010440-barracuda-vector"
+    },
+    "12010449": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010449.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010449-gilded-depths-k2"
+    },
+    "12010487": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010487.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010487-bewitched-beryl-m762"
+    },
+    "12010488": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010488.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/sr/12010488-bewitched-awm"
+    },
+    "12010489": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010489.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/smg/12010489-bewitched-vector"
+    },
+    "12010490": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010490.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/dmr/12010490-cobalt-callsign-slr"
+    },
+    "12010491": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010491.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010491-cobalt-callsign-g36c"
+    },
+    "12010492": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010492.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/handgun/12010492-cobalt-callsign-p18c"
+    },
+    "12010493": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010493.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010493-cobalt-callsign-k2"
+    },
+    "12010494": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010494.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/shotgun/12010494-cobalt-callsign-s1897"
+    },
+    "12010495": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010495.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/smg/12010495-cobalt-callsign-ump"
+    },
+    "12010496": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010496.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/smg/12010496-cobalt-callsign-micro-uzi"
+    },
+    "12010497": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010497.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/melee/12010497-gourd-smasher-pan"
+    },
+    "12010498": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010498.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010498-waffle-cone-m16a4"
+    },
+    "12010499": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010499.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/shotgun/12010499-waffle-cone-s686"
+    },
+    "12010500": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010500.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/handgun/12010500-waffle-cone-r1895"
+    },
+    "12010505": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010505.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010505-technicolor-technocat-aug"
+    },
+    "12010506": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010506.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010506-patches-scar-l"
+    },
+    "12010507": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010507.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/dmr/12010507-dogspot-vss"
+    },
+    "12010675": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010675.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/sr/12010675-giftwrapped-kar98k"
+    },
+    "12010676": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010676.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12010676-giftwrapped-beryl-m762"
+    },
+    "12010686": {
+      "url": "https://cdn.pubgitems.info/i-icons/12010686.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/shotgun/12010686-pastel-power-s1897"
+    },
+    "12011034": {
+      "url": "https://cdn.pubgitems.info/i-icons/12011034.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/dmr/12011034-comic-colorburst-slr"
+    },
+    "12011035": {
+      "url": "https://cdn.pubgitems.info/i-icons/12011035.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/dmr/12011035-comic-colorburst-sks"
+    },
+    "12011106": {
+      "url": "https://cdn.pubgitems.info/i-icons/12011106.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12011106-cutie-patootie-m16a4"
+    },
+    "12012051": {
+      "url": "https://cdn.pubgitems.info/i-icons/12012051.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/dmr/12012051-cute-aggression-mini14"
+    },
+    "12014050": {
+      "url": "https://cdn.pubgitems.info/i-icons/12014050.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/dmr/12014050-cute-aggression-mini14-pink-white"
+    },
+    "12015163": {
+      "url": "https://cdn.pubgitems.info/i-icons/12015163.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12015163-cutie-patootie-k2"
+    },
+    "12015165": {
+      "url": "https://cdn.pubgitems.info/i-icons/12015165.png",
+      "sourceUrl": "https://pubgitems.info/ko/weapons/ar/12015165-cutie-patootie-aug"
+    },
+    "12031017": {
+      "url": "https://cdn.pubgitems.info/i-icons/12031017.png",
+      "sourceUrl": "https://pubgitems.info/ko/equip/helmet/12031017-gold-dust-helmet-level-1"
+    },
+    "12031079": {
+      "url": "https://cdn.pubgitems.info/i-icons/12031079.png",
+      "sourceUrl": "https://pubgitems.info/ko/equip/helmet/12031079-vigilante-helmet-level-2"
+    },
+    "12031226": {
+      "url": "https://cdn.pubgitems.info/i-icons/12031226.png",
+      "sourceUrl": "https://pubgitems.info/ko/equip/helmet/12031226-scuba-instructor-helmet-level-3"
+    },
+    "12032014": {
+      "url": "https://cdn.pubgitems.info/i-icons/12032014.png",
+      "sourceUrl": "https://pubgitems.info/ko/equip/backpack/12032014-white-snake-backpack-level-2"
+    },
+    "12032066": {
+      "url": "https://cdn.pubgitems.info/i-icons/12032066.png",
+      "sourceUrl": "https://pubgitems.info/ko/equip/backpack/12032066-chaotic-scrawl-backpack-level-2"
+    },
+    "12032069": {
+      "url": "https://cdn.pubgitems.info/i-icons/12032069.png",
+      "sourceUrl": "https://pubgitems.info/ko/equip/backpack/12032069-legend-status-duffle-backpack-level-3"
+    },
+    "12032139": {
+      "url": "https://cdn.pubgitems.info/i-icons/12032139.png",
+      "sourceUrl": "https://pubgitems.info/ko/equip/backpack/12032139-bunny-academy-backpack-level-3"
+    },
+    "12032270": {
+      "url": "https://cdn.pubgitems.info/i-icons/12032270.png",
+      "sourceUrl": "https://pubgitems.info/ko/equip/backpack/12032270-one-in-a-dozen-backpack-level-3"
+    },
+    "13000035": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000035.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000035-factory-worker-crate"
+    },
+    "13000048": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000048.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000048-badlands-leisure-set"
+    },
+    "13000086": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000086.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000086-checkered-summer-set"
+    },
+    "13000102": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000102.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000102-nightclub-dress-set"
+    },
+    "13000235": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000235.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000235-fairied-away-set"
+    },
+    "13000248": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000248.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000248-evening-bloom-dress-set"
+    },
+    "13000297": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000297.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000297-mermaid-costume-set"
+    },
+    "13000306": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000306.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000306-summer-fun-set"
+    },
+    "13000498": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000498.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000498-floral-shirt-set"
+    },
+    "13000527": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000527.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000527-jockey-set"
+    },
+    "13000559": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000559.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000559-grandmas-nightgown-set"
+    },
+    "13000597": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000597.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000597-elegant-summer-romper-set"
+    },
+    "13000655": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000655.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000655-burning-chicken-festival-outfit-set-3"
+    },
+    "13000656": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000656.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000656-burning-chicken-festival-outfit-set-4"
+    },
+    "13000722": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000722.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000722-wasteland-set"
+    },
+    "13000772": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000772.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000772-pro-tect-set"
+    },
+    "13000775": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000775.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000775-breakout-set"
+    },
+    "13000817": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000817.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000817-stranded-in-style-set"
+    },
+    "13000818": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000818.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000818-stormy-seas-set"
+    },
+    "13000819": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000819.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000819-easy-breezy-set"
+    },
+    "13000959": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000959.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000959-sugar-rush-salli-set-1"
+    },
+    "13000960": {
+      "url": "https://cdn.pubgitems.info/i-icons/13000960.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13000960-sugar-rush-salli-set-2"
+    },
+    "13001037": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001037.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001037-blooming-blue-set"
+    },
+    "13001038": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001038.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001038-flirty-flower-set"
+    },
+    "13001079": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001079.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001079-space-critters-clothing-set"
+    },
+    "13001114": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001114.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001114-belfry-bella-set"
+    },
+    "13001154": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001154.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001154-maid-of-mayhem-set"
+    },
+    "13001155": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001155.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001155-killer-casual-set"
+    },
+    "13001164": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001164.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001164-snow-angel-set"
+    },
+    "13001195": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001195.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001195-minx-mandy-set"
+    },
+    "13001220": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001220.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001220-stinger-sweetheart-set"
+    },
+    "13001223": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001223.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001223-fox-demon-set"
+    },
+    "13001283": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001283.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001283-cozy-cub-set"
+    },
+    "13001431": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001431.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001431-romantic-flair-set"
+    },
+    "13001680": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001680.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001680-ive-rei-set"
+    },
+    "13001681": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001681.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001681-ive-gaeul-set"
+    },
+    "13001682": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001682.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001682-ive-jangwonyoung-set"
+    },
+    "13001683": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001683.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001683-ive-anyujin-set"
+    },
+    "13001684": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001684.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001684-ive-leeseo-set"
+    },
+    "13001685": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001685.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001685-ive-liz-set"
+    },
+    "13001686": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001686.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001686-ive-eleven-emote-set"
+    },
+    "13001687": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001687.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001687-ive-love-dive-emote-set"
+    },
+    "13001688": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001688.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001688-ive-bang-bang-emote-set"
+    },
+    "13001689": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001689.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001689-ive-blackhole-emote-set"
+    },
+    "13001690": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001690.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001690-ive-gear-set"
+    },
+    "13001691": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001691.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001691-ive-weapon-set"
+    },
+    "14100081": {
+      "url": "https://cdn.pubgitems.info/i-icons/14100081.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/crate/14100081-cute-aggression-contraband-crate"
+    },
+    "14300066": {
+      "url": "https://cdn.pubgitems.info/i-icons/14300066.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/chests/14300066-ive-cargo"
+    },
+    "16100068": {
+      "url": "https://cdn.pubgitems.info/i-icons/16100068.png",
+      "sourceUrl": "https://pubgitems.info/ko/appearance/emotes/16100068-yeah"
+    },
+    "16100069": {
+      "url": "https://cdn.pubgitems.info/i-icons/16100069.png",
+      "sourceUrl": "https://pubgitems.info/ko/appearance/emotes/16100069-are-you-not-entertained"
+    },
+    "16100070": {
+      "url": "https://cdn.pubgitems.info/i-icons/16100070.png",
+      "sourceUrl": "https://pubgitems.info/ko/appearance/emotes/16100070-ready-to-rumble"
+    },
+    "16100071": {
+      "url": "https://cdn.pubgitems.info/i-icons/16100071.png",
+      "sourceUrl": "https://pubgitems.info/ko/appearance/emotes/16100071-target-eliminated"
+    },
+    "16100298": {
+      "url": "https://cdn.pubgitems.info/i-icons/16100298.png",
+      "sourceUrl": "https://pubgitems.info/ko/appearance/emotes/16100298-pgc-2021-dance-splash-damage"
+    },
+    "16100299": {
+      "url": "https://cdn.pubgitems.info/i-icons/16100299.png",
+      "sourceUrl": "https://pubgitems.info/ko/appearance/emotes/16100299-victory-dance-75"
+    },
+    "18040103": {
+      "url": "https://cdn.pubgitems.info/i-icons/18040103.png",
+      "sourceUrl": "https://pubgitems.info/ko/other/nameplate/18040103-big-bang"
+    },
+    "18040104": {
+      "url": "https://cdn.pubgitems.info/i-icons/18040104.png",
+      "sourceUrl": "https://pubgitems.info/ko/other/nameplate/18040104-deco-darling"
+    },
+    "credit": {
+      "url": "https://cdn.pubgitems.info/currency/credit/360.png",
+      "sourceUrl": "https://pubgitems.info/ko"
+    },
+    "schematics": {
+      "url": "https://cdn.pubgitems.info/currency/schematics/360.png",
+      "sourceUrl": "https://pubgitems.info/ko"
+    },
+    "polymers": {
+      "url": "https://cdn.pubgitems.info/currency/polymers/360.png",
+      "sourceUrl": "https://pubgitems.info/ko"
+    }
+  },
+  "crates": [
+    {
+      "id": "34c78113-38af-41a6-b4ef-47ea96f58745",
+      "name": "아이브 화물",
+      "imageId": "14300066",
+      "type": "loot_crate",
+      "bonusCurrency": "아이브 토큰",
+      "bonusQuantity": 15,
+      "bonusCurrencyCode": "ive_token",
+      "items": [
+        {
+          "name": "아이브 레이 세트 도안",
+          "rarity": "LEGENDARY",
+          "quantity": 1,
+          "probability": 0.002,
+          "imageId": "13001680"
+        },
+        {
+          "name": "아이브 가을 세트 도안",
+          "rarity": "LEGENDARY",
+          "quantity": 1,
+          "probability": 0.002,
+          "imageId": "13001681"
+        },
+        {
+          "name": "아이브 장원영 세트 도안",
+          "rarity": "LEGENDARY",
+          "quantity": 1,
+          "probability": 0.002,
+          "imageId": "13001682"
+        },
+        {
+          "name": "아이브 안유진 세트 도안",
+          "rarity": "LEGENDARY",
+          "quantity": 1,
+          "probability": 0.002,
+          "imageId": "13001683"
+        },
+        {
+          "name": "아이브 이서 세트 도안",
+          "rarity": "LEGENDARY",
+          "quantity": 1,
+          "probability": 0.002,
+          "imageId": "13001684"
+        },
+        {
+          "name": "아이브 리즈 세트 도안",
+          "rarity": "LEGENDARY",
+          "quantity": 1,
+          "probability": 0.002,
+          "imageId": "13001685"
+        },
+        {
+          "name": "아이브 ELEVEN 이모트 세트 도안",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.005,
+          "imageId": "13001686"
+        },
+        {
+          "name": "아이브 LOVE DIVE 이모트 세트 도안",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.005,
+          "imageId": "13001687"
+        },
+        {
+          "name": "아이브 BANG BANG 이모트 세트 도안",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.005,
+          "imageId": "13001688"
+        },
+        {
+          "name": "아이브 BLACKHOLE 이모트 세트 도안",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.005,
+          "imageId": "13001689"
+        },
+        {
+          "name": "아이브 기어 세트 도안",
+          "rarity": "LEGENDARY",
+          "quantity": 1,
+          "probability": 0.0045,
+          "imageId": "13001690"
+        },
+        {
+          "name": "아이브 무기 세트 도안",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.0045,
+          "imageId": "13001691"
+        },
+        {
+          "name": "구미호 세트 도안",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.006,
+          "imageId": "13001223"
+        },
+        {
+          "name": "스노우 엔젤 세트 도안",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.006,
+          "imageId": "13001164"
+        },
+        {
+          "name": "인어 의상 세트 도안",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.006,
+          "imageId": "13000297"
+        },
+        {
+          "name": "승마 세트 도안",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.006,
+          "imageId": "13000527"
+        },
+        {
+          "name": "밍스 맨디 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13001195"
+        },
+        {
+          "name": "대혼란의 메이드 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13001154"
+        },
+        {
+          "name": "플러팅 플라워 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13001038"
+        },
+        {
+          "name": "체크무늬 여름 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000086"
+        },
+        {
+          "name": "클럽 드레스 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000102"
+        },
+        {
+          "name": "이브닝 파티 드레스 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000248"
+        },
+        {
+          "name": "요정 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000235"
+        },
+        {
+          "name": "서머 펀 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000306"
+        },
+        {
+          "name": "엘레강스 여름 바디수트 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000597"
+        },
+        {
+          "name": "할머니 나이트가운 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000559"
+        },
+        {
+          "name": "표류 스타일 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000817"
+        },
+        {
+          "name": "폭풍의 바다 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000818"
+        },
+        {
+          "name": "슈가 러시 샐리 세트 2 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000960"
+        },
+        {
+          "name": "슈가 러시 샐리 세트 1 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13000959"
+        },
+        {
+          "name": "블루밍 블루 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13001037"
+        },
+        {
+          "name": "꿀벌 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13001220"
+        },
+        {
+          "name": "로맨틱 실크 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13001431"
+        },
+        {
+          "name": "포근한 능소니 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13001283"
+        },
+        {
+          "name": "종탑의 벨라 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13001114"
+        },
+        {
+          "name": "킬러 캐주얼 세트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "13001155"
+        },
+        {
+          "name": "버니 아카데미 배낭 (Level 3) 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "12032139"
+        },
+        {
+          "name": "와일드 캣 바지 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11020291"
+        },
+        {
+          "name": "봄의 대화 상의 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11010634"
+        },
+        {
+          "name": "스쿠버 다이빙 강사 - 헬멧 (Level 3) 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "12031226"
+        },
+        {
+          "name": "메리 머플러 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11070137"
+        },
+        {
+          "name": "시바 크루 후드티 (흰색) 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11050133"
+        },
+        {
+          "name": "네온 플립플랍 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11030216"
+        },
+        {
+          "name": "치어리더 신발 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11030146"
+        },
+        {
+          "name": "잠의 여왕 수면 안대 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11080058"
+        },
+        {
+          "name": "반려견 산책 모자와 고글 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11060211"
+        },
+        {
+          "name": "데스 바이 러브 바지 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11020438"
+        },
+        {
+          "name": "자경단 - 헬멧 (Level 2) 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "12031079"
+        },
+        {
+          "name": "밀크 모피 코트 (검은색) 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11050134"
+        },
+        {
+          "name": "카오스 패턴 배낭 (Level 2) 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "12032066"
+        },
+        {
+          "name": "툰 레이더 신발 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11030398"
+        },
+        {
+          "name": "글레이즈 더즌 배낭 (Level 3) 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "12032270"
+        },
+        {
+          "name": "레전드 스테이터스 더플 배낭 (Level 3) 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "12032069"
+        },
+        {
+          "name": "태그 업 점프수트 도안",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.00875,
+          "imageId": "11010507"
+        },
+        {
+          "name": "웨이스트랜드 세트 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13000722"
+        },
+        {
+          "name": "버닝 치킨 페스티벌 의상 세트 3 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13000655"
+        },
+        {
+          "name": "버닝 치킨 페스티벌 의상 세트 4 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13000656"
+        },
+        {
+          "name": "프로텍트 세트 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13000772"
+        },
+        {
+          "name": "브레이크아웃 세트 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13000775"
+        },
+        {
+          "name": "선선한 바람 세트 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13000819"
+        },
+        {
+          "name": "스페이스 크리터 의상 세트 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13001079"
+        },
+        {
+          "name": "꽃무늬 셔츠 세트 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13000498"
+        },
+        {
+          "name": "황무지 레저 세트 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13000048"
+        },
+        {
+          "name": "공장 작업자 상자 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "13000035"
+        },
+        {
+          "name": "황무지 패밀리 셔츠 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "11010184"
+        },
+        {
+          "name": "황무지 머슬 셔츠와 조끼 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "11010195"
+        },
+        {
+          "name": "황무지 특사 탱크탑 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "11010208"
+        },
+        {
+          "name": "루차 로얄 레슬러 반바지 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "11020109"
+        },
+        {
+          "name": "황무지 특사 택티컬 바지 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "11020115"
+        },
+        {
+          "name": "루차 로얄 레슬러 부츠 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "11030087"
+        },
+        {
+          "name": "뱅! 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "18040103"
+        },
+        {
+          "name": "걸크러쉬 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "18040104"
+        },
+        {
+          "name": "PGC 2021 댄스 - 부수적 피해 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "16100298"
+        },
+        {
+          "name": "승리 댄스 75 도안",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.013,
+          "imageId": "16100299"
+        },
+        {
+          "name": "스모크 스토커 운동화 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11030085"
+        },
+        {
+          "name": "황무지 금테 부츠 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11030088"
+        },
+        {
+          "name": "Better Luck 셔츠 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11050090"
+        },
+        {
+          "name": "미라마 해변 셔츠 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11050091"
+        },
+        {
+          "name": "페도라 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11060049"
+        },
+        {
+          "name": "헥사데시멀 선글라스 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11080019"
+        },
+        {
+          "name": "골드 더스트 - 헬멧 (Level 1) 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "12031017"
+        },
+        {
+          "name": "화이트 스네이크 배낭 (Level 2) 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "12032014"
+        },
+        {
+          "name": "워치 캡 (검은색) 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11060038"
+        },
+        {
+          "name": "자밀라 줄무늬 민소매 셔츠 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11010215"
+        },
+        {
+          "name": "사피나 오픈 숄더 블라우스 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11010221"
+        },
+        {
+          "name": "택티컬 무릎 보호대 바지 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "11020119"
+        },
+        {
+          "name": "화이팅! 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "16100068"
+        },
+        {
+          "name": "이게 나야 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "16100069"
+        },
+        {
+          "name": "몸풀기 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "16100070"
+        },
+        {
+          "name": "목표물 제거 도안",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "16100071"
+        },
+        {
+          "name": "크레딧",
+          "rarity": "COMMON",
+          "quantity": 1000,
+          "probability": 0.0565,
+          "imageId": "credit"
+        },
+        {
+          "name": "크레딧",
+          "rarity": "COMMON",
+          "quantity": 2000,
+          "probability": 0.03,
+          "imageId": "credit"
+        },
+        {
+          "name": "크레딧",
+          "rarity": "COMMON",
+          "quantity": 3000,
+          "probability": 0.016,
+          "imageId": "credit"
+        }
+      ]
+    },
+    {
+      "id": "9087aace-44c3-4732-a98a-e73e05d4a571",
+      "name": "큐티 파이 - 밀수품 상자",
+      "imageId": "14100081",
+      "type": "contraband",
+      "bonusCurrency": "스크랩",
+      "bonusQuantity": 10,
+      "bonusCurrencyCode": "contraband_scrap",
+      "items": [
+        {
+          "name": "큐티 파이 - 미니14",
+          "rarity": "LEGENDARY",
+          "quantity": 1,
+          "probability": 0.009,
+          "imageId": "12012051"
+        },
+        {
+          "name": "큐티 파이 - 미니14 (핑크 화이트)",
+          "rarity": "ULTIMATE",
+          "quantity": 1,
+          "probability": 0.004,
+          "imageId": "12014050"
+        },
+        {
+          "name": "귀염둥이 - M16A4",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.015,
+          "imageId": "12011106"
+        },
+        {
+          "name": "호박 으깨기 - 프라이팬",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.008,
+          "imageId": "12010497"
+        },
+        {
+          "name": "코믹 컬러버스트 - SLR",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.008,
+          "imageId": "12011034"
+        },
+        {
+          "name": "코믹 컬러버스트 - SKS",
+          "rarity": "EPIC",
+          "quantity": 1,
+          "probability": 0.008,
+          "imageId": "12011035"
+        },
+        {
+          "name": "귀염둥이 - AUG",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.03,
+          "imageId": "12015165"
+        },
+        {
+          "name": "귀염둥이 - K2",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.03,
+          "imageId": "12015163"
+        },
+        {
+          "name": "비위치드 - 베릴 M762",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010487"
+        },
+        {
+          "name": "비위치드 - AWM",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010488"
+        },
+        {
+          "name": "비위치드 - 벡터",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010489"
+        },
+        {
+          "name": "테크니컬러 테크노캣 - AUG",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010505"
+        },
+        {
+          "name": "패치 - SCAR-L",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010506"
+        },
+        {
+          "name": "점박이 - VSS",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010507"
+        },
+        {
+          "name": "사이코 킬러 - SCAR-L",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010432"
+        },
+        {
+          "name": "기프트랩 - Kar98k",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010675"
+        },
+        {
+          "name": "사이코 킬러 - MP5K",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010434"
+        },
+        {
+          "name": "바라쿠다 - 벡터",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010440"
+        },
+        {
+          "name": "기프트랩 - 베릴 M762",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010676"
+        },
+        {
+          "name": "서브마리너 - K2",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010449"
+        },
+        {
+          "name": "골드 - SKS",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010023"
+        },
+        {
+          "name": "골드 - 그로자",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010046"
+        },
+        {
+          "name": "골드 - AWM",
+          "rarity": "ELITE",
+          "quantity": 1,
+          "probability": 0.014,
+          "imageId": "12010051"
+        },
+        {
+          "name": "와플 콘 - M16A4",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.0189,
+          "imageId": "12010498"
+        },
+        {
+          "name": "와플 콘 - S686",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.0189,
+          "imageId": "12010499"
+        },
+        {
+          "name": "와플 콘 - R1895",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.0189,
+          "imageId": "12010500"
+        },
+        {
+          "name": "플래드 - M249",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.0189,
+          "imageId": "12010435"
+        },
+        {
+          "name": "플래드 - 베릴 M762",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.0189,
+          "imageId": "12010436"
+        },
+        {
+          "name": "플래드 - VSS",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.0189,
+          "imageId": "12010437"
+        },
+        {
+          "name": "골드 - 벡터",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.0189,
+          "imageId": "12010217"
+        },
+        {
+          "name": "골드 - UMP",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.0189,
+          "imageId": "12010218"
+        },
+        {
+          "name": "골드 - 소드오프",
+          "rarity": "RARE",
+          "quantity": 1,
+          "probability": 0.0189,
+          "imageId": "12010021"
+        },
+        {
+          "name": "코발트 콜사인 - SLR",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010490"
+        },
+        {
+          "name": "코발트 콜사인 - G36C",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010491"
+        },
+        {
+          "name": "코발트 콜사인 - P18C",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010492"
+        },
+        {
+          "name": "코발트 콜사인 - K2",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010493"
+        },
+        {
+          "name": "코발트 콜사인 - S1897",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010494"
+        },
+        {
+          "name": "코발트 콜사인 - UMP",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010495"
+        },
+        {
+          "name": "코발트 콜사인 - 마이크로 UZI",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010496"
+        },
+        {
+          "name": "어반 헌터 - 석궁",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010425"
+        },
+        {
+          "name": "어반 헌터 - 소드오프",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010426"
+        },
+        {
+          "name": "어반 헌터 - P92",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010427"
+        },
+        {
+          "name": "파스텔 파워 - S1897",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010686"
+        },
+        {
+          "name": "체인 갱 - S12K",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010429"
+        },
+        {
+          "name": "체인 갱 - M16A4",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010430"
+        },
+        {
+          "name": "체인 갱 - 마이크로 UZI",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010431"
+        },
+        {
+          "name": "러기드 (주황색) - SCAR-L",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010030"
+        },
+        {
+          "name": "러기드 (주황색) - M416",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010034"
+        },
+        {
+          "name": "골드 - Win94",
+          "rarity": "SPECIAL",
+          "quantity": 1,
+          "probability": 0.0228,
+          "imageId": "12010028"
+        },
+        {
+          "name": "도면",
+          "rarity": "COMMON",
+          "quantity": 1,
+          "probability": 0.009,
+          "imageId": "schematics"
+        },
+        {
+          "name": "폴리머",
+          "rarity": "COMMON",
+          "quantity": 200,
+          "probability": 0.01,
+          "imageId": "polymers"
+        },
+        {
+          "name": "폴리머",
+          "rarity": "COMMON",
+          "quantity": 100,
+          "probability": 0.025,
+          "imageId": "polymers"
+        },
+        {
+          "name": "폴리머",
+          "rarity": "COMMON",
+          "quantity": 50,
+          "probability": 0.0763,
+          "imageId": "polymers"
+        }
+      ]
+    }
+  ],
+  "crafting": {
+    "seasonKey": "2026_ive",
+    "tokenCode": "ive_token",
+    "sourceUrl": "https://pubg.com/ko/news/11307",
+    "notes": [
+      "필요 토큰과 목록은 공식 PUBG x 아이브 공지의 제작 가능 아이템 표 기준.",
+      "세트 도안의 등급은 공식 확률표의 같은 아이템 등급을 따른다.",
+      "장인 토큰·열쇠·열쇠 조각은 확인된 이미지가 없어 이미지 없이 둔다."
+    ],
+    "items": [
+      {
+        "name": "아이브 안유진 세트 도안",
+        "tokenCost": 2000,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001683"
+      },
+      {
+        "name": "아이브 가을 세트 도안",
+        "tokenCost": 2000,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001681"
+      },
+      {
+        "name": "아이브 레이 세트 도안",
+        "tokenCost": 2000,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001680"
+      },
+      {
+        "name": "아이브 장원영 세트 도안",
+        "tokenCost": 2000,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001682"
+      },
+      {
+        "name": "아이브 리즈 세트 도안",
+        "tokenCost": 2000,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001685"
+      },
+      {
+        "name": "아이브 이서 세트 도안",
+        "tokenCost": 2000,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001684"
+      },
+      {
+        "name": "아이브 기어 세트 도안",
+        "tokenCost": 1000,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001690"
+      },
+      {
+        "name": "아이브 무기 세트 도안",
+        "tokenCost": 1000,
+        "category": "세트",
+        "rarity": "EPIC",
+        "imageId": "13001691"
+      },
+      {
+        "name": "아이브 ELEVEN 이모트 세트 도안",
+        "tokenCost": 500,
+        "category": "이모트",
+        "rarity": "EPIC",
+        "imageId": "13001686"
+      },
+      {
+        "name": "아이브 LOVE DIVE 이모트 세트 도안",
+        "tokenCost": 500,
+        "category": "이모트",
+        "rarity": "EPIC",
+        "imageId": "13001687"
+      },
+      {
+        "name": "아이브 BANG BANG 이모트 세트 도안",
+        "tokenCost": 500,
+        "category": "이모트",
+        "rarity": "EPIC",
+        "imageId": "13001688"
+      },
+      {
+        "name": "아이브 BLACKHOLE 이모트 세트 도안",
+        "tokenCost": 500,
+        "category": "이모트",
+        "rarity": "EPIC",
+        "imageId": "13001689"
+      },
+      {
+        "name": "장인 토큰",
+        "tokenCost": 750,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": null,
+        "quantity": 100
+      },
+      {
+        "name": "아이브 화물 티켓",
+        "tokenCost": 200,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": "14300066",
+        "quantity": 1,
+        "grantsCrateTicket": true
+      },
+      {
+        "name": "크레딧",
+        "tokenCost": 200,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": "credit",
+        "quantity": 6000
+      },
+      {
+        "name": "열쇠",
+        "tokenCost": 180,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": null,
+        "quantity": 3
+      },
+      {
+        "name": "열쇠",
+        "tokenCost": 60,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": null,
+        "quantity": 1
+      },
+      {
+        "name": "열쇠 조각",
+        "tokenCost": 20,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": null,
+        "quantity": 1
+      }
+    ]
+  }
+}
