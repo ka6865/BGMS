@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import Link from 'next/link';
+import { useSearchParams, usePathname } from 'next/navigation';
 import { Map, BarChart2, MessageSquare, Trophy, Menu } from 'lucide-react';
 import GlobalMobileMenu from './GlobalMobileMenu';
 import { useAuth } from '../AuthProvider';
@@ -11,7 +12,6 @@ export const isStatsPath = (pathname: string) =>
   pathname === '/stats' || pathname.startsWith('/stats/');
 
 export default function BottomNav() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const activeTab = pathname.startsWith('/maps/') 
@@ -51,33 +51,41 @@ export default function BottomNav() {
     return null;
   }
 
-  const bottomNavItems = [
+  // 이동 탭은 버튼이 아니라 실제 링크(<a>)로 렌더한다. 애드센스 전면 광고의 기본 트리거가 "링크 클릭"이기 때문이다.
+  const bottomNavItems: Array<{
+    id: string;
+    label: string;
+    icon: typeof Map;
+    href?: string;
+    onClick?: (e?: React.MouseEvent) => void;
+    active: boolean;
+  }> = [
     {
       id: 'Home',
       label: '지도',
       icon: Map,
-      onClick: () => router.push('/maps/erangel'),
+      href: '/maps/erangel',
       active: pathname.startsWith('/maps') && !isMenuOpen,
     },
     {
       id: 'Stats',
       label: 'AI 전적',
       icon: BarChart2,
-      onClick: () => router.push('/stats'),
+      href: '/stats',
       active: isStatsPath(pathname) && !isMenuOpen,
     },
     {
       id: 'Rankings',
       label: '랭킹',
       icon: Trophy,
-      onClick: () => router.push('/rankings'),
+      href: '/rankings',
       active: pathname.startsWith('/rankings') && !isMenuOpen,
     },
     {
       id: 'Board',
       label: '커뮤니티',
       icon: MessageSquare,
-      onClick: () => router.push('/board'),
+      href: '/board',
       active: pathname.startsWith('/board') && !isMenuOpen,
     },
     {
@@ -106,47 +114,61 @@ export default function BottomNav() {
         }}
       >
         <div className="flex justify-around items-center h-[56px] px-2">
-          {bottomNavItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={(e) => item.onClick(e)}
-              className="flex flex-col items-center justify-center w-full gap-[3px] relative"
-              style={{
-                color: item.active ? 'var(--color-accent)' : 'rgba(255,255,255,0.65)',
-                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                transform: item.active ? 'scale(1.08)' : 'scale(1)',
-              }}
-            >
-              {/* 액티브 인디케이터 닷 */}
-              {item.active && (
+          {bottomNavItems.map((item) => {
+            const itemStyle: React.CSSProperties = {
+              color: item.active ? 'var(--color-accent)' : 'rgba(255,255,255,0.65)',
+              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+              transform: item.active ? 'scale(1.08)' : 'scale(1)',
+            };
+            const itemClassName = 'flex flex-col items-center justify-center w-full gap-[3px] relative';
+            const content = (
+              <>
+                {/* 액티브 인디케이터 닷 */}
+                {item.active && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '4px',
+                      width: '4px',
+                      height: '4px',
+                      borderRadius: '50%',
+                      backgroundColor: 'var(--color-accent)',
+                      boxShadow: '0 0 6px rgba(242, 169, 0, 0.8)',
+                    }}
+                  />
+                )}
+                <item.icon
+                  size={20}
+                  strokeWidth={item.active ? 2.5 : 1.8}
+                  style={{ marginTop: item.active ? '8px' : '0' }}
+                />
                 <span
                   style={{
-                    position: 'absolute',
-                    top: '4px',
-                    width: '4px',
-                    height: '4px',
-                    borderRadius: '50%',
-                    backgroundColor: 'var(--color-accent)',
-                    boxShadow: '0 0 6px rgba(242, 169, 0, 0.8)',
+                    fontSize: '10px',
+                    fontWeight: item.active ? 700 : 500,
+                    letterSpacing: '0.02em',
                   }}
-                />
-              )}
-              <item.icon
-                size={20}
-                strokeWidth={item.active ? 2.5 : 1.8}
-                style={{ marginTop: item.active ? '8px' : '0' }}
-              />
-              <span
-                style={{
-                  fontSize: '10px',
-                  fontWeight: item.active ? 700 : 500,
-                  letterSpacing: '0.02em',
-                }}
+                >
+                  {item.label}
+                </span>
+              </>
+            );
+            return item.href ? (
+              <Link
+                key={item.id}
+                href={item.href}
+                aria-current={item.active ? 'page' : undefined}
+                className={itemClassName}
+                style={itemStyle}
               >
-                {item.label}
-              </span>
-            </button>
-          ))}
+                {content}
+              </Link>
+            ) : (
+              <button key={item.id} onClick={(e) => item.onClick?.(e)} className={itemClassName} style={itemStyle}>
+                {content}
+              </button>
+            );
+          })}
         </div>
       </nav>
       <GlobalMobileMenu isOpen={isMenuOpen} setIsOpen={setIsMenuOpen} activeMapId={activeTab} isAdmin={isAdmin} />
