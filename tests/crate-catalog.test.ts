@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import catalog431 from "../data/crates/pubg-43-1.json";
 import catalog432 from "../data/crates/pubg-43-2.json";
+import catalog441 from "../data/crates/pubg-44-1.json";
 import { buildCatalogSql, buildCraftingSql, itemKey, validateCatalog, verifyOfficialHtml, type CrateCatalog } from "../scripts/sync_crates";
 import { drawSingleItem } from "../lib/crateUtils";
 import type { CrateItem } from "../types/crates";
@@ -99,5 +100,47 @@ describe("PUBG #43.2 crate catalog", () => {
     expect(sql).toContain("('크레딧 x6000', 200, '재화', 'pubgitems_credit_x6000')");
     expect(sql).toContain("('장인 토큰 x100', 750, '재화', NULL)");
     expect(() => validateCatalog({ ...next, crafting: { ...crafting, items: [...crafting.items, crafting.items[0]] } })).toThrow("Duplicate crafting item");
+  });
+});
+
+describe("PUBG #44.1 IVE cargo catalog", () => {
+  const ive = catalog441 as CrateCatalog;
+
+  it("adds the IVE cargo with all 93 official outcomes", () => {
+    expect(() => validateCatalog(ive)).not.toThrow();
+    const crate = ive.crates[0];
+    expect(crate).toMatchObject({ name: "아이브 화물", imageId: "14300066", bonusCurrency: "아이브 토큰", bonusQuantity: 15, bonusCurrencyCode: "ive_token" });
+    expect(crate.items).toHaveLength(93);
+    expect(crate.items.filter(item => item.name === "크레딧").map(item => [item.quantity, item.rarity])).toEqual([[1000, "COMMON"], [2000, "COMMON"], [3000, "COMMON"]]);
+    expect(crate.items.filter(item => item.rarity === "LEGENDARY")).toHaveLength(7);
+  });
+
+  it("adds the Cutie Pie contraband crate with all 53 official outcomes", () => {
+    const crate = ive.crates[1];
+    expect(crate).toMatchObject({ name: "큐티 파이 - 밀수품 상자", imageId: "14100081", type: "contraband", bonusCurrency: "스크랩", bonusQuantity: 10, bonusCurrencyCode: "contraband_scrap" });
+    expect(crate.items).toHaveLength(53);
+    expect(crate.items.filter(item => item.name === "폴리머").map(item => item.quantity)).toEqual([200, 100, 50]);
+    expect(crate.items.find(item => item.name === "큐티 파이 - 미니14 (핑크 화이트)")).toMatchObject({ rarity: "ULTIMATE", probability: 0.004 });
+  });
+
+  it("builds the official IVE crafting list on its own token season", () => {
+    const crafting = ive.crafting!;
+    expect(crafting).toMatchObject({ seasonKey: "2026_ive", tokenCode: "ive_token" });
+    expect(ive.crates[0].bonusCurrencyCode).toBe(crafting.tokenCode);
+    expect(crafting.items).toHaveLength(18);
+    expect(crafting.items.slice(0, 6).every(item => item.tokenCost === 2000)).toBe(true);
+    expect(crafting.items.filter(item => item.name.includes("이모트")).map(item => item.tokenCost)).toEqual([500, 500, 500, 500]);
+    expect(crafting.items.find(item => item.name === "아이브 화물 티켓")).toMatchObject({ tokenCost: 200, grantsCrateTicket: true });
+    const sql = buildCraftingSql(ive, "data/crates/pubg-44-1.json");
+    expect(sql).toContain("DELETE FROM public.craftable_items WHERE season_key='2026_ive';");
+    expect(sql).toContain("('아이브 안유진 세트 도안', 2000, '세트', 'pubgitems_13001683_imprint_x1')");
+    expect(sql).toContain("('크레딧 x6000', 200, '재화', 'pubgitems_credit_x6000')");
+  });
+
+  it("replaces only the new templates and leaves other crates untouched", () => {
+    const sql = buildCatalogSql(ive, "data/crates/pubg-44-1.json");
+    expect(sql).toContain("'아이브 화물', 'loot_crate'");
+    expect(sql).not.toContain("UPDATE public.crate_templates SET active=false");
+    expect(ive.crates.map(crate => crate.id)).not.toContain(catalog432.crates[0].id);
   });
 });

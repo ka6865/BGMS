@@ -13,6 +13,8 @@ export const CRATE_TICKET_BP_PRICE = 10000;
 export const CRATE_TICKET_BP_LIMIT = 50;
 // 무제한 모드에서 G코인·BP·이벤트 토큰을 고정하는 잔액
 const UNLIMITED_BALANCE = 999_999_999;
+// 상자에 토큰 종류가 없을 때 쓰는 잔액 키
+const DEFAULT_TOKEN_CODE = "event_token";
 
 function getOpeningDuration(crate: Pick<CrateTemplate, "type">) {
   return crate.type === "loot_crate" ? CARGO_DROP_DURATION_MS : CRATE_SHAKE_DURATION_MS;
@@ -183,17 +185,26 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
   
   // 공용 획득 재화 상태
   const [primeParcels, setPrimeParcels] = useState<number>(0);
-  const [tokens, setTokens] = useState<number>(0);
+  // 이벤트 토큰은 종류(bonus_currency_code)별 잔액을 따로 가지며, tokens는 선택한 상자의 토큰 잔액이다.
+  const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({});
+  const tokenCode = activeCrate?.bonus_currency_code || DEFAULT_TOKEN_CODE;
+  const tokens = tokenBalances[tokenCode] ?? 0;
+  const setTokens = (update: number | ((prev: number) => number)) => {
+    setTokenBalances((prev) => {
+      const current = prev[tokenCode] ?? 0;
+      return { ...prev, [tokenCode]: typeof update === "function" ? update(current) : update };
+    });
+  };
 
   // 무제한 모드: 켜는 동안 재화 잔액을 고정하고 구매 한도를 무시한다. 끄면 켜기 전 잔액으로 돌아간다.
   const [isUnlimited, setIsUnlimited] = useState<boolean>(false);
-  const balanceBeforeUnlimitedRef = useRef<{ bp: number; gcoin: number; tokens: number } | null>(null);
+  const balanceBeforeUnlimitedRef = useRef<{ bp: number; gcoin: number; tokenBalances: Record<string, number> } | null>(null);
   useEffect(() => {
     if (!isUnlimited) return;
     if (bp !== UNLIMITED_BALANCE) setBp(UNLIMITED_BALANCE);
     if (gcoin !== UNLIMITED_BALANCE) setGcoin(UNLIMITED_BALANCE);
-    if (tokens !== UNLIMITED_BALANCE) setTokens(UNLIMITED_BALANCE);
-  }, [isUnlimited, bp, gcoin, tokens]);
+    if (tokens !== UNLIMITED_BALANCE) setTokenBalances((prev) => ({ ...prev, [tokenCode]: UNLIMITED_BALANCE }));
+  }, [isUnlimited, bp, gcoin, tokens, tokenCode]);
 
   const toggleUnlimited = () => {
     if (isUnlimited) {
@@ -201,13 +212,13 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
       if (saved) {
         setBp(saved.bp);
         setGcoin(saved.gcoin);
-        setTokens(saved.tokens);
+        setTokenBalances(saved.tokenBalances);
       }
       balanceBeforeUnlimitedRef.current = null;
       setIsUnlimited(false);
       toast.success("무제한 모드를 껐습니다. 켜기 전 잔액으로 돌아갑니다.");
     } else {
-      balanceBeforeUnlimitedRef.current = { bp, gcoin, tokens };
+      balanceBeforeUnlimitedRef.current = { bp, gcoin, tokenBalances };
       setIsUnlimited(true);
       toast.success("무제한 모드를 켰습니다. 재화와 구매 한도 없이 열고 제작할 수 있습니다.");
     }
@@ -999,7 +1010,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
       return initial;
     });
     setPrimeParcels(0);
-    setTokens(0);
+    setTokenBalances({});
     setSpentUsd(0);
     setSpentGcoin(0);
     setSpentBp(0);

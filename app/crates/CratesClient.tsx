@@ -44,6 +44,7 @@ interface CratesClientProps {
 const CRAFTING_SEASON_BY_TOKEN: Record<string, string> = {
   blackmarket_token: "2026_blackmarket",
   bentley_token: "2026_bentley",
+  ive_token: "2026_ive",
 };
 
 // 좁은 배지에 들어가는 보유 개수는 "10억"처럼 줄여 표시한다.
@@ -428,8 +429,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           </div>
         </details>
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
-          <a href="https://pubg.com/ko/game-info/probability/pc/11231" target="_blank" rel="noopener noreferrer" className="py-2 underline underline-offset-4 hover:text-slate-200">
-            공식 확률표 #43.2
+          <a href="https://pubg.com/ko/game-info/probability/pc/11366" target="_blank" rel="noopener noreferrer" className="py-2 underline underline-offset-4 hover:text-slate-200">
+            공식 확률표 #44.1
           </a>
         </p>
         
