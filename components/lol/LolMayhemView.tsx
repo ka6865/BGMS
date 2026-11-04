@@ -57,7 +57,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
       </div>
       {visible.length === 0
         ? <p className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">조건에 맞는 증강이 없습니다.</p>
-        : <ul aria-label="증강 목록" className="mt-4 grid gap-3 md:grid-cols-2">{visible.map(augment => <li key={augment.id}
+        : <ul aria-label="증강 목록" className="mt-4 grid grid-cols-1 gap-2">{visible.map(augment => <li key={augment.id}
           data-rarity={augment.rarity} className="flex min-w-0 gap-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
           {augment.icon
             // 버전을 고정한 프록시 이미지를 원래 크기로 표시한다.

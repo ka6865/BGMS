@@ -64,12 +64,12 @@ export default function LolMayhemItems({ championId }: { championId: number }) {
         {[1, 2, 3, 4, 5].map(value => <button key={value} data-tier={value} aria-pressed={tier === value} className={chip(tier === value)} onClick={() => setTier(value)}>{value}티어</button>)}
       </div>
     </div>
-    {visible.length ? <ul aria-label="증바람 아이템 목록" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{visible.map(item => <li key={item.id} data-tier={item.tier} className="min-w-0 space-y-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-      <div className="flex items-start gap-3">
+    {visible.length ? <ul aria-label="증바람 아이템 목록" className="grid grid-cols-1 gap-2">{visible.map(item => <li key={item.id} data-tier={item.tier} className="min-w-0 space-y-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:flex sm:items-start sm:gap-5 sm:space-y-0">
+      <div className="flex min-w-0 items-start gap-3 sm:flex-1">
         <ItemImage item={item} version={data.version} size={44} /><h4 className="min-w-0 flex-1 break-words text-sm font-semibold leading-6">{item.name}</h4>
         <span className={`shrink-0 text-xs font-semibold ${item.tier === 1 ? "text-amber-300" : "text-zinc-300"}`}>{item.tier}티어</span>
       </div>
-      <div className="border-t border-zinc-800 pt-3">
+      <div className="border-t border-zinc-800 pt-3 sm:w-60 sm:shrink-0 sm:border-t-0 sm:border-l sm:pl-4 sm:pt-0">
         <p className="mb-2 text-xs text-zinc-400">제작 재료</p>
         {item.components.length ? <ul className="flex flex-wrap gap-x-3 gap-y-2">{item.components.map((component, index) => <li key={`${component.id}:${index}`} className="flex w-16 min-w-0 flex-col items-center gap-1 text-center">
           <ItemImage item={component} version={data.version} size={28} /><span className="w-full break-words text-[11px] leading-4 text-zinc-300">{component.name}</span>

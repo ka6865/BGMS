@@ -212,6 +212,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     expect(rows[0]).toContain("123,456,789,012"); expect(rows[1]).not.toContain("표본 ");
     expect(rows[2]).toContain("0.00%"); expect(rows[3]).toContain("미제공");
     expect(rows[0]).toContain("공격 사거리");
+    expect(await page.$eval('[aria-label="챔피언별 선택 통계"] ul', node => getComputedStyle(node).gridTemplateColumns.split(" ").length)).toBe(1);
     await page.click('[aria-label="통계 증강 등급"] button[data-rarity="gold"]');
     expect(await page.$$eval('[aria-label="챔피언별 선택 통계"] ul > li', items => items.length)).toBe(1);
     await page.click('[aria-label="통계 증강 등급"] button:first-child');
@@ -269,6 +270,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li:first-child ul li', nodes => nodes.length)).toBe(2);
     expect(await page.$eval('[aria-label="증바람 아이템 목록"] img', node => node.getAttribute("src"))).toContain("/16.22.1/img/item/");
     expect(text).not.toContain("광전사의 군화");
+    expect(await page.$eval('[aria-label="증바람 아이템 목록"]', node => getComputedStyle(node).gridTemplateColumns.split(" ").length)).toBe(1);
     expect(await page.$eval('input[aria-label="아이템 검색"]', node => node.getAttribute("placeholder"))).toBeNull();
     await page.click('[aria-label="아이템 분류"] button[data-category="boots"]');
     expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li', nodes => nodes.length)).toBe(1);

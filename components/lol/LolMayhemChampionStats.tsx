@@ -118,19 +118,25 @@ export default function LolMayhemChampionStats({ enabled = false, patch, champio
           <p>{dataset.rows.length ? "조건에 맞는 증강이 없습니다." : "이 챔피언의 선택 통계가 아직 없습니다."}</p>
           {(query || rarity) && <button aria-label="통계 필터 초기화" className={`${chip(false)} mt-3`} onClick={() => { setQuery(""); setRarity(null); }}>필터 초기화</button>}
         </div>}
-        {!!rows.length && <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rows.map(row => {
+        {!!rows.length && <ul className="grid grid-cols-1 gap-2">{rows.map(row => {
           const augment = augments.get(row.augmentPlatformId);
-          return <li key={row.augmentPlatformId} data-rarity={augment?.rarity} className="flex min-w-0 flex-col items-center rounded-xl border border-zinc-800 bg-zinc-900 px-4 pb-3 pt-5 text-center">
-            {augment?.icon ? <img src={`/api/lol/augment-icons/${catalog.clientPatch}/${augment.icon}`} alt="" width={64} height={64} loading="lazy" decoding="async" className="size-16 shrink-0" />
-              : <span aria-hidden="true" className="size-16 shrink-0 rounded-xl bg-zinc-800" />}
-            {augment && <p className={`mt-2 text-xs font-semibold ${rarityColor[augment.rarity]}`}>{LOL_AUGMENT_RARITY_LABELS[augment.rarity]}</p>}
-            <h4 className="mt-2 break-words text-[15px] font-semibold leading-6 text-zinc-100">{augment?.name ?? `증강 ${row.augmentPlatformId}`}</h4>
-            {augment && <p className="mt-3 whitespace-pre-wrap break-words text-[13px] leading-6 text-zinc-300">{augment.text}</p>}
-            {augment?.notice && <p className="mt-2 break-words text-xs leading-5 text-zinc-400">{augment.notice}</p>}
-            <div className="mt-auto w-full pt-5"><div className="flex items-center justify-between gap-2 border-t border-zinc-800 pt-3">
-              <span className="text-xs text-zinc-400">선택률</span><p className="text-lg font-semibold tabular-nums text-amber-300">{row.reportedPickRate === null ? "미제공" : `${(Number(row.reportedPickRate) * 100).toFixed(2)}%`}</p>
-            </div></div>
-            {row.reportedSampleCount !== null && <p className="mt-1 w-full break-words text-right text-xs leading-5 text-zinc-400">표본 {row.reportedSampleCount.toLocaleString("ko-KR")}</p>}
+          return <li key={row.augmentPlatformId} data-rarity={augment?.rarity} className="flex min-w-0 items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:gap-4">
+            {augment?.icon ? <img src={`/api/lol/augment-icons/${catalog.clientPatch}/${augment.icon}`} alt="" width={48} height={48} loading="lazy" decoding="async" className="size-12 shrink-0" />
+              : <span aria-hidden="true" className="size-12 shrink-0 rounded-xl bg-zinc-800" />}
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <h4 className="break-words text-[15px] font-semibold leading-6 text-zinc-100">{augment?.name ?? `증강 ${row.augmentPlatformId}`}</h4>
+              {augment && <p className={`text-xs font-semibold ${rarityColor[augment.rarity]}`}>{LOL_AUGMENT_RARITY_LABELS[augment.rarity]}</p>}
+              {augment && <p className="whitespace-pre-wrap break-words text-[13px] leading-6 text-zinc-300">{augment.text}</p>}
+              {augment?.notice && <p className="break-words text-xs leading-5 text-zinc-400">{augment.notice}</p>}
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-t border-zinc-800 pt-2 sm:hidden">
+                <span className="text-xs text-zinc-400">선택률</span><span className="font-semibold tabular-nums text-amber-300">{row.reportedPickRate === null ? "미제공" : `${(Number(row.reportedPickRate) * 100).toFixed(2)}%`}</span>
+                {row.reportedSampleCount !== null && <span className="break-all text-xs text-zinc-400">표본 {row.reportedSampleCount.toLocaleString("ko-KR")}</span>}
+              </div>
+            </div>
+            <div className="hidden w-28 shrink-0 space-y-1 text-right sm:block">
+              <p className="text-xs text-zinc-400">선택률</p><p className="text-lg font-semibold tabular-nums text-amber-300">{row.reportedPickRate === null ? "미제공" : `${(Number(row.reportedPickRate) * 100).toFixed(2)}%`}</p>
+              {row.reportedSampleCount !== null && <p className="break-all text-xs leading-5 text-zinc-400">표본 {row.reportedSampleCount.toLocaleString("ko-KR")}</p>}
+            </div>
           </li>;
         })}</ul>}
         <p className="text-xs leading-5 text-zinc-400">선택률은 제공된 통계의 선택 비율입니다. 계산 분모와 증강 제시 여부는 확인되지 않았으며 등장 확률이나 승률을 뜻하지 않습니다.</p>
