@@ -26,6 +26,7 @@ const championStats: PublicChampionStats = { schemaVersion: 1, source: "champion
   rows: [
     { augmentPlatformId: 1, reportedPickRate: "0.0697", reportedSampleCount: null, rateSource: "tencent", rateRegion: "CN", countSource: null, countRegion: null, countMeaning: null, denominatorKind: "unverified_source_definition", denominatorCount: null, selectionEvidence: "reported_rate", offerEligibility: "unknown" },
     { augmentPlatformId: 12, reportedPickRate: "0.12", reportedSampleCount: 123456789012, rateSource: "iesdev", rateRegion: "WORLD", countSource: "iesdev", countRegion: "WORLD", countMeaning: "source_reported_games", denominatorKind: "unverified_source_definition", denominatorCount: null, selectionEvidence: "reported_count", offerEligibility: "unknown" },
+    ...[2, 3].map(id => ({ augmentPlatformId: id, reportedPickRate: id === 2 ? "0" : null, reportedSampleCount: null, rateSource: "tencent", rateRegion: "CN", countSource: null, countRegion: null, countMeaning: null, denominatorKind: "unverified_source_definition" as const, denominatorCount: null, selectionEvidence: "reported_rate" as const, offerEligibility: "unknown" as const })),
   ] };
 const championManifest: ChampionDatasetManifest = { schemaVersion: 1, source: "champion_api_v1", cohort: "source_default", clientPatch: "16.21", upstreamVersion: "16.21.1", sourceDataDate: "2026-11-03", catalogHash: "b".repeat(64), expectedChampionIds: [63], files: [], attribution: "Data provider", rightsBasis: "Documented permission basis", normalizerVersion: 1 };
 const championAdminFixture = (): ChampionDatasetAdminData => ({ releases: [{ id: 2, status: "pending", client_patch: "16.21", source_data_date: "2026-11-03", upstream_version: "16.21.1", fetched_at: "2026-11-04T00:00:00Z", metadata: championManifest }], publications: [], sync: [], readiness: { apiKeyConfigured: true, reuseConfirmed: true, enabled: true, persistenceEnabled: true } });
@@ -50,7 +51,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const { createElement } = await import("react");
     const View = (await import("../components/lol/LolMayhemView")).default;
     const Admin = (await import("../app/admin/lol/mayhem-datasets/MayhemDatasetReviewPanel")).default;
-    let admin = adminFixture(); let statsMode: "success" | "empty" | "error" = "success";
+    let admin = adminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success";
     server = createServer((req, res) => {
       if (req.url === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css.css); return; }
       if (req.url === "/client.js") { res.setHeader("Content-Type", "text/javascript"); res.end(client.outputFiles[0].text); return; }
@@ -70,6 +71,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       if (req.url === "/admin") admin = adminFixture();
       if (req.url === "/stats-empty") statsMode = "empty";
       else if (req.url === "/stats-error") statsMode = "error";
+      else if (req.url === "/stats-race") statsMode = "race";
       else if (req.url === "/stats") statsMode = "success";
       if (req.url?.startsWith("/api/admin/lol/mayhem-champion-datasets")) {
         res.setHeader("Content-Type", "application/json");
@@ -80,8 +82,12 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         if (statsMode === "error") { res.statusCode = 503; res.end(JSON.stringify({ error: "unavailable" })); return; }
         const id = Number(req.url.split("/").at(-1)?.split("?")[0]);
         if (statsMode === "empty") { res.end(JSON.stringify({ dataset: null })); return; }
-        const send = () => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ dataset: { ...championStats, championId: id } })); };
-        if (id === 63) setTimeout(send, 300); else send();
+        const payload = { ...championStats, championId: id, rows: championStats.rows.map(row => statsMode === "race" && id === 64 ? { ...row, reportedPickRate: "0.8888" } : row) };
+        const send = () => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ dataset: payload })); };
+        if (id === 63 && statsMode === "race") {
+          server.emit("delayed-stats-started");
+          setTimeout(() => { send(); server.emit("delayed-stats-sent"); }, 700);
+        } else if (id === 63) setTimeout(send, 300); else send();
         return;
       }
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
@@ -169,21 +175,54 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
     await page.goto(`${base}/stats`, { waitUntil: "networkidle0" });
     const select = 'select[aria-label="통계 챔피언 선택"]';
+    expect(await page.$('ul[aria-label="증강 목록"]')).toBeNull();
+    await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("6.97%"));
     expect(await page.$eval(select, node => (node as HTMLSelectElement).getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
     await page.focus(select); await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
+    await page.select(select, "63");
     await page.select(select, "64");
     await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("6.97%"));
     const text = await page.$eval('[aria-label="챔피언별 선택 통계"]', node => node.textContent ?? "");
     expect(text).toContain("CN"); expect(text).toContain("WORLD"); expect(text).toContain("이전 패치 통계");
     const rows = await page.$$eval('[aria-label="챔피언별 선택 통계"] ul > li', items => items.map(item => item.textContent ?? ""));
-    expect(rows[0]).not.toContain("출처 제공 표본"); expect(rows[1]).toContain("123,456,789,012");
+    expect(rows[0]).toContain("123,456,789,012"); expect(rows[1]).not.toContain("출처 제공 표본");
+    expect(rows[2]).toContain("0.00%"); expect(rows[3]).toContain("미제공");
+    expect(rows[0]).toContain("공격 사거리");
+    await page.click('[aria-label="통계 증강 등급"] button[data-rarity="gold"]');
+    expect(await page.$$eval('[aria-label="챔피언별 선택 통계"] ul > li', items => items.length)).toBe(1);
+    await page.click('[aria-label="통계 증강 등급"] button:first-child');
+    await page.type('input[aria-label="통계 증강 검색"]', "없는증강");
+    expect(await page.$eval('[aria-label="챔피언별 선택 통계"]', node => node.textContent)).toContain("조건에 맞는 증강이 없습니다");
+    await page.click('[aria-label="통계 필터 초기화"]');
+    expect(await page.$$eval('[aria-label="챔피언별 선택 통계"] ul > li', items => items.length)).toBe(4);
+    await page.type('input[aria-label="통계 챔피언 검색"]', "ㄹㅅ");
+    expect(await page.$eval(select, node => (node as HTMLSelectElement).value)).toBe("64");
+    expect(await page.$$eval(`${select} option`, items => items.length)).toBe(1);
     expect(await noOverflow()).toBe(true);
     await page.screenshot({ path: `tmp/lol-mayhem-review/champion-stats-${width}x${height}.png`, fullPage: true });
+    await page.click('[aria-label="증바람 보기"] button:nth-child(2)');
+    expect(await page.$$eval('ul[aria-label="증강 목록"] > li', items => items.length)).toBe(12);
+    await page.click('[aria-label="증바람 보기"] button:first-child');
+    expect(await page.$(select)).not.toBeNull();
     await page.goto(`${base}/stats-empty`, { waitUntil: "networkidle0" }); await page.select(select, "63");
     await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("아직 없습니다"));
     await page.goto(`${base}/stats-error`, { waitUntil: "networkidle0" }); await page.select(select, "63");
     await page.waitForSelector('[aria-label="챔피언별 선택 통계"] [role="alert"]');
     expect(await page.$eval('[aria-label="챔피언별 선택 통계"]', node => node.textContent)).toContain("다시 시도");
     expect(errors).toEqual([]); await page.close();
+  });
+
+  it("이전 챔피언의 응답이 늦게 도착해도 현재 챔피언의 통계를 유지한다", async () => {
+    const page = await browser.newPage();
+    const started = new Promise<void>(resolve => server.once("delayed-stats-started", resolve));
+    const sent = new Promise<void>(resolve => server.once("delayed-stats-sent", resolve));
+    await page.goto(`${base}/stats-race`, { waitUntil: "domcontentloaded" });
+    await started;
+    await page.select('select[aria-label="통계 챔피언 선택"]', "64");
+    await page.waitForFunction(() => document.querySelector('[aria-label="챔피언별 선택 통계"]')?.textContent?.includes("88.88%"));
+    await sent;
+    const text = await page.$eval('[aria-label="챔피언별 선택 통계"]', node => node.textContent);
+    expect(text).toContain("럭스"); expect(text).toContain("88.88%"); expect(text).not.toContain("6.97%");
+    await page.close();
   });
 });
