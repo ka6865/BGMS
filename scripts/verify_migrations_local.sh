@@ -150,7 +150,7 @@ MIGRATIONS=(
   "20261104110000_lol_mayhem_champion_datasets"
   "20261104131538_official_game_catalog"
   "20261105010000_lol_mayhem_reference_snapshots"
-  "20261104203501_weapon_meta_aliases"
+  "20261104210948_weapon_meta_aliases"
 )
 
 cleanup() {
@@ -216,7 +216,7 @@ echo "▶ prerequisite 스키마 구성"
 
 echo "▶ 신규 migration 적용"
 for migration in "${MIGRATIONS[@]}"; do
-  if [ "$migration" = "20261104203501_weapon_meta_aliases" ]; then
+  if [ "$migration" = "20261104210948_weapon_meta_aliases" ]; then
     "${PSQL[@]}" -f tests/fixtures/migration-check/weapon-meta-alias-prerequisites.sql
   fi
   if [ "$migration" = "20261024030000_lol_summary_challenges" ]; then
