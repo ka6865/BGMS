@@ -12,6 +12,16 @@ describe("증바람 전용 아이템 자료", () => {
     expect(result.items[1]).toEqual({ id: 1036, tier: 4, name: "아이템 1036", image: null, components: [] });
     expect(JSON.stringify(result)).not.toMatch(/pickRate|winRate|purchaseOrder|builds/);
   });
+  it("포로 간식은 평가 등급과 무관하게 아이템·제작 재료에서 제외한다", () => {
+    for (const tier of [1, 2, 3, 4, 5]) {
+      const parsed = { championId: 29, patch: "16.22", date: "2026-11-04", ratings: [{ id: 2052, tier }, { id: 220013, tier }, { id: 3089, tier: 1 }] };
+      const value = { data: { ...metadata.data, "2052": { name: "포로 간식", image: { full: "2052.png" } }, "220013": { name: "포로 간식", image: { full: "220013.png" } }, "3089": { ...metadata.data["3089"], from: ["1058", "2052", "220013", "1058"] } } };
+      const result = withMayhemItemMetadata(parsed, "16.22.1", value);
+      expect(result.items.map(item => item.id)).toEqual([3089]);
+      expect(result.items[0].components.map(item => item.id)).toEqual([1058, 1058]);
+      expect(JSON.stringify(result)).not.toContain("포로 간식");
+    }
+  });
   it("일반 칼바람 query·다른 챔피언·다른 게임은 거절한다", () => {
     const ordinary = source(); ordinary.meta.query = "aram_champion";
     expect(() => parseMayhemItemRatings(ordinary, 29)).toThrow();

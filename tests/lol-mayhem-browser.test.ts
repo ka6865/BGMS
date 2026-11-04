@@ -264,7 +264,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     await page.waitForSelector('[aria-label="증바람 아이템 목록"] > li');
     const text = await page.$eval('[aria-label="증바람 아이템 평가"]', node => node.textContent);
     expect(text).toContain("아이템 패치 26.22"); expect(text).toContain("평가 기준일 2026-11-04");
-    expect(text).toContain("실제 구매 순서는 제공되지 않습니다"); expect(text).not.toContain("26.21");
+    expect(text).toContain("등급 산정식은 확인되지 않았습니다"); expect(text).toContain("실제 구매 순서는 제공되지 않습니다"); expect(text).not.toContain("26.21");
     expect(await page.$$eval('[aria-label="증바람 아이템 목록"] > li:first-child ul li', nodes => nodes.length)).toBe(2);
     expect(await page.$eval('[aria-label="증바람 아이템 목록"] img', node => node.getAttribute("src"))).toContain("/16.22.1/img/item/");
     await page.click('[aria-label="아이템 평가 등급"] button[data-tier="2"]');

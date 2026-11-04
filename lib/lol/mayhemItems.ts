@@ -2,6 +2,7 @@ export type MayhemItemAsset = { id: number; name: string; image: string | null }
 export type MayhemItemRating = MayhemItemAsset & { tier: number; components: MayhemItemAsset[] };
 export type MayhemItemRatings = { championId: number; patch: string; date: string; version: string; items: MayhemItemRating[] };
 export type ParsedMayhemRatings = { championId: number; patch: string; date: string; ratings: Array<{ id: number; tier: number }> };
+const PORO_SNAX_IDS = new Set([2052, 220013]);
 const invalid = () => new Error("mayhem_items_invalid");
 export function parseMayhemItemRatings(value: unknown, championId: number): ParsedMayhemRatings | null {
   const root = value as { data?: unknown; meta?: { query?: unknown; game?: unknown } } | null;
@@ -29,9 +30,9 @@ export function withMayhemItemMetadata(parsed: ParsedMayhemRatings, version: str
     return { id, name: typeof name === "string" && name.trim() && name.length <= 120 ? name.trim() : `아이템 ${id}`, image: typeof image === "string" && /^[0-9]+\.png$/.test(image) ? image : null };
   };
   return { championId: parsed.championId, patch: parsed.patch, date: parsed.date, version,
-    items: parsed.ratings.map(row => {
+    items: parsed.ratings.filter(row => !PORO_SNAX_IDS.has(row.id)).map(row => {
       const from = items[String(row.id)]?.from;
-      const components = Array.isArray(from) && from.length <= 8 ? from.filter(id => typeof id === "string" && /^[1-9][0-9]{0,5}$/.test(id)).map(id => asset(Number(id))) : [];
+      const components = Array.isArray(from) && from.length <= 8 ? from.filter(id => typeof id === "string" && /^[1-9][0-9]{0,5}$/.test(id) && !PORO_SNAX_IDS.has(Number(id))).map(id => asset(Number(id))) : [];
       return { ...asset(row.id), tier: row.tier, components };
     }).sort((a,b) => a.tier - b.tier || a.name.localeCompare(b.name,"ko")),
   };

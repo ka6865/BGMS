@@ -47,7 +47,7 @@ export default function LolMayhemItems({ championId }: { championId: number }) {
     <header className="space-y-1">
       <h3 className="text-base font-semibold">증바람 아이템 평가 <span className="ml-1 text-xs font-normal text-zinc-400">{data.items.length}개</span></h3>
       <p className="text-xs leading-5 text-zinc-400">아이템 패치 {data.patch.replace(/^16\./, "26.")} · 평가 기준일 {data.date}</p>
-      <p className="text-xs leading-5 text-zinc-400">아이템 평가 등급과 제작 재료를 보여드립니다. 선택률과 실제 구매 순서는 제공되지 않습니다.</p>
+      <p className="text-xs leading-5 text-zinc-400">등급 산정식은 확인되지 않았습니다. 선택률과 실제 구매 순서는 제공되지 않습니다.</p>
     </header>
     <div className="space-y-3 rounded-xl bg-zinc-900 p-3">
       <label className="relative block"><span className="sr-only">증바람 아이템 검색</span><Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-3.5 text-zinc-400" />
