@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Coins, Box, Award, Ticket, Sparkles, History, AlertTriangle, Layers, X } from "lucide-react";
 import type { CrateTemplate } from "@/types/crates";
 import { CraftableItem, HistoryItem } from "./types";
@@ -63,7 +63,7 @@ export function ChargeModal({ isOpen, onClose, onCharge, exchangeRate = 1500 }: 
               className="bg-slate-950/60 hover:bg-slate-950 border border-slate-800 hover:border-amber-500/50 p-4 rounded-2xl flex flex-col justify-between items-start cursor-pointer hover:scale-[1.02] hover:shadow-[0_0_15px_rgba(245,158,11,0.05)] transition-all group relative overflow-hidden min-h-[112px]"
             >
               {pack.badge && (
-                <span className="absolute top-2 right-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[8px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider">
+                <span className="absolute top-2 right-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider">
                   {pack.badge}
                 </span>
               )}
@@ -515,7 +515,7 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
             <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl min-w-0">
               <Box className="w-5 h-5 text-pink-500" />
               <div className="text-right">
-                <div className="text-[9px] text-slate-500 font-bold leading-none">내 보유 토큰</div>
+                <div className="text-[10px] text-slate-500 font-bold leading-none">내 보유 토큰</div>
                 <div className="text-sm sm:text-base font-black text-pink-500 tabular-nums whitespace-nowrap">{isUnlimited ? "무제한" : `${tokens.toLocaleString()}개`}</div>
               </div>
             </div>
@@ -565,14 +565,14 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
                 >
                   <div className="w-full flex justify-between items-start">
                     {item.rarity !== "COMMON" ? (
-                      <span className={`shrink-0 whitespace-nowrap text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${getRarityBadgeStyle(item.rarity)}`}>
+                      <span className={`shrink-0 whitespace-nowrap text-[10px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${getRarityBadgeStyle(item.rarity)}`}>
                         {getKoreanRarityName(item.rarity)}
                       </span>
                     ) : (
                       <span />
                     )}
                     {ownedCount > 0 && (
-                      <span className="text-[9px] bg-amber-500/10 border border-amber-500/30 text-amber-400 font-extrabold px-2 py-0.5 rounded-full">
+                      <span className="text-[10px] bg-amber-500/10 border border-amber-500/30 text-amber-400 font-extrabold px-2 py-0.5 rounded-full">
                         보유 중 (x{ownedCount})
                       </span>
                     )}
@@ -644,6 +644,8 @@ interface DetailModalProps {
   history: HistoryItem[];
   getRarityBadgeStyle: (rarity: string) => string;
   onReset: () => void;
+  /** 모달을 열 때 먼저 보여 줄 탭 */
+  initialTab?: "vault" | "history" | "stats";
 }
 
 export function DetailModal({
@@ -653,10 +655,16 @@ export function DetailModal({
   obtainedSkins,
   history,
   getRarityBadgeStyle,
-  onReset
+  onReset,
+  initialTab = "vault",
 }: DetailModalProps) {
-  const [activeTab, setActiveTab] = useState<"vault" | "history" | "stats">("vault");
+  const [activeTab, setActiveTab] = useState<"vault" | "history" | "stats">(initialTab);
   const [probSubTab, setProbSubTab] = useState<"base" | "prime" | "bonus">("base");
+
+  // 열 때마다 요청한 탭으로 맞춘다.
+  useEffect(() => {
+    if (isOpen) setActiveTab(initialTab);
+  }, [isOpen, initialTab]);
 
   if (!activeCrate) return null;
 
@@ -805,13 +813,15 @@ export function DetailModal({
           {/* 3. 확률표 탭 */}
           {activeTab === "stats" && (
             <div className="space-y-6">
-              {activeCrate.type === "loot_crate" && (
+              {activeCrate.type === "loot_crate" && ((activeCrate.prime_parcel_items?.length ?? 0) > 0 || (activeCrate.bonus_items?.length ?? 0) > 0) && (
                 <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-850 w-fit gap-1">
-                  {["base", "prime", "bonus"].map((sub) => (
+                  {(["base", "prime", "bonus"] as const).filter((sub) =>
+                    sub === "base" || (sub === "prime" ? (activeCrate.prime_parcel_items?.length ?? 0) > 0 : (activeCrate.bonus_items?.length ?? 0) > 0),
+                  ).map((sub) => (
                     <button
                       key={sub}
                       onClick={() => setProbSubTab(sub as any)}
-                      className={`px-4 py-1.5 rounded-md text-[11px] font-extrabold transition-all cursor-pointer ${
+                      className={`px-4 min-h-11 rounded-md text-xs font-extrabold transition-all cursor-pointer ${
                         probSubTab === sub
                           ? "bg-slate-850 text-white shadow"
                           : "text-slate-400 hover:text-slate-200"
@@ -867,7 +877,7 @@ export function DetailModal({
                           <tr key={item.id || idx} className="hover:bg-slate-900/20 transition-colors">
                             <td className="px-3 sm:px-4 py-2.5 font-bold text-slate-300 break-keep [overflow-wrap:anywhere]">{item.name}</td>
                             <td className="px-1 sm:px-4 py-2.5 text-center">
-                              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${getRarityBadgeStyle(item.rarity)}`}>
+                              <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${getRarityBadgeStyle(item.rarity)}`}>
                                 {getKoreanRarityName(item.rarity)}
                               </span>
                             </td>
@@ -882,6 +892,14 @@ export function DetailModal({
                 </table>
               </div>
 
+              <a
+                href="https://pubg.com/ko/game-info/probability/pc/11366"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center min-h-11 text-xs font-bold text-slate-300 underline underline-offset-4 hover:text-white"
+              >
+                공식 확률표 #44.1 원문 보기
+              </a>
               <div className="bg-slate-950/20 border border-slate-850 p-4 rounded-xl flex items-start gap-2.5 text-[11px] text-slate-400 leading-relaxed">
                 <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                 <p>
