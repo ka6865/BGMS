@@ -1,0 +1,53 @@
+name: LoL 증바람 티어·아이템·과거 순위 수집
+on:
+  schedule:
+    - cron: '33 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '설정 점검 / 읽기 검증 / 후보 저장 (공개하지 않음)'
+        type: choice
+        options: [check, dry-run, apply]
+        default: check
+permissions:
+  contents: read
+concurrency:
+  group: lol-mayhem-reference-dataset
+  cancel-in-progress: false
+jobs:
+  collect:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' || vars.LOL_MAYHEM_REFERENCE_DATASET_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: 후보 수집과 상태 기록
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LOL_PERSISTENCE_ENABLED: 'true'
+          LOL_MAYHEM_REFERENCE_DATASET_ENABLED: ${{ vars.LOL_MAYHEM_REFERENCE_DATASET_ENABLED }}
+          LOL_MAYHEM_STATS_API_KEY: ${{ secrets.LOL_MAYHEM_STATS_API_KEY }}
+          LOL_MAYHEM_STATS_REUSE_BASIS: ${{ vars.LOL_MAYHEM_STATS_REUSE_BASIS }}
+          LOL_MAYHEM_STATS_ATTRIBUTION: ${{ vars.LOL_MAYHEM_STATS_ATTRIBUTION }}
+          COLLECT_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          mode="$COLLECT_MODE"
+          if [[ "$GITHUB_EVENT_NAME" == 'schedule' ]]; then mode='apply'; fi
+          case "$mode" in
+            check) args=(--check) ;;
+            dry-run) args=(--dry-run) ;;
+            apply) args=(--apply) ;;
+            *) exit 1 ;;
+          esac
+          npx tsx scripts/lol_mayhem_reference_sync.ts "${args[@]}"

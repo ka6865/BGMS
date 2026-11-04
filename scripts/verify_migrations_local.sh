@@ -149,6 +149,7 @@ MIGRATIONS=(
   "20261104084320_lol_rpc_conflicts_without_retry"
   "20261104110000_lol_mayhem_champion_datasets"
   "20261104131538_official_game_catalog"
+  "20261105010000_lol_mayhem_reference_snapshots"
 )
 
 cleanup() {
@@ -550,6 +551,7 @@ echo "  ✅ 계정 삭제와 동시에 들어온 LoL 보관본 저장을 거절"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-mayhem-dataset-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-mayhem-champion-dataset-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/official-game-catalog-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-mayhem-reference-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-search-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-suggest-scenarios.sql
 # 같은 버킷의 동시 호출은 정확히 한 번만 허용한다.
