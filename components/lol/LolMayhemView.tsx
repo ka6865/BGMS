@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { LolChampion } from "@/lib/lol/champions";
 import type { PublicMayhemDataset } from "@/lib/lol/mayhemDatasetView";
 import LolMayhemDatasetView from "./LolMayhemDatasetView";
+import LolMayhemChampionStats from "./LolMayhemChampionStats";
 import {
   LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments,
   type LolAugmentRarity, type LolMayhemCatalog,
@@ -13,7 +14,7 @@ const rarityColors: Record<LolAugmentRarity, string> = { prismatic: "text-fuchsi
 const chip = (active: boolean) => `min-h-11 rounded-lg border px-3 text-sm font-semibold transition ${active
   ? "border-amber-400 bg-amber-400/10 text-amber-300" : "border-zinc-700 text-zinc-400 hover:text-zinc-100"}`;
 
-export default function LolMayhemView({ catalog, error = false, dataset, champions = [] }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[] }) {
+export default function LolMayhemView({ catalog, error = false, dataset, champions = [], championStatsEnabled = false }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[]; championStatsEnabled?: boolean }) {
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [newOnly, setNewOnly] = useState(false);
@@ -71,6 +72,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
         <h2 className="text-sm font-semibold">패치 {catalog.displayPatch}에서 삭제</h2>
         <p className="mt-1 break-words text-sm leading-6 text-zinc-400">{catalog.removed.join(", ")}</p>
       </section>}
+      {championStatsEnabled && <LolMayhemChampionStats enabled patch={catalog.clientPatch} champions={champions} catalog={catalog} />}
       <p className="mt-6 text-xs leading-5 text-zinc-500">
         증강 이름·설명은 게임 클라이언트 자료(CommunityDragon)를 기준으로 합니다. Riot 정책에 따라 증강 승률은 제공하지 않으며,
         Riot API가 아수라장 경기를 공개하지 않아 전적에도 표시되지 않습니다.
