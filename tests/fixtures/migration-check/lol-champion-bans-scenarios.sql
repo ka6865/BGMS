@@ -28,12 +28,13 @@ begin
   perform public.aggregate_lol_match_benchmarks('KR_980001');
   if public.aggregate_lol_match_bans('KR_980001')->>'aggregated'<>'false' then raise exception 'duplicate ban aggregate'; end if;
   if (select sum(bans) from public.lol_champion_ban_aggregates where patch='98.1')<>3 then raise exception 'duplicate bans counted'; end if;
-  -- 검색 저장 경로도 같은 집계를 한 번 수행한다.
+  -- 검색 저장 뒤 별도 경기 집계에서도 밴을 한 번 수행한다.
   v_raw := jsonb_set(v_raw,'{metadata,matchId}','"KR_980002"');
   select lease_token into v_token from public.acquire_lol_collection_lease('ban-fixture',90);
   perform public.persist_lol_search_snapshot('ban-fixture',v_token,'ban-search','{}','kr','asia','16.21.1',
     '{"puuid":"ban-owner","game_name":"Ban","tag_line":"FIX"}','[]',
     jsonb_build_array(jsonb_build_object('summary',jsonb_build_object('matchId','KR_980002'),'raw',v_raw)));
+  perform public.aggregate_lol_match_benchmarks('KR_980002');
   if (select bans from public.lol_champion_ban_aggregates where patch='98.1' and queue_id=420 and champion_id=55)<>2 then
     raise exception 'search persist did not aggregate bans'; end if;
   -- 밴이 없는 팀 구성은 분모에 넣고, 팀 정보가 깨진 경기는 분모에서 뺀다.

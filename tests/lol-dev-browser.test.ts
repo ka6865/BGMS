@@ -201,6 +201,12 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           }));
           return;
         }
+        if (request.url?.startsWith("/api/lol/suggest?")) {
+          response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({
+            suggestions: [{ gameName: "blue1", tagLine: "KR1" }, { gameName: "blue0", tagLine: "KR1" }],
+          }));
+          return;
+        }
         if (request.url === "/style.css") {
           response.writeHead(200, { "Content-Type": "text/css" }).end(css.css);
           return;
@@ -809,6 +815,21 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         }
       },
     );
+
+    it("관리자 검색창은 공개 추천 endpoint를 쓰고 관리자 Riot ID 경로로 이동한다", async () => {
+      const page = await openPage();
+      const suggestions: string[] = [];
+      page.on("request", (request) => {
+        if (request.url().includes("/api/lol/suggest?")) suggestions.push(request.url());
+      });
+      await page.type("#lol-riot-id", "bl");
+      await page.waitForSelector('[role="listbox"] [role="option"]');
+      expect(suggestions.some((url) => url.endsWith("/api/lol/suggest?q=bl"))).toBe(true);
+      await page.click('[role="option"]');
+      await page.waitForFunction(() => location.pathname === "/admin/lol/kr/blue1-KR1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "blue1#KR1");
+      await page.close();
+    });
 
     it("Riot ID URL은 새로고침·뒤로·앞으로 이동에서 대상과 큐를 복원한다", async () => {
       const page = await openPage();

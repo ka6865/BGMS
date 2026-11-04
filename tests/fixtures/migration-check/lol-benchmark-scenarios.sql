@@ -44,12 +44,14 @@ begin
   perform public.aggregate_lol_match_benchmarks('KR_990001');
   perform public.aggregate_lol_match_benchmarks('KR_990001');
   if (select sum(sample_count) from public.lol_benchmark_aggregates)<>v_before then raise exception 'duplicate match counted twice'; end if;
-  -- 검색 저장 경로도 같은 집계를 딱 한 번 수행한다.
+  -- 검색 저장은 집계를 기다리지 않으며 응답 뒤 별도 호출이 같은 집계를 딱 한 번 수행한다.
   v_raw := jsonb_set(v_raw,'{metadata,matchId}','"KR_990002"');
   select lease_token into v_token from public.acquire_lol_collection_lease('benchmark-fixture',90);
   perform public.persist_lol_search_snapshot('benchmark-fixture',v_token,'benchmark-search','{}','kr','asia','16.21.1',
     '{"puuid":"benchmark-owner","game_name":"Benchmark","tag_line":"FIX"}','[]',
     jsonb_build_array(jsonb_build_object('summary',jsonb_build_object('matchId','KR_990002'),'raw',v_raw)));
+  if exists(select 1 from public.lol_benchmark_processed_matches where match_id='KR_990002') then raise exception 'search performed synchronous benchmark'; end if;
+  perform public.aggregate_lol_match_benchmarks('KR_990002');
   if (select sample_count from public.lol_benchmark_aggregates where patch='99.1' and champion_id=0 and metric='games')<>20 then
     raise exception 'search persist did not aggregate'; end if;
   -- 팀 0 분모, 결측, 음수와 불리언을 0 표본으로 오해하지 않는다.

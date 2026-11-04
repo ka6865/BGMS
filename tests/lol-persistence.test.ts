@@ -316,3 +316,10 @@ it("저장 RPC의 stale lease만 저장소 장애 대신 처리 시간 초과로
     account: { puuid: "fixture-owner", gameName: "Fixture", tagLine: "FIX", profileIconId: 1, summonerLevel: 30 },
   })).rejects.toBeInstanceOf(LolLeaseExpiredError);
 });
+
+
+it("PostgREST가 재시도하지 않는 PT409도 lease 만료로 분류한다", async () => {
+  db.rpc.mockImplementation(() => ({ abortSignal: async () => ({ data: null, error: { code: "PT409" } }) }));
+  await expect(persistLolSearchSnapshot({ lease: { key: "expired", token: "token" }, cacheKey: "key", cachePayload: {},
+    platform: "kr", route: "asia", version: "16.21.1", account: { puuid: "p", gameName: "Owner", tagLine: "KR1", profileIconId: 1, summonerLevel: 30 }, ranked: [], matches: [] })).rejects.toBeInstanceOf(LolLeaseExpiredError);
+});

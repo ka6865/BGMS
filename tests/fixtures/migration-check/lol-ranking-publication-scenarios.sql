@@ -112,7 +112,7 @@ begin
     perform public.commit_lol_season_progress('2026-01-08', a1, null, 1000, array['m1','m2'],
       jsonb_build_array(jsonb_build_object('champion_id', 266, 'games', 2, 'wins', 1)), now());
     raise exception 'expected rejection: stale cursor';
-  exception when sqlstate '40001' then stale_seen := true;
+  exception when sqlstate 'PT409' then stale_seen := true;
   end;
   select games into n from public.lol_ranking_season_champions where season_key = '2026-01-08' and account_hmac = a1 and champion_id = 266;
   if n <> 2 then raise exception 'double count after stale commit: %', n; end if;

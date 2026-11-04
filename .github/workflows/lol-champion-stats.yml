@@ -49,4 +49,7 @@ jobs:
             echo "::error::LOL_CHAMPION_STATS_ENABLED=true 설정이 필요합니다."
             exit 1
           fi
+          if ! npx tsx scripts/lol_aggregate_pending_benchmarks.ts "$collector_mode"; then
+            echo "::warning::미집계 경기 재처리에 실패했습니다. 다음 정기 실행에서 다시 처리합니다."
+          fi
           npx tsx scripts/lol_collect_champion_stats.ts "$collector_mode" --per-2min=20 --timeline-ratio=0.5 --max-minutes=15

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { LolSearchResult } from "@/lib/lol/types";
 import { LOL_ARAM_QUEUE_IDS, summarizeRecentMatches } from "@/lib/lol/summary";
@@ -15,7 +15,8 @@ import LolLiveGamePanel from "./LolLiveGamePanel";
 import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH } from "@/lib/lol/keyNotice";
 import { nextPendingMatchIds } from "@/lib/lol/limits";
 import { emptyLolSearchHistory, loadLolSearchHistory, recordLolSearch, removeLolRecent, saveLolSearchHistory, toggleLolFavorite, type LolSearchHistory } from "@/lib/lol/searchHistory";
-import LolSearchHistoryPanel from "./LolSearchHistory";
+import { useLolAutocomplete } from "@/hooks/useLolAutocomplete";
+import LolSearchBar from "./LolSearchBar";
 
 type QueueFilter = "all" | "solo" | "flex" | "aram";
 
@@ -64,6 +65,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const [result, setResult] = useState<LolSearchResult | null>(null);
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [searchHistory, setSearchHistory] = useState<LolSearchHistory>(emptyLolSearchHistory);
+  const autocomplete = useLolAutocomplete(riotId);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [openMatchId, setOpenMatchId] = useState<string | null>(null);
@@ -210,11 +212,6 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     }
     router.push(`${path}${query}`, { scroll: false });
     if (path === pathname) void search(target);
-  }
-
-  function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    navigateTo(riotId);
   }
 
   function toggleFavorite(riotId: string) {
@@ -430,41 +427,20 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
         </header>
 
         {adminTools}
-        <form
-          onSubmit={submitSearch}
-          className="flex gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-2 sm:p-3"
-        >
-          <label className="sr-only" htmlFor="lol-riot-id">
-            Riot ID
-          </label>
-          <input
-            id="lol-riot-id"
-            value={riotId}
-            onChange={(event) => setRiotId(event.target.value)}
-            placeholder="게임 이름#태그"
-            autoComplete="off"
-            maxLength={140}
-            className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 text-sm outline-none placeholder:text-zinc-600 focus:border-amber-400"
-          />
-          <button
-            type="submit"
-            disabled={!riotId.trim()}
-            className="min-h-11 shrink-0 rounded-lg bg-amber-400 px-4 text-sm font-bold text-zinc-950 disabled:opacity-50 sm:px-5"
-          >
-            {loading ? "검색 중…" : "검색"}
-          </button>
-        </form>
+        <LolSearchBar
+          value={riotId}
+          history={searchHistory}
+          {...autocomplete}
+          loading={loading}
+          onChange={setRiotId}
+          onSearch={navigateTo}
+          onToggleFavorite={toggleFavorite}
+          onRemoveRecent={(id) => persistSearchHistory(removeLolRecent(searchHistoryRef.current, id))}
+          onClearRecent={() => persistSearchHistory({ ...searchHistoryRef.current, recent: [] })}
+        />
         <p className="mt-2 text-xs text-zinc-500">
           한국 서버 전적을 조회합니다. Riot ID와 태그를 입력하세요.
         </p>
-        <LolSearchHistoryPanel
-          history={searchHistory}
-          currentRiotId={result ? `${result.account.gameName}#${result.account.tagLine}` : ""}
-          onSearch={navigateTo}
-          onRemove={(riotId) => persistSearchHistory(removeLolRecent(searchHistoryRef.current, riotId))}
-          onClear={() => persistSearchHistory({ ...searchHistoryRef.current, recent: [] })}
-          onToggleFavorite={toggleFavorite}
-        />
         {historyError && <p role="alert" className="mt-3 rounded-lg border border-amber-900 bg-zinc-900 p-3 text-sm text-amber-200">{historyError}</p>}
 
         {loading && (
