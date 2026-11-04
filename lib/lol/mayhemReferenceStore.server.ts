@@ -130,7 +130,8 @@ export async function getReferenceRankingPatches() {
 export async function getReferenceAdmin() {
   const enabled = referencePersistenceEnabled();
   const publicEnabled = referencePublicEnabled();
-  if (!enabled) return { enabled, publicEnabled, releases: [], publications: [], sync: [], champions: [], truncatedKinds: [] as ReferenceKind[] };
+  const itemsEnabled = process.env.LOL_MAYHEM_ITEMS_ENABLED === "true";
+  if (!enabled) return { enabled, publicEnabled, itemsEnabled, releases: [], publications: [], sync: [], champions: [], truncatedKinds: [] as ReferenceKind[] };
   const kinds = Object.keys(REFERENCE_SOURCES) as ReferenceKind[];
   const [releaseResults, sync, champions] = await Promise.all([
     Promise.all(kinds.map(kind => db().from("lol_mayhem_reference_releases").select("*").eq("kind", kind)
@@ -148,7 +149,7 @@ export async function getReferenceAdmin() {
     return db().from("lol_mayhem_reference_publications").select("*").eq("kind", kind).in("client_patch", patches).limit(1000).abortSignal(signal());
   }));
   if (pointerResults.some(result => result.error || result.data?.length === 1000)) throw new Error("reference_database_error");
-  return { enabled, publicEnabled, releases, truncatedKinds: kinds.filter((_, index) => releaseResults[index].data?.length === 500), publications: pointerResults.flatMap(result => result.data ?? []), sync: sync.data ?? [],
+  return { enabled, publicEnabled, itemsEnabled, releases, truncatedKinds: kinds.filter((_, index) => releaseResults[index].data?.length === 500), publications: pointerResults.flatMap(result => result.data ?? []), sync: sync.data ?? [],
     champions: champions?.champions.map(champion => ({ id: champion.id, name: champion.name })) ?? [] };
 }
 
