@@ -8,6 +8,16 @@ describe('챔피언별 선택 통계 신뢰 경계',()=>{
   expect(file.rows[0]).toMatchObject({reportedPickRate:'0.0697',reportedSampleCount:null,rateSource:'tencent',rateRegion:'CN',denominatorCount:null,selectionEvidence:'reported_rate',offerEligibility:'unknown'});
   expect(JSON.stringify(file)).not.toMatch(/win_rate|winRate|rank|tier/);
  });
+ it('CN 선택률에 WORLD 업로드 표본을 같은 표본으로 붙이지 않는다',()=>{
+  const file=normalizeChampionAugments(raw({num_games:'617',win_rate_source:'aramgg-client-upload',win_rate_region:'WORLD',win_rate_game_patch:'16.21',win_rate_date:'2026-10-31'}),context);
+  expect(file.rows[0]).toMatchObject({reportedPickRate:'0.0697',reportedSampleCount:null,rateSource:'tencent',rateRegion:'CN',countSource:null,countRegion:null,countMeaning:null,selectionEvidence:'reported_rate'});
+ });
+ it('같은 출처·지역·패치·날짜인 표본만 유지한다',()=>{
+  expect(normalizeChampionAugments(raw({num_games:'617',win_rate_source:'tencent',win_rate_region:'CN',win_rate_game_patch:'16.21',win_rate_date:'2026-10-30'}),context).rows[0]).toMatchObject({reportedSampleCount:617,countSource:'tencent',countRegion:'CN'});
+ });
+ it.each([{win_rate_source:'unknown'},{win_rate_region:null},{win_rate_game_patch:'16.20'},{win_rate_date:'2026-10-31'}])('표본 범위가 다르거나 명시적으로 미확인이면 공개 표본을 비운다',override=>{
+  expect(normalizeChampionAugments(raw({num_games:'617',...override}),context).rows[0].reportedSampleCount).toBeNull();
+ });
  it.each(['1.01','-0.1','NaN','Infinity',' 0.5',''])('잘못된 비율 %s 거부',rate=>expect(()=>normalizeChampionAugments(raw({pick_rate:rate}),context)).toThrow('invalid_pick_rate'));
  it('선택률 null과 0은 별개이며 둘 다 제시 불가로 바뀌지 않는다',()=>{
   expect(normalizeChampionAugments(raw({pick_rate:null}),context).rows[0]).toMatchObject({reportedPickRate:null,selectionEvidence:null,offerEligibility:'unknown'});

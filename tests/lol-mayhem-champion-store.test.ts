@@ -53,6 +53,7 @@ describe("증바람 챔피언 통계 저장 경계", () => {
     vi.stubEnv("LOL_MAYHEM_STATS_API_KEY", "key"); vi.stubEnv("LOL_MAYHEM_STATS_REUSE_CONFIRMED", "true");
     vi.stubEnv("LOL_MAYHEM_STATS_REUSE_BASIS", "reviewed basis"); vi.stubEnv("LOL_MAYHEM_STATS_ATTRIBUTION", "Data source");
     vi.stubEnv("LOL_MAYHEM_CHAMPION_DATASET_ENABLED", "true"); vi.stubEnv("LOL_PERSISTENCE_ENABLED", "true");
+    vi.stubEnv("LOL_MAYHEM_STATS_REUSE_CONFIRMED", "false");
     const metadata = makeManifest();
     const reordered = { ...Object.fromEntries(Object.entries(metadata).reverse()), files: metadata.files.map(file => Object.fromEntries(Object.entries(file).reverse())) };
     const body = JSON.stringify(reordered); const captureHash = sha(body);
@@ -80,8 +81,13 @@ describe("증바람 챔피언 통계 저장 경계", () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
+  it("공개 재사용 미확인 상태에서는 게시본도 외부에 노출하지 않는다", async () => {
+    vi.stubEnv("LOL_PERSISTENCE_ENABLED", "true"); vi.stubEnv("LOL_MAYHEM_STATS_REUSE_CONFIRMED", "false");
+    expect(await getPublicChampionStats("16.21",1)).toBeNull(); expect(mocks.db).not.toHaveBeenCalled();
+  });
   it("pending 데이터는 공개되지 않고 DTO는 validator allowlist로 재구성한다", async () => {
-    vi.stubEnv("LOL_PERSISTENCE_ENABLED", "true");
+    vi.stubEnv("LOL_PERSISTENCE_ENABLED", "true"); vi.stubEnv("LOL_MAYHEM_STATS_REUSE_CONFIRMED", "true");
+    vi.stubEnv("LOL_MAYHEM_STATS_REUSE_BASIS", "reviewed public use"); vi.stubEnv("LOL_MAYHEM_STATS_ATTRIBUTION", "Data provider");
     const manifest = makeManifest();
     const normalized = JSON.stringify({ schemaVersion: 1, source: "champion_api_v1", cohort: "source_default", clientPatch: "16.21",
       upstreamVersion: "16.21.1", sourceDataDate: "2026-11-03", fetchedAt: "2026-11-04T00:00:00.000Z", championId: 1,

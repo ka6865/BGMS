@@ -2,7 +2,7 @@
 
 ## 범위와 현재 상태
 
-기존 증바람 도감·전역 선택률·편집 조합을 유지하고, 숫자 ID 기반 챔피언 통계를 별도 후보로 수집한다. 자동 공개는 없다. 외부 API 키 생성·계정 등록·운영 migration 적용·운영 적재·배포는 이번 준비 범위에 포함하지 않는다. 실제 API 인증 응답과 서버 저장·재게시 조건은 미확인이다.
+기존 증바람 도감·전역 선택률·편집 조합을 유지하고, 숫자 ID 기반 챔피언 통계를 별도 후보로 수집한다. 자동 공개는 없다. 외부 API 키 생성·계정 등록·운영 migration 적용·운영 적재·배포는 이번 준비 범위에 포함하지 않는다. 운영 DB 적용과 실제 API 인증은 후속 작업에서 검증했다. 수집은 공급원 문서에 명시된 동기화·캐시 범위를 사용하며 공개 재사용 범위는 별도로 확인한다.
 
 공급원의 실명·경로·원본 스키마·문의 초안은 Git 제외 `docs-private/lol-research/2026-11-04-mayhem-champion-dataset-research.md`에 있다. 공개 소스 키는 `champion_api_v1`, 모집단은 `source_default`다. 이 값으로 한국 서버 또는 전체 티어 표본을 의미하지 않는다.
 
@@ -11,13 +11,13 @@
 | 이름 | 위치 | 의미 |
 | --- | --- | --- |
 | `LOL_MAYHEM_STATS_API_KEY` | GitHub Secret / 서버 환경 | 제3자 데이터 API key. Riot API key와 별개 |
-| `LOL_MAYHEM_STATS_REUSE_CONFIRMED` | GitHub variable / 서버 환경 | 저장·재게시 조건을 실제 확인한 후에만 true |
-| `LOL_MAYHEM_STATS_REUSE_BASIS` | GitHub variable / 서버 환경 | 확인 문서/계약 등 실제 근거, 최소10자 |
+| `LOL_MAYHEM_STATS_REUSE_CONFIRMED` | GitHub variable / 서버 환경 | 공개 재사용 범위를 실제 확인한 후에만 true |
+| `LOL_MAYHEM_STATS_REUSE_BASIS` | GitHub variable / 서버 환경 | 동기화·캐시/공개 범위를 구분한 확인 근거, 최소10자 |
 | `LOL_MAYHEM_STATS_ATTRIBUTION` | GitHub variable / 서버 환경 | 공개 화면에 표시할 출처 문구 |
 | `LOL_MAYHEM_CHAMPION_DATASET_ENABLED` | GitHub variable / 서버 환경 | 기본 false, 수집 및 공개 읽기 활성화 |
 | `LOL_PERSISTENCE_ENABLED` | 서버 환경 / workflow | 영속화 활성화. 기존 설정 재사용 |
 
-위 설정은 배포 서버와 Actions에 각각 필요하다. 설정값을 문서/로그/클라이언트에 복사하지 않는다. 재사용 확인 설정은 사용 권한을 만들어 주는 버튼이 아니며 실제 근거를 기록하는 값이다. API 응답을 받았다는 이유로 true로 설정하지 않는다.
+위 설정은 배포 서버와 Actions에 각각 필요하다. 설정값을 문서/로그/클라이언트에 복사하지 않는다. 재사용 확인 설정은 사용 권한을 만들어 주는 버튼이 아니며 실제 근거를 기록하는 값이다. API 응답을 받았다는 이유로 true로 설정하지 않는다. 문서에 안내된 동기화·캐시 근거와 출처가 있으면 false 상태에서도 비공개 후보를 수집·검토할 수 있다. 승인·공개·공개 API 제공은 true가 필요하다.
 
 ## 점검과 수집
 
@@ -36,7 +36,7 @@ npx tsx --env-file-if-exists=.env.local scripts/lol_mayhem_champion_dataset_sync
 
 mode 충돌은 거부한다. 기본은 dry-run이다. 무료 점검도 source config 네트워크 요청은 발생한다. dry-run은 데이터 credit을 사용하므로 반복 검증은 합성 fixture 단위 테스트로 한다. 인증키가 없으면 유료 요청 전 `stats_api_key_missing`으로 종료한다.
 
-워크플로 `.github/workflows/lol-mayhem-champion-dataset.yml`의 수동 기본값은 check다. 예약 실행은 6시간 간격이며 enable variable이 true일 때만 후보 수집을 실행한다. 바뀌지 않은 source version·카탈로그 해시는 목록/챔피언 유료 요청을 보내지 않는다. API key·사용 근거와 검증이 준비되기 전에는 enable을 false로 유지한다.
+워크플로 `.github/workflows/lol-mayhem-champion-dataset.yml`의 수동 기본값은 check다. 예약 실행은 6시간 간격이며 enable variable이 true일 때만 후보 수집을 실행한다. 바뀌지 않은 source version·카탈로그 해시는 목록/챔피언 유료 요청을 보내지 않는다. API key·수집 근거와 검증이 준비되기 전에는 enable을 false로 유지한다. 공개 재사용 확인 전에도 비공개 수집·관리자 검토는 가능하며 공개 데이터는 반환하지 않는다.
 
 현재 API 문서 기준 무료200credits/UTC일,60req/min이다. 원시 파일은1credit이며 기존 공식 증강 카탈로그를 재사용해 별도 증강 목록 호출은 하지 않는다. 173명 예시에서 챔피언 목록1+원시173=174credits다. 최소25credits를 남긴다. 인원·날짜를 상수로 두지 않는다. HEAD로 남은 quota를 확인하고 quota header가 누락되면 중단한다. quota 부족은 deferred_quota로 반환하며 후보를 공개하지 않는다.
 
@@ -88,3 +88,10 @@ npm run test:unit
 - GitHub Secret 이름과 로컬 설정 이름을 확인했으며 새 통계 API key와 사용 조건 값은 없었다. Secret 값은 조회·출력하지 않았다.
 - 공통 lint/타입, LoL, 관리자, 전체 단위 테스트 및 격리 PostgreSQL 검증 통과. 새 경로 focused test45개, 브라우저 fixture12개 통과. 캡처에서 모바일 통계 행·관리자 줄바꿈을 확인했다.
 - 실제 인증·원본173명 전수 수집·운영 migration 적용·실기기·배포는 미실행이다. 운영에 반영할 때 API 인증 응답을 대조한 후 dry-run → 후보 저장 → 관리자 검수 → 공개 순서를 따른다.
+
+
+## 실제 API 연동 보정 (2026-11-04)
+
+인증된 원시 응답에서 선택률 출처는 CN이고 `num_games`는 별도 WORLD 익명 업로드에서 올 수 있음을 확인했다. 행의 `win_rate_source`, `win_rate_region`, `win_rate_game_patch`, `win_rate_date`가 선택률의 출처·지역·패치·날짜와 다르거나 명시적으로 미확인이면 공개 표본 수를 null로 보관한다. 원문은 private에 보존하며 비율은 변경하지 않는다. 이 count를 선택률의 분모로 사용하지 않는다.
+
+공급원 문서는 제3자 API 연동, 진행 상황·로컬 캐시 저장을 안내한다. 이 근거를 기록해 비공개 검수 후보 수집을 허용한다. API 접근권과 공개 재사용 확인을 구분하며, `LOL_MAYHEM_STATS_REUSE_CONFIRMED=false`에서는 검수 승인·공개·공개 API 읽기를 차단한다. 공개 승인은 실제 데이터와 재사용 범위를 검토한 뒤 기존 관리자 절차로 수행한다.

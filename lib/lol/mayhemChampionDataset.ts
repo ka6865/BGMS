@@ -62,7 +62,13 @@ export function normalizeChampionAugments(input: unknown, context: ChampionStats
   const source = provenance(data.source, ['tencent','iesdev']); const region = provenance(data.region, ['CN','WORLD']);
   const rows = Object.entries(augments).map(([augmentId, raw]) => {
     const augmentPlatformId = id(augmentId); if (!context.allowedAugmentIds.has(augmentPlatformId)) throw new Error('unknown_augment');
-    const row = record(raw); const reportedPickRate = rate(row.pick_rate); const reportedSampleCount = count(row.num_games);
+    const row = record(raw); const reportedPickRate = rate(row.pick_rate); const sourceSampleCount = count(row.num_games);
+    // 업로드 표본은 선택률과 출처·지역·시점이 다를 수 있어 같은 범위일 때만 공개한다.
+    const sameCountScope = (!('win_rate_source' in row) || row.win_rate_source === source)
+      && (!('win_rate_region' in row) || row.win_rate_region === region)
+      && (!('win_rate_game_patch' in row) || row.win_rate_game_patch === context.clientPatch)
+      && (!('win_rate_date' in row) || row.win_rate_date === context.sourceDataDate);
+    const reportedSampleCount = sameCountScope ? sourceSampleCount : null;
     return { augmentPlatformId, reportedPickRate, reportedSampleCount, rateSource: source, rateRegion: region,
       countSource: reportedSampleCount === null ? null : source, countRegion: reportedSampleCount === null ? null : region,
       countMeaning: reportedSampleCount === null ? null : 'source_reported_games', denominatorKind: 'unverified_source_definition' as const, denominatorCount: null,

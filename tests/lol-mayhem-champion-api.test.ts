@@ -38,6 +38,10 @@ describe("증바람 챔피언 통계 API", () => {
     expect(await response.json()).toMatchObject({ readiness: { apiKeyConfigured: false, reuseConfirmed: false }, databaseAvailable: false });
     expect(mocks.admin).not.toHaveBeenCalled();
   });
+  it("공개 재사용 미확인 상태에서도 관리자는 비공개 후보를 검토할 수 있다", async () => {
+    mocks.readiness.mockResolvedValue({ apiKeyConfigured: true, reuseConfirmed: false, enabled: true, persistenceEnabled: true });
+    expect((await adminGet()).status).toBe(200); expect(mocks.admin).toHaveBeenCalledOnce();
+  });
   it("review는 origin, 확인, readiness를 통과한 뒤 store 계약의 camelCase와 CAS를 전달한다", async () => {
     enabled(); mocks.origin.mockReturnValueOnce(false);
     expect((await adminPost(request("/api/admin/lol/mayhem-champion-datasets", { action: "approve", id: 8, expectedPublication: null, confirm: true }))).status).toBe(403);

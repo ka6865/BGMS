@@ -16,7 +16,7 @@ export async function GET() {
   if (!access.ok) return access.error;
   try {
     const readiness = await getChampionDatasetReadiness();
-    if (!readiness.apiKeyConfigured || !readiness.reuseConfirmed) return reply({ releases: [], publications: [], sync: [], readiness, databaseAvailable: false });
+    if (!readiness.apiKeyConfigured) return reply({ releases: [], publications: [], sync: [], readiness, databaseAvailable: false });
     if (!readiness.persistenceEnabled) return reply({ releases: [], publications: [], sync: [], readiness, databaseAvailable: false });
     const data = await getChampionDatasetAdmin();
     return reply({ ...data, readiness, databaseAvailable: true });

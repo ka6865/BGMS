@@ -138,7 +138,9 @@ async function verifyReleaseObjects(db: ReturnType<typeof createServiceRoleSupab
 }
 
 export async function createChampionDatasetCandidate(input: ChampionCandidateInput): Promise<number> {
-  requireReady();
+  const readiness = getChampionDatasetReadiness();
+  if (!readiness.apiKeyConfigured || !readiness.enabled || !readiness.persistenceEnabled) throw new Error("stats_dataset_not_ready");
+  if ((process.env.LOL_MAYHEM_STATS_REUSE_BASIS?.trim().length ?? 0) < 10 || !process.env.LOL_MAYHEM_STATS_ATTRIBUTION?.trim()) throw new Error("stats_collection_basis_missing");
   if (!input || !/^[a-f0-9]{64}$/.test(input.captureHash) || !/^[a-f0-9]{64}$/.test(input.catalogHash)
     || !/^[0-9a-f-]{36}$/i.test(input.leaseToken)) throw new Error("stats_candidate_invalid");
   const db = createServiceRoleSupabase();
@@ -222,7 +224,7 @@ const getPublishedStats = unstable_cache(async (releaseId: number, patch: string
 }, ["lol-mayhem-champion-stats-v1"], { revalidate: 3600 });
 
 export async function getPublicChampionStats(patch: string, championId: number): Promise<PublicChampionStats | null> {
-  if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return null;
+  if (process.env.LOL_PERSISTENCE_ENABLED !== "true" || !getChampionDatasetReadiness().reuseConfirmed) return null;
   const publication = await getPublication(patch);
   if (!publication) return null;
   const stats = await getPublishedStats(publication.release_id, patch, championId);

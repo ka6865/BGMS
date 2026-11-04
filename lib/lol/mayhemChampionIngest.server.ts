@@ -16,7 +16,7 @@ export async function ingestChampionDataset(options:{apply:boolean}):Promise<Cha
   const ready=getChampionDatasetReadiness();
   if(!ready.apiKeyConfigured)throw new Error('stats_api_key_missing');
   if(options.apply && (!ready.enabled||!ready.persistenceEnabled))throw new Error('stats_sync_disabled');
-  if(options.apply && !ready.reuseConfirmed)throw new Error('stats_reuse_unconfirmed');
+  if(options.apply && ((process.env.LOL_MAYHEM_STATS_REUSE_BASIS?.trim().length??0)<10 || !process.env.LOL_MAYHEM_STATS_ATTRIBUTION?.trim()))throw new Error('stats_collection_basis_missing');
   const startedAt=Date.now();const fetchedAt=new Date(startedAt).toISOString();
   let token:string|null=null;let lastRenew=0;let previousFailures=0;let bytes=0;let rows=0;let previousCounts:Record<string,unknown>|null=null;
   const db=createServiceRoleSupabase((url,init)=>fetch(url,{...init,signal:init?.signal?AbortSignal.any([init.signal,signal()]):signal()}));
