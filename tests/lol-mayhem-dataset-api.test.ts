@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ access: vi.fn(), origin: vi.fn(), read: vi.fn(), file: vi.fn(), sync: vi.fn(), upsert: vi.fn(), rpc: vi.fn(), revalidate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ access: vi.fn(), origin: vi.fn(), read: vi.fn(), preview: vi.fn(), file: vi.fn(), sync: vi.fn(), upsert: vi.fn(), rpc: vi.fn(), revalidate: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/lol/access.server", () => ({ requireLolDevAdmin: mocks.access }));
 vi.mock("@/lib/lol/http.server", () => ({ isSameOriginLolRequest: mocks.origin }));
 vi.mock("next/cache", () => ({ revalidateTag: mocks.revalidate }));
-vi.mock("@/lib/lol/mayhemDatasetStore.server", () => ({ getMayhemDatasetAdmin: mocks.read, getMayhemSnapshotFile: mocks.file, MAYHEM_DATASET_TAG: "dataset" }));
+vi.mock("@/lib/lol/mayhemDatasetStore.server", () => ({ getMayhemDatasetAdmin: mocks.read, getMayhemMappingPreview: mocks.preview, getMayhemSnapshotFile: mocks.file, MAYHEM_DATASET_TAG: "dataset" }));
 vi.mock("@/lib/lol/mayhemIngest.server", () => ({ ingestMayhemDataset: mocks.sync }));
 vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({ createServiceRoleSupabase: () => ({ from: () => ({ upsert: mocks.upsert }), rpc: mocks.rpc }) }));
 import { GET, POST } from "../app/api/admin/lol/mayhem-datasets/route";
@@ -78,4 +78,17 @@ describe("증바람 데이터셋 관리자 경계", () => {
     expect((await post({ ...body, reason: "원본 설명이 현재 공식 패치와 다릅니다." })).status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith("review_lol_mayhem_dataset", expect.objectContaining({ p_reason: "원본 설명이 현재 공식 패치와 다릅니다." }));
   });
+});
+
+it("이름 미리보기는 관리자 인증과 단일 자료 번호만 허용하고 내부 오류를 숨긴다", async () => {
+  mocks.access.mockResolvedValueOnce({ ok: false, error: new Response(null, { status: 403 }) });
+  expect((await get("?mapping=7")).status).toBe(403);
+  expect(mocks.preview).not.toHaveBeenCalled();
+  for (const query of ["?mapping=-1", "?mapping=7&mapping=8", "?mapping=7&download=7"]) expect((await get(query)).status).toBe(400);
+  mocks.preview.mockResolvedValue({ releaseId: 7, sources: [], patches: [], mappings: [] });
+  const response = await get("?mapping=7");
+  expect(response.status).toBe(200); expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  expect(mocks.preview).toHaveBeenCalledWith(7);
+  mocks.preview.mockRejectedValue(new Error("private-snapshot-path"));
+  const failed = await get("?mapping=7"); expect(failed.status).toBe(503); expect(await failed.text()).not.toContain("private-snapshot-path");
 });

@@ -16,7 +16,7 @@ const patches = (group: UpdateGroup) => {
   return values.length > 2 ? `${values.at(-1)}~${values[0]}` : values.join(", ");
 };
 
-export default function LolMayhemUpdateSummary() {
+export default function LolMayhemUpdateSummary({ refreshVersion = 0, onOpenMapping }: { refreshVersion?: number; onOpenMapping?: () => void }) {
   const [groups, setGroups] = useState<UpdateGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
@@ -53,6 +53,7 @@ export default function LolMayhemUpdateSummary() {
     void refresh();
     return () => { mounted.current = false; request.current?.abort(); };
   }, [refresh]);
+  useEffect(() => { if (refreshVersion && !writing.current) void refresh(); }, [refreshVersion, refresh]);
 
   async function apply(group: UpdateGroup) {
     if (writing.current || confirming !== group.key || !group.targets.length || group.blocked || group.targets.some(row => row.blocked)) return;
@@ -110,8 +111,9 @@ export default function LolMayhemUpdateSummary() {
           <p className="text-xs leading-relaxed text-zinc-400">최근 수집 {date(group.rows.map(row => row.fetchedAt).sort().at(-1))} · 최근 적용 {date(appliedAt)}</p>
           {group.syncError && <p className="text-sm text-amber-300">최근 수집이 완료되지 않았습니다. 기존 적용 자료는 유지됩니다.</p>}
           {blocked && <p className="text-sm text-amber-300">{blocked}</p>}
+          {group.key === "combos" && group.targets.some(row => row.blocked) && onOpenMapping && <button type="button" className={button} disabled={!!busy} onClick={onOpenMapping}>이름 연결하기</button>}
           {held && <p className="text-sm text-zinc-400">최근 수집 자료는 적용에서 제외했습니다. 기존 적용 자료는 유지됩니다.</p>}
-          {!!group.targets.length && <>
+          {!!group.targets.length && !(group.key === "combos" && blocked && onOpenMapping) && <>
             {confirming !== group.key ? <button type="button" className={primary} disabled={!!busy || !!blocked} onClick={() => { setConfirming(group.key); setError(""); setMessage(""); }}>적용 내용 확인</button> : <div className="space-y-3 border-t border-zinc-800 pt-3" aria-label={`${group.title} 적용 확인`}>
               <p className="text-sm">새로 수집한 {group.targets.length}개 자료로 사용자 화면을 갱신합니다. 기존 적용 기록은 보관됩니다.</p>
               <details><summary className="min-h-11 cursor-pointer content-center text-sm text-zinc-300">적용할 자료 보기</summary>

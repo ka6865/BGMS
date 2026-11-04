@@ -28,7 +28,7 @@ function mockApi(data = fixture()) {
 const writes = (mock: ReturnType<typeof mockApi>) => mock.mock.calls.filter(call => call[1]?.method === "POST").map(call => JSON.parse(call[1]!.body as string));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-it("shows collected data and its user-facing effect in Korean, with old tools collapsed", async () => {
+it("shows collected data and its user-facing effect in Korean, without the old technical tabs", async () => {
   const mock = mockApi(); render(createElement(MayhemDatasetReviewPanel));
   const item = await screen.findByRole("article", { name: "아이템·신발" });
   expect(item.textContent).toContain("26.22 패치 · 1명 수집했습니다.");
@@ -37,11 +37,10 @@ it("shows collected data and its user-facing effect in Korean, with old tools co
   expect(screen.queryByRole("tablist")).toBeNull();
   expect(screen.queryByLabelText("검토 후보")).toBeNull();
   expect(writes(mock)).toEqual([]);
-  fireEvent.click(screen.getByText("이전 자료·문제 해결"));
-  expect(await screen.findByRole("tablist")).toBeTruthy();
-  fireEvent.click(screen.getByRole("tab", { name: "티어·아이템·패치 순위" }));
-  fireEvent.change(await screen.findByLabelText("자료 종류"), { target: { value: "item_ratings" } });
-  expect(await screen.findByLabelText("검토 후보")).toBeTruthy();
+  fireEvent.click(screen.getByText("증강 이름 연결"));
+  expect(await screen.findByText("아직 수집한 조합 자료가 없습니다.")).toBeTruthy();
+  expect(screen.queryByRole("tablist")).toBeNull();
+  expect(screen.queryByLabelText("외부 증강 ID")).toBeNull();
 });
 
 it("selects the newest capture per scope and never downgrades item patches", () => {
@@ -152,7 +151,9 @@ it("blocks incomplete champion captures and unmapped combos with a plain Korean 
   const combo = screen.getByRole("article", { name: "증강 추천 조합" });
   expect(within(champion).getByText("챔피언 자료가 모두 모이지 않았습니다.")).toBeTruthy();
   expect(within(combo).getByText("증강 5개의 이름을 먼저 연결해야 합니다.")).toBeTruthy();
-  for (const section of [champion, combo]) expect((within(section).getByRole("button", { name: "적용 내용 확인" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(champion).getByRole("button", { name: "적용 내용 확인" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(within(combo).getByRole("button", { name: "이름 연결하기" })).toBeTruthy();
+  expect(within(combo).queryByRole("button", { name: "적용 내용 확인" })).toBeNull();
   expect(writes(mock)).toEqual([]);
 });
 
