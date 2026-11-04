@@ -250,7 +250,7 @@ export default function GlobalHeader() {
                 isWeaponsActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
               }`}
             >
-              무기 도감
+              도감
               {isWeaponsActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />}
             </Link>
 

@@ -1,6 +1,5 @@
 "use client";
 
-import WeaponMetaDashboard from "@/components/meta/WeaponMetaDashboard";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -531,7 +530,6 @@ export default function WeaponsPage() {
             <h1 className="text-2xl sm:text-3xl font-black text-[#F2A900] tracking-tight flex items-center gap-2">
               <InlineIconLabel icon="weapon" iconSize={28}>배그 무기 정보 도감</InlineIconLabel>
             </h1>
-            <p className="text-xs sm:text-sm text-slate-400 mt-1">41.2 공식 패치 밸런스가 완벽 보정 적용된 프리미엄 무기고입니다.</p>
           </div>
           <button 
             onClick={() => router.push("/")}
@@ -541,7 +539,6 @@ export default function WeaponsPage() {
           </button>
         </div>
 
-        <WeaponMetaDashboard />
 
         {/* ----------------------------------------------------
             상단: 웅장한 파츠 시뮬레이션 (Weapon Builder Dashboard)
