@@ -11,7 +11,7 @@ begin
   begin
     perform public.put_lol_challenge_catalog_cache('[]','challenge-catalog:kr:ko_KR:v1',pg_catalog.gen_random_uuid());
     raise exception 'catalog lease not checked';
-  exception when serialization_failure then null; end;
+  exception when sqlstate 'PT409' then null; end;
   begin
     perform public.put_lol_challenge_catalog_cache('{}','challenge-catalog:kr:ko_KR:v1',v_token);
     raise exception 'catalog array check missing';

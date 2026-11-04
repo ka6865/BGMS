@@ -205,7 +205,7 @@ begin
     format('select public.ingest_lol_mayhem_dataset(''16.21'',%L,''stale-mapping-snapshot'',%L,%L,%L,%L)',
       repeat('c',64),pg_temp.mayhem_manifest_path(repeat('c',64),v_metadata->>'captureHash','16.21'),
       v_metadata,v_rates,v_combos),
-    '40001'
+    'PT409'
   );
   perform public.review_lol_mayhem_mapping(
     'aug-rate','16.21',3119,'{"note":"restored after stale snapshot test"}'::jsonb,v_admin
@@ -317,7 +317,7 @@ begin
     'mapping·approve·publish 감사 기록'
   );
   perform pg_temp.reject_mayhem(
-    format('select public.review_lol_mayhem_dataset(%s,''publish'',%L,null)',v_first,v_admin),'40001'
+    format('select public.review_lol_mayhem_dataset(%s,''publish'',%L,null)',v_first,v_admin),'PT409'
   );
 
   v_metadata := pg_temp.mayhem_metadata(v_hash_2,v_token,v_capture_2);
@@ -366,13 +366,13 @@ begin
     where lease_key='ops:lol-mayhem-external:arammayhem' and lease_token=v_token;
   perform pg_temp.reject_mayhem(
     format('select public.renew_lol_mayhem_dataset_lease(%L)',v_token),
-    '40001'
+    'PT409'
   );
   perform pg_temp.reject_mayhem(
     format('select public.ingest_lol_mayhem_dataset(''16.21'',%L,''expired-lease'',%L,%L,%L,%L)',
       repeat('c',64),pg_temp.mayhem_manifest_path(repeat('c',64),v_metadata->>'captureHash','16.21'),
       v_metadata,v_rates,v_combos),
-    '40001'
+    'PT409'
   );
 end $$;
 reset role;

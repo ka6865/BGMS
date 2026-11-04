@@ -183,7 +183,7 @@ begin
     perform public.persist_lol_match_details('match:KR_7002',p_old,'stale-detail','{}'::jsonb,'kr','asia','16.21.1',v_raw,
       v_raw->'info'->'participants','[]'::jsonb);
     raise exception 'stale worker completion unexpectedly succeeded' using errcode='P0001';
-  exception when serialization_failure then null;
+  exception when sqlstate 'PT409' then null;
   end;
   if exists(select 1 from public.lol_matches where match_id='KR_7002') then raise exception 'stale worker wrote match data'; end if;
   if public.release_lol_collection_lease('match:KR_7002',p_old) then raise exception 'stale worker released renewed lease'; end if;
