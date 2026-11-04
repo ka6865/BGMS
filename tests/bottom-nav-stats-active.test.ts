@@ -31,8 +31,21 @@ describe("BottomNav stats active", () => {
     pathname = "/stats/steam/FixturePlayer";
     render(createElement(BottomNav));
 
-    const button = screen.getByRole("button", { name: "AI 전적" });
-    const style = button.getAttribute("style");
+    const link = screen.getByRole("link", { name: "AI 전적" });
+    const style = link.getAttribute("style");
     expect(style).toContain("var(--color-accent)");
+    expect(link).toHaveAttribute("aria-current", "page");
+  });
+
+  it("이동 탭은 실제 링크(href)이고 메뉴만 버튼이다", () => {
+    pathname = "/rankings";
+    render(createElement(BottomNav));
+
+    expect(screen.getByRole("link", { name: "지도" })).toHaveAttribute("href", "/maps/erangel");
+    expect(screen.getByRole("link", { name: "AI 전적" })).toHaveAttribute("href", "/stats");
+    expect(screen.getByRole("link", { name: "랭킹" })).toHaveAttribute("href", "/rankings");
+    expect(screen.getByRole("link", { name: "커뮤니티" })).toHaveAttribute("href", "/board");
+    expect(screen.getByRole("button", { name: "메뉴" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "랭킹" })).toBeNull();
   });
 });

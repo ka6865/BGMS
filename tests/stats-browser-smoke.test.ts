@@ -585,7 +585,7 @@ async function controlEvidence(page: Page, state: ControlState) {
       add("party-size", query('[role="group"][aria-label="현재 시즌 파티 필터"] button'));
       add("match-filter", query('[role="group"][aria-label="매치 유형 필터"] button'));
       add("match-expand", query('button[aria-label="매치 상세 펼치기"], button[aria-label="매치 상세 접기"]'));
-      add("bottom-nav", query('nav[class*="fixed"][class*="bottom-0"] button'));
+      add("bottom-nav", query('nav[class*="fixed"][class*="bottom-0"] button, nav[class*="fixed"][class*="bottom-0"] a'));
     };
 
     commonGroups();
