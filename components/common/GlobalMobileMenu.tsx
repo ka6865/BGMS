@@ -152,7 +152,7 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                         <Sword size={20} className="text-blue-500" />
                       </div>
                       <div className="flex flex-col items-center">
-                        <span className="text-white font-bold text-xs">무기 도감</span>
+                        <span className="text-white font-bold text-xs">도감</span>
                         <span className="text-[#666] text-[9px] mt-0.5 leading-none">스탯 비교</span>
                       </div>
                     </button>

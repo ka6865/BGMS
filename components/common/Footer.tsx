@@ -142,7 +142,7 @@ const Footer = () => {
             onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.85)")}
             onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.65)")}
           >
-            무기 도감
+            도감
           </Link>
 
           <span style={{ width: "1px", height: "14px", backgroundColor: "rgba(255,255,255,0.1)" }} />

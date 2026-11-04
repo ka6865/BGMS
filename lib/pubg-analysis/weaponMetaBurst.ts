@@ -15,11 +15,11 @@ export function categorizeWeapon(rawName: string): string {
   if (/gaspump/i.test(rawName || "")) return "OTHERS";
   const clean = (rawName || "").replace(/Item_Weapon_|Weap|_C|_Projectile/gi, "").toUpperCase();
   if (clean.includes("M249") || clean.includes("DP28") || clean.includes("MG3") || clean.includes("RPD")) return "LMG";
-  if (clean.includes("BERYL") || clean.includes("HK416") || clean.includes("AK47") || clean.includes("AUG") || clean.includes("GROZA") || clean.includes("SCAR") || clean.includes("G36") || clean.includes("K2") || clean.includes("ACE32") || clean.includes("FAMAS")) return "AR";
-  if (clean.includes("SKS") || clean.includes("MK12") || clean.includes("SLR") || clean.includes("MINI14") || clean.includes("DRAGUNOV") || clean.includes("QBU") || clean.includes("VSS") || clean.includes("MK14")) return "DMR";
-  if (clean.includes("KAR98") || clean.includes("M24") || clean.includes("AWM") || clean.includes("MOSIN")) return "SR";
-  if (clean.includes("S12K") || clean.includes("S686") || clean.includes("S1897") || clean.includes("DBS") || clean.includes("O12")) return "SG";
-  if (clean.includes("UZI") || clean.includes("UMP") || clean.includes("VECTOR") || clean.includes("BIZON") || clean.includes("MP5K") || clean.includes("JS9")) return "SMG";
+  if (["M16A4", "QBZ95", "MK47MUTANT", "AKM", "M416"].some((name) => clean.includes(name)) || clean.includes("BERYL") || clean.includes("HK416") || clean.includes("AK47") || clean.includes("AUG") || clean.includes("GROZA") || clean.includes("SCAR") || clean.includes("G36") || clean.includes("K2") || clean.includes("ACE32") || clean.includes("FAMAS")) return "AR";
+  if (clean.includes("FNFAL") || clean.includes("SKS") || clean.includes("MK12") || clean.includes("SLR") || clean.includes("MINI14") || clean.includes("DRAGUNOV") || clean.includes("QBU") || clean.includes("VSS") || clean.includes("MK14")) return "DMR";
+  if (clean === "L6" || clean.includes("WIN94") || clean.includes("KAR98") || clean.includes("M24") || clean.includes("AWM") || clean.includes("MOSIN")) return "SR";
+  if (["SAIGA12", "BERRETA686", "WINCHESTER"].some((name) => clean.includes(name)) || clean.includes("S12K") || clean.includes("S686") || clean.includes("S1897") || clean.includes("DBS") || clean.includes("O12")) return "SG";
+  if (["TOMMYGUN", "THOMPSON", "P90", "MP9"].some((name) => clean.includes(name)) || clean.includes("UZI") || clean.includes("UMP") || clean.includes("VECTOR") || clean.includes("BIZON") || clean.includes("MP5K") || clean.includes("JS9")) return "SMG";
   return "OTHERS";
 }
 

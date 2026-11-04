@@ -1,14 +1,14 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: "배그 전술 무기고 - 모든 총기 스탯 및 패치노트",
-  description: "배틀그라운드 에란겔부터 태이고까지, 모든 총기의 데미지, 탄속, 탄약 정보를 상세히 비교해보세요. 실시간 업데이트되는 배그 무기 도감 BGMS입니다.",
+  title: "배그 도감 - 무기, 메타 및 탈것 정보",
+  description: "배틀그라운드 무기와 탈것의 공식 정보, 패치별 총기 메타를 확인하세요.",
   alternates: {
     canonical: "/weapons",
   },
   openGraph: {
-    title: "배그 전술 무기고 | BGMS",
-    description: "최신 패치 정보가 반영된 배그 무기 스탯 데이터베이스입니다.",
+    title: "배그 도감 | BGMS",
+    description: "배그 무기와 탈것 정보 및 패치별 메타 리포트를 확인하세요.",
     url: "/weapons",
     type: "website",
   }
