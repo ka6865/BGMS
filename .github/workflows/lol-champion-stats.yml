@@ -1,0 +1,52 @@
+name: LoL 챔피언 통계 수집
+on:
+  schedule:
+    - cron: '31 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (defaults to true)"
+        required: false
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: lol-champion-stats
+  cancel-in-progress: false
+jobs:
+  collect:
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || vars.LOL_CHAMPION_STATS_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: 제한된 챔피언 통계 수집
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+          LOL_CHAMPION_STATS_ENABLED: ${{ vars.LOL_CHAMPION_STATS_ENABLED }}
+          LOL_COLLECT_ENABLED: ${{ vars.LOL_CHAMPION_STATS_ENABLED }}
+          LOL_CHAMPION_STATS_DRY_RUN: ${{ inputs.dry_run }}
+          LOL_PERSISTENCE_ENABLED: 'true'
+          LOL_RIOT_PRIORITY: background
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = 'schedule' ]; then
+            collector_mode=--apply
+          elif [ "$LOL_CHAMPION_STATS_DRY_RUN" = 'true' ]; then
+            collector_mode=--dry-run
+          elif [ "$LOL_CHAMPION_STATS_ENABLED" = 'true' ]; then
+            collector_mode=--apply
+          else
+            echo "::error::LOL_CHAMPION_STATS_ENABLED=true 설정이 필요합니다."
+            exit 1
+          fi
+          npx tsx scripts/lol_collect_champion_stats.ts "$collector_mode" --per-2min=20 --timeline-ratio=0.5 --max-minutes=15

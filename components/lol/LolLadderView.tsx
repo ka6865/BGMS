@@ -5,6 +5,7 @@ import { LOL_LADDER_QUEUES, LOL_LADDER_TIERS, type LolLadderDaily, type LolLadde
 import type { LolRankingBoard, LolRankingBoardRow } from "@/lib/lol/ranking";
 import { lolRiotIdPath } from "@/lib/lol/riotId";
 import LolWinBar from "./LolWinBar";
+import { lolCollectionStatus } from "@/lib/lol/collectionStatus";
 
 const tierNames: Record<LolLadderTier, string> = { CHALLENGER: "챌린저", GRANDMASTER: "그랜드마스터", MASTER: "마스터" };
 const colors = { CHALLENGER: "#fbbf24", GRANDMASTER: "#f87171", MASTER: "#c084fc" };
@@ -106,13 +107,14 @@ function RankingPodium({ rows }: { rows: LolRankingBoardRow[] }) {
 function RankingBoard({ board, error }: { board: LolRankingBoard | null; error: boolean }) {
   if (error) return <section aria-label="랭킹"><p role="status" className="text-sm text-amber-300">랭킹을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p></section>;
   if (!board) return <section aria-label="랭킹"><p role="status" className="flex items-center gap-2 text-sm text-zinc-400"><Trophy aria-hidden="true" className="size-4" />아직 집계되지 않았습니다. 수집이 끝나면 여기에 표시됩니다.</p></section>;
-  const observed = new Date(board.observedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+  const observed = lolCollectionStatus(board.observedAt);
   const rest = board.rows.slice(3);
   return <section aria-label="랭킹" className="min-w-0 space-y-3">
     <div className="flex flex-wrap items-baseline justify-between gap-x-3">
       <h2 className="flex items-center gap-2 font-semibold"><Trophy aria-hidden="true" className="size-4 text-amber-300" />솔로 랭크 순위</h2>
-      <p className="text-xs text-zinc-400">{board.playerCount.toLocaleString()}명, {observed} KST 기준. Riot 공식 명단 순서이며 자체 계산 값이 아닙니다.</p>
+      <p className="text-xs text-zinc-400">{board.playerCount.toLocaleString()}명, {observed.time ? `${observed.time} KST 기준` : "집계 시각 확인 불가"}. Riot 공식 명단 순서이며 자체 계산 값이 아닙니다.</p>
     </div>
+    {observed.stale && <p role="status" className="text-xs text-amber-200">마지막 관측 후 24시간 이상 지났습니다. 최신 집계 여부는 확인되지 않았습니다.</p>}
     <RankingPodium rows={board.rows.slice(0, 3)} />
     <ol aria-label="4위 이하" className="divide-y divide-zinc-800/80">{rest.map((row, index) => <Fragment key={row.rank}>
       {index > 0 && rest[index - 1].tier !== row.tier && <li aria-hidden="true" className="flex items-center gap-2 py-2 text-xs font-semibold" style={{ color: rankingAccent[row.tier] }}>

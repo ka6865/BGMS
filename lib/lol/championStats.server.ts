@@ -3,13 +3,13 @@ import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.serv
 import { LOL_STAT_POSITIONS, LOL_STAT_QUEUE, type LolChampionStatRow, type LolStatBuildKind, type LolStatPosition } from "./championStats";
 
 export type LolStatPatch = { patch: string; matches: number; timelineMatches: number };
-export type LolChampionStatsResult = { patch: string | null; patches: LolStatPatch[]; matches: number; rows: LolChampionStatRow[] };
+export type LolChampionStatsResult = { patch: string | null; patches: LolStatPatch[]; matches: number; rows: LolChampionStatRow[]; collectionUpdatedAt: string | null };
 export type LolChampionPositionStat = {
   team_position: LolStatPosition; games: number; wins: number; kills: number; deaths: number; assists: number;
   cs: number; gold: number; damage: number; duration_seconds: number; gd15_sum: number; gd15_count: number;
 };
 export type LolChampionDetailStats = {
-  patch: string | null; patches: LolStatPatch[]; matches: number; timelineMatches: number; bans: number;
+  patch: string | null; patches: LolStatPatch[]; matches: number; timelineMatches: number; bans: number; collectionUpdatedAt: string | null;
   positions: LolChampionPositionStat[];
   builds: Array<{ position: LolStatPosition; kind: LolStatBuildKind; value: string; games: number; wins: number }>;
   matchups: Array<{ position: LolStatPosition; opponent: number; games: number; wins: number; gd15Sum: number; gd15Count: number }>;
@@ -17,6 +17,18 @@ export type LolChampionDetailStats = {
 
 const timeout = () => AbortSignal.timeout(5000);
 const num = (value: unknown) => typeof value === "number" ? value : Number(value) || 0;
+
+async function getCollectionUpdatedAt(patch: string, tiers: readonly string[]): Promise<string | null> {
+  try {
+    const { data, error } = await createServiceRoleSupabase().from("lol_stat_totals").select("updated_at")
+      .eq("patch", patch).eq("queue_id", LOL_STAT_QUEUE).in("tier", [...tiers])
+      .order("updated_at", { ascending: false }).limit(10).abortSignal(timeout());
+    if (error) return null;
+    return (data ?? []).map(row => row.updated_at).find(value => typeof value === "string" && Number.isFinite(Date.parse(value))) ?? null;
+  } catch {
+    return null;
+  }
+}
 
 async function getPatches(): Promise<LolStatPatch[]> {
   const { data, error } = await createServiceRoleSupabase().rpc("get_lol_stat_patches", { p_queue_id: LOL_STAT_QUEUE }).abortSignal(timeout());
@@ -32,35 +44,41 @@ function pickPatch(patches: LolStatPatch[], requested?: string) {
 }
 
 export async function getLolChampionStats(tiers: readonly string[], requestedPatch?: string): Promise<LolChampionStatsResult> {
-  if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return { patch: null, patches: [], matches: 0, rows: [] };
+  if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return { patch: null, patches: [], matches: 0, rows: [], collectionUpdatedAt: null };
   const patches = await getPatches();
   const patch = pickPatch(patches, requestedPatch);
-  if (!patch) return { patch: null, patches, matches: 0, rows: [] };
-  const { data, error } = await createServiceRoleSupabase().rpc("get_lol_champion_stats", {
-    p_patch: patch, p_queue_id: LOL_STAT_QUEUE, p_tiers: [...tiers],
-  }).abortSignal(timeout());
+  if (!patch) return { patch: null, patches, matches: 0, rows: [], collectionUpdatedAt: null };
+  const [{ data, error }, collectionUpdatedAt] = await Promise.all([
+    createServiceRoleSupabase().rpc("get_lol_champion_stats", {
+      p_patch: patch, p_queue_id: LOL_STAT_QUEUE, p_tiers: [...tiers],
+    }).abortSignal(timeout()),
+    getCollectionUpdatedAt(patch, tiers),
+  ]);
   if (error) throw new Error("챔피언 통계를 불러오지 못했습니다.");
   const rows: LolChampionStatRow[] = (data ?? []).filter((row: { team_position: string }) => LOL_STAT_POSITIONS.includes(row.team_position as LolStatPosition))
     .map((row: Record<string, unknown>) => ({
       team_position: row.team_position as LolStatPosition, champion_id: num(row.champion_id), games: num(row.games),
       wins: num(row.wins), bans: num(row.bans), matches: num(row.matches),
     }));
-  return { patch, patches, matches: rows[0]?.matches ?? 0, rows };
+  return { patch, patches, matches: rows[0]?.matches ?? 0, rows, collectionUpdatedAt };
 }
 
 export async function getLolChampionDetailStats(championId: number, tiers: readonly string[], requestedPatch?: string): Promise<LolChampionDetailStats> {
-  const empty: LolChampionDetailStats = { patch: null, patches: [], matches: 0, timelineMatches: 0, bans: 0, positions: [], builds: [], matchups: [] };
+  const empty: LolChampionDetailStats = { patch: null, patches: [], matches: 0, timelineMatches: 0, bans: 0, collectionUpdatedAt: null, positions: [], builds: [], matchups: [] };
   if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return empty;
   const patches = await getPatches();
   const patch = pickPatch(patches, requestedPatch);
   if (!patch) return { ...empty, patches };
-  const { data, error } = await createServiceRoleSupabase().rpc("get_lol_champion_detail", {
-    p_patch: patch, p_queue_id: LOL_STAT_QUEUE, p_tiers: [...tiers], p_champion_id: championId,
-  }).abortSignal(timeout());
+  const [{ data, error }, collectionUpdatedAt] = await Promise.all([
+    createServiceRoleSupabase().rpc("get_lol_champion_detail", {
+      p_patch: patch, p_queue_id: LOL_STAT_QUEUE, p_tiers: [...tiers], p_champion_id: championId,
+    }).abortSignal(timeout()),
+    getCollectionUpdatedAt(patch, tiers),
+  ]);
   if (error || !data || typeof data !== "object") throw new Error("챔피언 통계를 불러오지 못했습니다.");
   const raw = data as Record<string, any>;
   return {
-    patch, patches, matches: num(raw.matches), timelineMatches: num(raw.timelineMatches), bans: num(raw.bans),
+    patch, patches, matches: num(raw.matches), timelineMatches: num(raw.timelineMatches), bans: num(raw.bans), collectionUpdatedAt,
     positions: (Array.isArray(raw.positions) ? raw.positions : []).filter((row: any) => LOL_STAT_POSITIONS.includes(row?.team_position))
       .map((row: any) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, key === "team_position" ? value : num(value)])) as LolChampionPositionStat),
     builds: (Array.isArray(raw.builds) ? raw.builds : []).map((row: any) => ({ position: row.position, kind: row.kind, value: String(row.value), games: num(row.games), wins: num(row.wins) })),

@@ -1,6 +1,7 @@
-// Match-V5 timeline에서 아이템 구매 순서와 스킬 레벨업 순서만 뽑는다. PUUID 등 식별자는 결과에 담지 않는다.
+// Match-V5 timeline에서 빌드와 골드·CS 흐름을 뽑는다. PUUID 등 식별자는 결과에 담지 않는다.
 export type LolBuildStep = { minute: number; items: number[] };
-export type LolPlayerBuild = { teamId: number; championId: number; items: LolBuildStep[]; skills: number[] };
+export type LolTimelinePoint = { timestamp: number; gold: number | null; cs: number | null };
+export type LolPlayerBuild = { teamId: number; championId: number; items: LolBuildStep[]; skills: number[]; timeline: LolTimelinePoint[] };
 export type LolMatchBuild = { matchId: string; players: LolPlayerBuild[] };
 
 const MAX_PURCHASES = 80;
@@ -16,11 +17,28 @@ export function parseLolMatchBuild(timeline: unknown, match: unknown, matchId: s
   const matchInfo = object(object(match).info);
   if (String(object(object(timeline).metadata).matchId ?? "") !== matchId || !Array.isArray(info.frames)
     || !Array.isArray(matchInfo.participants)) throw new Error("invalid timeline");
-  const players = new Map<number, { teamId: number; championId: number; purchases: Array<{ itemId: number; at: number }>; skills: number[] }>();
+  const players = new Map<number, { teamId: number; championId: number; purchases: Array<{ itemId: number; at: number }>; skills: number[]; timeline: LolTimelinePoint[] }>();
   for (const value of matchInfo.participants) {
     const participant = object(value);
     const id = integer(participant.participantId);
-    if (id !== null) players.set(id, { teamId: integer(participant.teamId) ?? 0, championId: integer(participant.championId) ?? 0, purchases: [], skills: [] });
+    if (id !== null) players.set(id, { teamId: integer(participant.teamId) ?? 0, championId: integer(participant.championId) ?? 0, purchases: [], skills: [], timeline: [] });
+  }
+  const frames = info.frames.map(object).filter(frame => integer(frame.timestamp) !== null)
+    .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+  let previousTimestamp = -1;
+  for (const frame of frames) {
+    const timestamp = integer(frame.timestamp)!;
+    if (timestamp === previousTimestamp) continue;
+    previousTimestamp = timestamp;
+    for (const [id, player] of players) {
+      const entry = object(object(frame.participantFrames)[String(id)]);
+      const participantId = integer(entry.participantId);
+      const valid = participantId === null || participantId === id;
+      const minions = valid ? integer(entry.minionsKilled) : null;
+      const jungle = valid ? integer(entry.jungleMinionsKilled) : null;
+      player.timeline.push({ timestamp, gold: valid ? integer(entry.totalGold) : null,
+        cs: minions !== null && jungle !== null ? integer(minions + jungle) : null });
+    }
   }
   const events = info.frames.flatMap((frame) => Array.isArray(object(frame).events) ? object(frame).events as unknown[] : [])
     .map(object).sort((a, b) => (integer(a.timestamp) ?? 0) - (integer(b.timestamp) ?? 0));
@@ -49,7 +67,7 @@ export function parseLolMatchBuild(timeline: unknown, match: unknown, matchId: s
         if (last?.minute === minute) last.items.push(purchase.itemId);
         else items.push({ minute, items: [purchase.itemId] });
       }
-      return { teamId: player.teamId, championId: player.championId, items, skills: player.skills };
+      return { teamId: player.teamId, championId: player.championId, items, skills: player.skills, timeline: player.timeline };
     }),
   };
 }

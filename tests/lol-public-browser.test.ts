@@ -122,6 +122,10 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     expect(page.url()).toBe(`${base}/lol/kr/${encodeURIComponent("홍길동-KR1")}`);
     await page.click('button[aria-label="경기 상세 보기"]');
     await page.waitForSelector('[data-testid="lol-player-row"]');
+    expect(await page.$$eval('[data-testid="lol-player-row"] button', buttons => buttons.every(button =>
+      button.getBoundingClientRect().height >= 44 && parseFloat(getComputedStyle(button).fontSize) >= 13))).toBe(true);
+    expect(await page.$$eval('[data-testid="lol-player-row"] [aria-label^="챔피언 피해"]', cells => cells.every(cell =>
+      parseFloat(getComputedStyle(cell).fontSize) >= 12 && cell.scrollWidth <= cell.clientWidth + 1))).toBe(true);
     expect(await page.$eval('[data-testid="lol-match-insights"]', element => element.textContent)).toContain("시야 점수");
     expect(await page.$eval('[data-testid="lol-recent-trends"]', element => element.textContent)).toContain("최근 9경기");
     const challengeText = await page.$eval('[data-testid="lol-challenge-profile"]', element => element.textContent ?? "");
@@ -227,8 +231,76 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     await page.close();
   });
   it("모바일 빈 화면·429 안내가 표시된다", async () => {
-    const page = await open(390, 844); expect(await page.$('section[aria-label="최근 경기"]')).toBeNull();
+    const page = await open(390, 844);
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
+    expect(await page.$('section[aria-label="최근 경기"]')).toBeNull();
     await search(page, "오류#KR1"); await page.waitForSelector('[role="alert"]');
-    expect(await page.$eval('[role="alert"]', element => element.textContent)).toContain("잠시 후"); await page.close();
+    expect(await page.$eval('[role="alert"]', element => element.textContent)).toContain("잠시 후");
+    expect(await page.$('[aria-label="검색 기록"] li')).toBeNull(); await page.close();
+  });
+
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("검색 기록을 %ix%i에서 복원하고 재검색·즐겨찾기·삭제·비우기를 제공한다", async (width, height) => {
+    const page = await open(width, height);
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
+    await search(page, "홍길동#KR1");
+    await page.waitForSelector('[aria-label="검색 결과"]');
+    await page.waitForSelector('[aria-label="검색 기록"] li');
+    expect(await page.$eval('[aria-label="검색 기록"]', element => element.textContent)).toContain("홍길동#KR1");
+    expect(await page.$eval('[aria-label="검색 기록"] details', element => (element as HTMLDetailsElement).open)).toBe(false);
+    expect(await page.$eval('[aria-label="검색 기록"]', element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(48);
+    expect(await page.$eval('[data-testid="lol-profile-favorite"]', element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+    await page.click('[data-testid="lol-profile-favorite"]');
+    await page.waitForFunction(() => document.querySelector('[data-testid="lol-profile-favorite"]')?.getAttribute("aria-pressed") === "true");
+    expect(await page.$eval('[aria-label="검색 기록"]', element => element.textContent)).toContain("즐겨찾기");
+    // 접힌 기록은 키보드로 펼칠 수 있고 계정 검색 상태를 보존한다.
+    await page.focus('[aria-label="검색 기록"] summary');
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => (document.querySelector('[aria-label="검색 기록"] details') as HTMLDetailsElement).open);
+    expect(await page.$eval('[aria-label="검색 결과"] h2', element => element.textContent)).toContain("홍길동");
+    expect(await page.$$eval('[aria-label="검색 기록"] button', buttons => buttons.every(button => button.getBoundingClientRect().height >= 44))).toBe(true);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
+    await page.waitForSelector('[aria-label="홍길동#KR1 즐겨찾기 해제"]');
+    await page.click('[aria-label="검색 기록"] summary');
+    await page.click('button[aria-label="홍길동#KR1 최근 검색에서 삭제"]');
+    expect(await page.$('button[aria-label="홍길동#KR1 최근 검색에서 삭제"]')).toBeNull();
+    await page.$$eval('[aria-label="검색 기록"] li button', buttons => (buttons.find(button => button.textContent?.trim() === "홍길동#KR1") as HTMLButtonElement).click());
+    await page.waitForSelector('button[aria-label="홍길동#KR1 최근 검색에서 삭제"]');
+    await page.$$eval("button", buttons => (buttons.find(button => button.textContent?.includes("최근 기록 비우기")) as HTMLButtonElement).click());
+    expect(await page.$$eval("button", buttons => buttons.some(button => button.textContent?.includes("최근 기록 비우기")))).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.close();
+  });
+
+  it("최대 길이 Riot ID 30개가 모바일 검색 기록에서 넘치지 않는다", async () => {
+    const page = await open(375, 667);
+    await page.evaluate(() => {
+      const ids = Array.from({ length: 30 }, (_, index) => `${"P".repeat(60)}${String(index).padStart(4, "0")}#${"T".repeat(16)}`);
+      localStorage.setItem("bgms:lol-search-history:v1", JSON.stringify({ recent: ids.slice(0, 10), favorites: ids.slice(10) }));
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.lolFixtureHydrated === "true");
+    await page.waitForSelector('[aria-label="검색 기록"] li');
+    expect(await page.$$eval('[aria-label="검색 기록"] button', buttons => buttons.every(button => button.getBoundingClientRect().height >= 44))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.$$eval('[aria-label="검색 기록"] li', items => items.every(item => item.getBoundingClientRect().right <= innerWidth))).toBe(true);
+    await page.close();
+  });
+
+  it("브라우저 저장소가 차단되어도 성공한 검색 결과를 표시하고 저장 실패를 알린다", async () => {
+    const page = await open(390, 844);
+    await page.evaluate(() => {
+      Storage.prototype.getItem = () => { throw new DOMException("blocked", "SecurityError"); };
+      Storage.prototype.setItem = () => { throw new DOMException("blocked", "SecurityError"); };
+    });
+    await search(page, "검색유지#KR1");
+    await page.waitForSelector('section[aria-label="최근 경기"] article');
+    expect(await page.$eval('[role="alert"]', element => element.textContent)).toContain("저장하지 못했습니다");
+    expect(await page.$eval('[aria-label="검색 결과"] h2', element => element.textContent)).toContain("검색유지");
+    await page.close();
   });
 });

@@ -7,8 +7,9 @@ import {
   LOL_STAT_MIN_GAMES, LOL_STAT_POSITION_LABELS, LOL_STAT_POSITIONS, LOL_STAT_TIER_FILTERS, lolRate,
   type LolChampionStatRow, type LolStatPosition,
 } from "@/lib/lol/championStats";
+import { lolCollectionStatus } from "@/lib/lol/collectionStatus";
 
-export type LolChampionListStats = { patch: string | null; matches: number; rows: LolChampionStatRow[]; tierFilter: string; error?: boolean };
+export type LolChampionListStats = { patch: string | null; matches: number; rows: LolChampionStatRow[]; tierFilter: string; collectionUpdatedAt?: string | null; error?: boolean };
 type SortKey = "winRate" | "pickRate" | "banRate" | "games";
 
 const percent = (value: number | null) => value === null ? "—" : `${(value * 100).toFixed(1)}%`;
@@ -46,6 +47,7 @@ export default function LolChampionList({ champions, version, error = false, sta
   }, [stats, hasStats, visible, position, byId, sort]);
   const filters: [LolChampionTag | null, string][] = [[null, "전체"], ...LOL_CHAMPION_TAGS.map(item => [item, LOL_CHAMPION_TAG_LABELS[item]] as [LolChampionTag, string])];
   const tierQuery = stats?.tierFilter ?? "emerald_plus";
+  const collection = lolCollectionStatus(stats?.collectionUpdatedAt);
 
   return <main className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 text-zinc-100">
     <header>
@@ -55,6 +57,8 @@ export default function LolChampionList({ champions, version, error = false, sta
           ? `${stats.patch} 패치 · 솔로 랭크 ${stats.matches.toLocaleString()}경기 표본입니다. BGMS가 모은 표본이라 실제 전체 통계와 다를 수 있습니다.`
           : `${version ? `${version} 패치 기준 ` : ""}챔피언 목록입니다. 승률·픽률·밴률은 표본을 모으는 중입니다.`}
       </p>
+      <p role="note" className="mt-1 text-xs text-zinc-500">마지막 집계 {collection.time ? `${collection.time} KST` : "시각 확인 불가"} · {stats && !stats.error ? `${stats.matches.toLocaleString()}경기 표본` : "표본 수 확인 불가"}</p>
+      {collection.stale && <p role="status" className="mt-1 text-xs text-amber-200">마지막 집계 후 24시간 이상 지났습니다. 최신 집계 여부는 확인되지 않았습니다.</p>}
     </header>
     {error && <p role="status" className="text-sm text-amber-300">챔피언 목록을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>}
     {stats?.error && <p role="status" className="text-sm text-amber-300">챔피언 통계를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>}

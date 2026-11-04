@@ -6,6 +6,7 @@ import postcss from "postcss";
 import tailwind from "@tailwindcss/postcss";
 import puppeteer, { type Browser } from "puppeteer";
 import type { LolMayhemCatalog } from "../lib/lol/augments/catalog";
+import type { MayhemDatasetAdminData, PublicMayhemDataset } from "../lib/lol/mayhemDatasetView";
 
 const catalog: LolMayhemCatalog = {
   clientPatch: "16.21", displayPatch: "26.21", releasedAt: "2026-10-20T18:00:00Z", notesUrl: "https://example.test/notes",
@@ -17,6 +18,14 @@ const catalog: LolMayhemCatalog = {
   })),
 };
 
+const dataset: PublicMayhemDataset = { patch: "16.21", publishedAt: "2026-11-04T00:00:00Z", sourceStatsDate: "2026-11-02", sourcePatch: "26.21",
+  rates: [{ augmentId: 1, pickRate: 12.34, rank: 1 }],
+  combos: [{ id: 10, championId: 63, augmentIds: [1, 2], types: ["god"], sourceUrl: "https://arammayhem.com/combos/test" }] };
+const adminFixture = (): MayhemDatasetAdminData => ({ releases: [{ id: 1, verified_client_patch: "16.22", upstream_release_id: "source:" + "x".repeat(100), status: "pending", fetched_at: "2026-11-04T00:00:00Z",
+  metadata: { unknown_count: 1, unknownExternalIds: ["augment!"], sourceStatsDate: "2026-11-02", sourceClientPatch: "16.21" } }], publications: [], mappings: [],
+  augments: [{ platformId: 1, name: "아주 긴 공식 증강 이름으로 줄바꿈을 확인합니다", patch: "16.21" }, { platformId: 2, name: "검수 패치 전용 증강", patch: "16.22" }],
+  sync: [{ job_key: "champion-stats", last_checked_at: "2026-11-04T00:00:00Z", last_success_at: null, last_error_code: "key_or_permission", consecutive_failures: 2, counts: {} }] });
+
 describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공개 페이지 브라우저 fixture", { timeout: 30_000 }, () => {
   let server: Server; let browser: Browser; let base: string;
   beforeAll(async () => {
@@ -24,20 +33,38 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       define: { "process.env.NODE_ENV": '"production"' },
       stdin: { loader: "tsx", resolveDir: process.cwd(), contents: `
         import { hydrateRoot } from 'react-dom/client'; import View from './components/lol/LolMayhemView';
-        hydrateRoot(document.getElementById('root'), <View {...JSON.parse(document.getElementById('props').textContent)} />);
+        import Admin from './app/admin/lol/mayhem-datasets/MayhemDatasetReviewPanel';
+        hydrateRoot(document.getElementById('root'), location.pathname === '/admin' ? <Admin /> : <View {...JSON.parse(document.getElementById('props').textContent)} />);
       ` },
     });
     const css = await postcss([tailwind()]).process(await readFile("app/globals.css", "utf8"), { from: "app/globals.css" });
     const { renderToString } = await import("react-dom/server");
     const { createElement } = await import("react");
     const View = (await import("../components/lol/LolMayhemView")).default;
+    const Admin = (await import("../app/admin/lol/mayhem-datasets/MayhemDatasetReviewPanel")).default;
+    let admin = adminFixture();
     server = createServer((req, res) => {
       if (req.url === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css.css); return; }
       if (req.url === "/client.js") { res.setHeader("Content-Type", "text/javascript"); res.end(client.outputFiles[0].text); return; }
-      const props = req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : { catalog };
+      if (req.url === "/api/admin/lol/mayhem-datasets") {
+        res.setHeader("Content-Type", "application/json");
+        if (req.method === "POST") {
+          let body = ""; req.on("data", chunk => { body += chunk; }); req.on("end", () => {
+            const payload = JSON.parse(body); const action = payload.action;
+            if (action === "map" && payload.patch !== "16.21") { res.statusCode = 400; res.end(JSON.stringify({ error: "선택률 원본 패치가 아닙니다." })); return; }
+            if (action === "map") admin.releases[0].metadata = { ...admin.releases[0].metadata, unknown_count: 0, unknownExternalIds: [] };
+            if (action === "approve") admin.releases[0].status = "approved";
+            res.end(JSON.stringify({ ok: true }));
+          });
+        } else res.end(JSON.stringify(admin));
+        return;
+      }
+      if (req.url === "/admin") admin = adminFixture();
+      const props = req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/dataset"
+        ? { catalog, dataset, champions: [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }] } : { catalog };
       res.setHeader("Content-Type", "text/html");
       res.end('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-        + `<link rel="stylesheet" href="/style.css"></head><body class="bg-zinc-950"><div id="root">${renderToString(createElement(View, props))}</div>`
+        + `<link rel="stylesheet" href="/style.css"></head><body class="bg-zinc-950"><div id="root">${req.url === "/admin" ? renderToString(createElement(Admin)) : renderToString(createElement(View, props))}</div>`
         + `<script type="application/json" id="props">${JSON.stringify(props).replace(/</g, "\\u003c")}</script><script src="/client.js"></script></body></html>`);
     });
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -75,6 +102,36 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     await page.goto(`${base}/empty`, { waitUntil: "networkidle0" });
     expect(await page.$eval("main", main => main.textContent)).toContain("아직 게시된 증강 정보가 없습니다.");
     expect(await noOverflow()).toBe(true); expect(errors).toEqual([]);
+    await page.close();
+  });
+
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 조합과 전체 선택률을 구분하고 미매핑 승인을 막는다", async (width, height) => {
+    const page = await browser.newPage(); await page.setViewport({ width, height });
+    await page.setRequestInterception(true);
+    page.on("request", request => { if (request.url().startsWith(base) && !request.url().includes("/api/lol/")) void request.continue(); else void request.abort(); });
+    await page.goto(`${base}/dataset`, { waitUntil: "networkidle0" });
+    await page.click("main > details > summary");
+    await page.select('section[aria-label="해외 증바람 자료"] select', "63");
+    expect(await page.$eval('[aria-label="해외 증바람 자료"]', node => node.textContent)).toContain(" + 증강 2");
+    expect(await page.$eval('[aria-label="해외 증바람 자료"]', node => node.textContent)).toContain("등장 확률을 뜻하지 않습니다");
+    await page.click('[aria-label="해외 증바람 자료"] details > summary');
+    expect(await page.$eval('[aria-label="해외 증바람 자료"] details', node => node.textContent)).toContain("12.34%");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `tmp/lol-mayhem-review/dataset-${width}x${height}.png`, fullPage: true });
+    await page.goto(`${base}/admin`, { waitUntil: "networkidle0" });
+    await page.waitForSelector('select[aria-label="외부 증강 ID"]');
+    const disabled = () => page.$$eval("button", nodes => (nodes.find(node => node.textContent === "검수 승인") as HTMLButtonElement).disabled);
+    await page.click('input[type="checkbox"]'); expect(await disabled()).toBe(true);
+    await page.select('select[aria-label="외부 증강 ID"]', "augment!");
+    await page.select('select[aria-label="매핑 패치"]', "16.21");
+    await page.select('select[aria-label="공식 증강"]', "1");
+    await page.type("textarea", "공식 이름·등급·효과를 원본과 대조했습니다.");
+    await page.click('button[type="submit"]');
+    await page.waitForFunction(() => document.querySelector('[aria-label="수집본 정보"]')?.textContent?.includes("미매핑 0개"));
+    await page.click('input[type="checkbox"]'); expect(await disabled()).toBe(false);
+    expect(await page.$$eval("button, select, textarea", nodes => nodes.every(node => node.getBoundingClientRect().height >= 44))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `tmp/lol-mayhem-review/admin-${width}x${height}.png`, fullPage: true });
     await page.close();
   });
 });

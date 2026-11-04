@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { LolMatchBuild, LolPlayerBuild } from "@/lib/lol/matchBuild";
 import type { LolMatchDetails } from "@/lib/lol/riotSearch.server";
+import LolMatchTimeline from "./LolMatchTimeline";
 
 type Team = LolMatchDetails["teams"][number];
 type Player = Team["participants"][number];
@@ -47,6 +48,7 @@ function PlayerBuild({ build, version }: { build: LolPlayerBuild; version?: stri
   const priority = skillPriority(build.skills);
   return (
     <div className="grid min-w-0 gap-5">
+      <LolMatchTimeline points={build.timeline ?? []} />
       <section aria-label="아이템 빌드" className="min-w-0">
         <h4 className="mb-2 text-xs font-semibold text-amber-300">아이템 빌드</h4>
         {build.items.length ? (

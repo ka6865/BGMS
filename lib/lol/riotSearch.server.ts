@@ -1188,14 +1188,14 @@ async function getLolMatchDetailsAndRaw(
   }
 }
 
-// 타임라인은 상세 탭에서 빌드를 열 때만 1회 요청하고, 가공한 빌드만 잠시 메모리에 둔다.
+// 타임라인은 빌드 탭을 열 때만 요청하고, 빌드와 골드·CS 시계열을 잠시 메모리에 둔다.
 const LOL_BUILD_TTL_MS = 30 * 60_000;
 const LOL_TIMELINE_MAX_BYTES = 8 * 1024 * 1024;
 
 export async function getLolMatchBuild(input: string, storedOnly = false): Promise<LolMatchBuild> {
   if (!isMatchId(input)) throw new RiotSearchError("invalid_request");
   if (storedOnly && (!isLolPersistenceEnabled() || !await hasLolKnownMatch(input))) throw new RiotSearchError("not_found");
-  const cacheKey = `build:v1:${input}`;
+  const cacheKey = `build:v2:${input}`;
   const cached = getCached<LolMatchBuild>(cacheKey);
   if (cached) return cached;
   const { raw } = await getLolMatchDetailsAndRaw(input, true);

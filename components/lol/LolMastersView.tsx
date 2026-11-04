@@ -6,6 +6,7 @@ import type { LolMasterBoardView } from "@/lib/lol/ranking";
 import LolMastersPicker from "./LolMastersPicker";
 import LolTierEmblem from "./LolTierEmblem";
 import LolWinBar from "./LolWinBar";
+import { lolCollectionStatus } from "@/lib/lol/collectionStatus";
 
 // 장인은 이번 시즌 솔로 랭크 판수 기준이다. 자체 점수, 평점, 승률 정렬을 쓰지 않는다. "점수", "실력", "1등" 표현은 쓰지 않는다.
 export const LOL_MASTER_CONDITION = "이번 시즌 솔로 랭크 15판 이상, 승률 50% 이상, 판수 많은 순, 챌린저·그랜드마스터 대상";
@@ -17,7 +18,7 @@ export default function LolMastersView({ champions, version = null, championsErr
   const fallback = champions.find(champion => available.includes(champion.id)) ?? champions[0];
   const current = champions.find(champion => champion.id === selectedId) ?? fallback;
   const entry = current ? board?.champions.find(item => item.championId === current.id) : undefined;
-  const observed = board ? new Date(board.observedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : null;
+  const observed = board ? lolCollectionStatus(board.observedAt) : null;
   const partial = board !== null && board.coverage < 100;
   return <main className="mx-auto w-full max-w-4xl space-y-4 px-4 py-6 text-zinc-100">
     <h1 className="text-xl font-bold">장인</h1>
@@ -62,8 +63,15 @@ export default function LolMastersView({ champions, version = null, championsErr
     {!championsError && champions.length > 0 && <LolMastersPicker champions={champions} version={version} available={available} selectedId={current?.id} />}
 
     <footer className="space-y-1 border-t border-zinc-800 pt-3 text-xs leading-5 text-zinc-400">
-      {board && <p role="note" className="text-amber-200">수집 범위: 챌린저·그랜드마스터 {board.playerCount.toLocaleString()}명 중 {board.coverage}% 확인. 판수는 수집된 경기 기준이며 시즌 전체 판수가 아닐 수 있습니다.</p>}
-      {observed && <p>{observed} KST 기준. 공식 명단과 수집된 경기 기록의 집계이며 자체 계산 값이 아닙니다.</p>}
+      {board && <>
+        <p role="note" className="text-amber-200">수집 범위: 챌린저·그랜드마스터 {board.playerCount.toLocaleString()}명 중 {board.coverage}% 확인. 판수는 수집된 경기 기준이며 시즌 전체 판수가 아닐 수 있습니다.</p>
+        <div role="progressbar" aria-label="장인 수집 범위 확인 진행률" aria-valuemin={0} aria-valuemax={100} aria-valuenow={board.coverage}
+          className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+          <div className="h-full bg-amber-300" style={{ width: `${board.coverage}%` }} />
+        </div>
+      </>}
+      {board && <p>{observed?.time ? `${observed.time} KST 기준` : "집계 시각 확인 불가"}. 공식 명단과 수집된 경기 기록의 집계이며 자체 계산 값이 아닙니다.</p>}
+      {observed?.stale && <p role="status" className="text-amber-200">마지막 관측 후 24시간 이상 지났습니다. 최신 집계 여부는 확인되지 않았습니다.</p>}
       <p>Riot ID 삭제를 요청하면 즉시 이 화면에서 제외하고 작업 데이터도 지웁니다. 절차는 <Link href="/privacy" className="underline">개인정보처리방침</Link>을 따릅니다.</p>
     </footer>
   </main>;

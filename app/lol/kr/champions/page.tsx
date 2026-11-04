@@ -20,7 +20,7 @@ export default async function LolChampionsPage({ searchParams }: Props) {
     version={data?.version ?? null}
     error={data === null}
     initialPosition={position}
-    stats={stats ? { patch: stats.patch, matches: stats.matches, rows: stats.rows, tierFilter: tier.id }
+    stats={stats ? { patch: stats.patch, matches: stats.matches, rows: stats.rows, tierFilter: tier.id, collectionUpdatedAt: stats.collectionUpdatedAt }
       : { patch: null, matches: 0, rows: [], tierFilter: tier.id, error: true }}
   />;
 }

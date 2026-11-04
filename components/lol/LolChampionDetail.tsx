@@ -7,6 +7,7 @@ import {
 } from "@/lib/lol/championStats";
 import type { LolChampionDetailStats } from "@/lib/lol/championStats.server";
 import type { LolBuildCatalog } from "@/lib/lol/riotSearch.server";
+import { lolCollectionStatus } from "@/lib/lol/collectionStatus";
 
 const CDN = "https://ddragon.leagueoflegends.com/cdn";
 const MIN_MATCHUP_GAMES = 10;
@@ -32,6 +33,7 @@ export default function LolChampionDetail({ champion, champions, version, stats,
 }) {
   const byId = new Map(champions.map(item => [item.id, item]));
   const lane = stats?.positions.find(item => item.team_position === position) ?? null;
+  const collection = lolCollectionStatus(stats?.collectionUpdatedAt);
   const builds = (kind: LolStatBuildKind) => (stats?.builds ?? []).filter(item => item.position === position && item.kind === kind);
   const item = (id: string) => ({ src: `${CDN}/${version}/img/item/${id}.png`, label: catalog?.items[id] ?? `아이템 ${id}` });
   const rune = (id: string) => catalog?.runes[id] ? { src: `${CDN}/img/${catalog.runes[id].icon}`, label: catalog.runes[id].name } : { src: null, label: `룬 ${id}` };
@@ -71,6 +73,10 @@ export default function LolChampionDetail({ champion, champions, version, stats,
           ? "bg-zinc-100 text-zinc-950" : "bg-zinc-900 text-zinc-400 ring-1 ring-zinc-800 hover:text-zinc-100"}`}>{filter.label}</Link>)}
     </nav>
     {!stats && <p role="status" className="text-sm text-amber-300">챔피언 통계를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>}
+    <div>
+      <p role="note" className="text-xs text-zinc-500">마지막 집계 {collection.time ? `${collection.time} KST` : "시각 확인 불가"} · {stats ? `${stats.matches.toLocaleString()}경기 표본` : "표본 수 확인 불가"}</p>
+      {collection.stale && <p role="status" className="mt-1 text-xs text-amber-200">마지막 집계 후 24시간 이상 지났습니다. 최신 집계 여부는 확인되지 않았습니다.</p>}
+    </div>
     {stats && !stats.positions.length && <p className="text-sm text-zinc-400">이 조건의 표본을 모으는 중입니다.</p>}
     {stats && stats.positions.length > 0 && <>
       <nav aria-label="포지션" className="flex flex-wrap gap-1.5">

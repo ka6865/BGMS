@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { notFound, redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/server/adminGuard";
 
-export type LolDevAccessResult = { ok: true } | { ok: false; error: NextResponse };
+export type LolDevAccessResult = { ok: true; userId: string } | { ok: false; error: NextResponse };
 
 function denied(status: number, message: string): LolDevAccessResult {
   const error = NextResponse.json({ error: message }, { status });
@@ -19,7 +19,7 @@ export async function requireLolDevAdmin(): Promise<LolDevAccessResult> {
   try {
     const admin = await requireAdmin();
     if (!admin.ok) return denied(admin.error.status, "접근 권한을 확인할 수 없습니다.");
-    return { ok: true };
+    return { ok: true, userId: admin.user.id };
   } catch {
     return denied(500, "접근 권한을 확인할 수 없습니다.");
   }

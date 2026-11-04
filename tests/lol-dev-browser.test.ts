@@ -347,9 +347,13 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           buildRequests += 1;
           response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({
             matchId: "FIXTURE_1",
-            players: matches[0].details!.teams.flatMap((team) => team.participants.map((player) => ({
+            players: matches[0].details!.teams.flatMap((team) => team.participants.map((player, slot) => ({
               teamId: team.teamId, championId: player.championId,
               items: [{ minute: 0, items: [1055, 2003] }, { minute: 9, items: [3031] }], skills: [1, 3, 1, 2, 1, 4],
+              timeline: [
+                { timestamp: 0, gold: 500, cs: 0 }, { timestamp: 60_000, gold: 700 + slot * 100, cs: 5 + slot },
+                { timestamp: 120_000, gold: null, cs: null }, { timestamp: 180_000, gold: 1300 + slot * 100, cs: 19 + slot },
+              ],
             }))),
           }));
           return;
@@ -820,19 +824,19 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       expect(await page.evaluate(() => history.length)).toBe(historyLength);
       expect(searches).toBe(1);
       await page.reload({ waitUntil: "domcontentloaded" });
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "강 희-성#5955");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "강 희-성#5955");
       expect(await page.$eval('select[aria-label="큐 필터"]', (select) => (select as HTMLSelectElement).value)).toBe("flex");
       expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.length)).toBe(2);
       await page.$$eval('[data-testid="lol-match-player"]', (buttons) => {
         (buttons.find((button) => button.textContent?.trim() === "blue1#KR1") as HTMLButtonElement).click();
       });
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "blue1#KR1");
       expect(page.url()).toBe(`${baseUrl}/admin/lol/kr/blue1-KR1?queue=flex`);
       await page.goBack();
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "강 희-성#5955");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "강 희-성#5955");
       expect(new URL(page.url()).searchParams.get("queue")).toBe("flex");
       await page.goForward();
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "blue1#KR1");
       expect(searches).toBe(5);
       await page.close();
     });
@@ -842,7 +846,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await search(page, "blue0#KR1");
       await showView(page, "stats");
       await page.click('[aria-label="함께 플레이한 소환사"] [data-testid="lol-peer"] button');
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "blue1#KR1");
       expect(page.url()).toBe(`${baseUrl}/admin/lol/kr/blue1-KR1`);
       // 다른 소환사로 이동하면 모바일 보기는 전적 탭으로 돌아간다.
       expect(await page.$eval("#lol-view-matches-tab", (tab) => tab.getAttribute("aria-selected"))).toBe("true");
@@ -862,7 +866,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       const selector = entry === "card" ? '[data-testid="lol-match-player"]'
         : entry === "detail" ? '[data-testid="lol-player-row"] button' : '[aria-label="함께 플레이한 소환사"] [data-testid="lol-peer"] button';
       await page.$$eval(selector, (buttons) => {
-        const button = buttons.find((item) => item.textContent?.trim() === "blue1#KR1");
+        const button = buttons.find((item) => item.getAttribute("aria-label") === "blue1#KR1 전적 검색" || item.textContent?.trim() === "blue1#KR1");
         if (!button) throw new Error("참가자 버튼을 찾을 수 없습니다");
         (button as HTMLButtonElement).click();
       });
@@ -880,7 +884,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await page.waitForSelector('[role="alert"]');
       const path = page.url();
       await page.click('form button[type="submit"]');
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "searchretry#kr1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "searchretry#kr1");
       expect(page.url()).toBe(path);
       expect(searches).toBe(2);
       await page.close();
@@ -911,10 +915,10 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       ).toBe("fast#kr1");
       await page.click('form button[type="submit"]');
       await page.waitForFunction(
-        () => document.querySelector("h2")?.textContent === "fast#kr1",
+        () => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "fast#kr1",
       );
       await new Promise((resolve) => setTimeout(resolve, 350));
-      expect(await page.$eval("h2", (element) => element.textContent)).toBe(
+      expect(await page.$eval('[aria-label="검색 결과"] h2', (element) => element.textContent)).toBe(
         "fast#kr1",
       );
       await page.close();
@@ -976,7 +980,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         const button = buttons.find((element) => element.textContent?.trim() === "blue1#KR1");
         (button as HTMLButtonElement).click();
       });
-      await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
+      await page.waitForFunction(() => document.querySelector('[aria-label="검색 결과"] h2')?.textContent === "blue1#KR1");
       expect(await page.$$eval('[data-testid="lol-match-player"]', (buttons) =>
         buttons.filter((button) => button.classList.contains("text-amber-300"))
           .every((button) => button.textContent?.trim() === "blue1#KR1"),
@@ -1051,15 +1055,15 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await page.close();
     });
 
-    it("빌드 탭은 처음 열 때만 타임라인 빌드를 요청하고 아이템·스킬 순서를 보여 준다", async () => {
-      const page = await openPage();
+    it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 빌드·골드·CS 흐름이 같은 타임라인 요청을 재사용한다", async (width, height) => {
+      const page = await openPage({ width, height });
       buildRequests = 0;
       await search(page);
       await openFirstDetail(page);
       expect(buildRequests).toBe(0);
       const selectTab = (label: string) => page.$eval('section[aria-label="최근 경기"] article', (card, text) =>
         ([...card.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === text) as HTMLElement).click(), label);
-      await selectTab("빌드");
+      await selectTab("빌드·흐름");
       await page.waitForSelector('[aria-label="아이템 빌드"]');
       const text = await page.$eval('[data-testid="lol-match-build"]', (section) => section.textContent ?? "");
       expect(text).toContain("9분"); expect(text).toContain("Q›E");
@@ -1067,8 +1071,27 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       expect(await page.$eval('[data-testid="lol-match-build-selected"]', (element) => element.textContent)).toContain("blue0");
       expect(await page.$$eval('[data-testid="lol-match-build"] [role="radio"]', (buttons) =>
         buttons.every((button) => button.getBoundingClientRect().height >= 44 && button.getBoundingClientRect().width >= 44))).toBe(true);
+      const chart = '[data-testid="lol-match-timeline"]';
+      expect(await page.$eval(`${chart} output`, element => element.textContent)).toBe("3:00 · 누적 골드 1,300");
+      await page.$eval(`${chart} button[aria-pressed="false"]`, element => (element as HTMLButtonElement).click());
+      await page.waitForSelector(`${chart} svg[aria-label="CS 변화 그래프"]`);
+      expect(await page.$eval(`${chart} output`, element => element.textContent)).toBe("3:00 · CS 19");
+      await page.focus(`${chart} input[type="range"]`);
+      await page.keyboard.press("ArrowLeft");
+      expect(await page.$eval(`${chart} output`, element => element.textContent)).toBe("2:00 · CS 기록 없음");
+      await page.keyboard.press("Home");
+      expect(await page.$eval(`${chart} output`, element => element.textContent)).toBe("0:00 · CS 0");
+      await page.$eval('[data-testid="lol-match-build"] [role="radio"]:nth-child(2)', element => (element as HTMLButtonElement).click());
+      expect(await page.$eval('[data-testid="lol-match-build-selected"]', element => element.textContent)).toContain("blue1");
+      expect(await page.$eval(`${chart} output`, element => element.textContent)).toBe("0:00 · CS 0");
+      await page.focus(`${chart} input[type="range"]`);
+      await page.keyboard.press("End");
+      expect(await page.$eval(`${chart} output`, element => element.textContent)).toBe("3:00 · CS 20");
+      expect(await page.$$eval(`${chart} button, ${chart} input`, nodes => nodes.every(node => node.getBoundingClientRect().height >= 44))).toBe(true);
+      await page.$eval(chart, element => element.scrollIntoView({ block: "center" }));
+      await page.screenshot({ path: `tmp/lol-detail-alignment/timeline-${width}x${height}.png` });
       await selectTab("종합");
-      await selectTab("빌드");
+      await selectTab("빌드·흐름");
       expect(buildRequests).toBe(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.close();
