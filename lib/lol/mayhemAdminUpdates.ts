@@ -74,6 +74,7 @@ export function referenceUpdateGroup(data: ReferenceAdminData, kind: ReferenceKi
 }
 
 export function comboUpdateGroup(data: MayhemDatasetAdminData): UpdateGroup {
+  const summary = [...data.releases].sort((a, b) => b.id - a.id)[0]?.metadata.archiveSummary;
   const rows = newest(data.releases.map(row => ({
     id: row.id, patch: row.verified_client_patch, subject: "증강 조합 전체", status: row.status, fetchedAt: row.fetched_at,
     sourceDate: row.metadata.sourceStatsDate ?? "미제공", amount: row.metadata.combos ?? 0,
@@ -81,7 +82,7 @@ export function comboUpdateGroup(data: MayhemDatasetAdminData): UpdateGroup {
     expectedPublication: data.publications.find(pub => pub.client_patch === row.verified_client_patch)?.release_id ?? null,
     previousPatch: data.publications.some(pub => pub.client_patch === row.verified_client_patch) ? row.verified_client_patch : null,
   })), row => row.patch);
-  return group({ key: "combos", title: "증강 추천 조합", effect: "챔피언별 외부 추천 조합이 바뀝니다.",
+  return group({ key: "combos", title: "증강 추천 조합", effect: summary ? `사용 가능한 조합 ${summary.combos.active}개를 반영합니다. 비활성 ${summary.combos.disabled}개·삭제 ${summary.combos.removed}개·확인 중 ${summary.combos.unverified}개는 상태 필터에서 따로 볼 수 있습니다.` : "챔피언별 외부 추천 조합이 바뀝니다.",
     endpoint: "/api/admin/lol/mayhem-datasets", unit: "개 조합", rows, publications: data.publications, blocked: "",
     syncError: data.sync.some(row => row.job_key === "mayhem-external:arammayhem" && !!row.last_error_code),
   });

@@ -7,6 +7,7 @@ import { getLolChampions } from "./champions.server";
 import { parseChampionTierSource } from "./mayhemChampionTiers";
 import { parsePatchAugmentRanking } from "./mayhemPatchRankings";
 import { normalizeItemRatingSnapshot } from "./mayhemReferenceSource.server";
+import { filterMayhemItemComponents } from "./mayhemItems";
 import { archiveClientPatch, compareReferencePatches, referencePath, REFERENCE_MAX_BYTES, REFERENCE_SOURCES,
   validReferenceKind, validReferencePatch, type ReferenceCandidate, type ReferenceKind, type ReferencePayloads,
   type ReferencePublication, type ReferenceRelease } from "./mayhemReference";
@@ -61,7 +62,7 @@ async function verifiedPayload(row: ReferenceRelease) {
   const payload = normalizeReference(row.kind, raw, row.client_patch, row.champion_id);
   if (!isDeepStrictEqual(payload, JSON.parse(body)) || payload.date !== row.source_data_date
     || (row.kind === "champion_tiers" && (payload as ReferencePayloads["champion_tiers"]).dataVersion !== row.upstream_version)) throw failure();
-  return payload;
+  return row.kind === "item_ratings" ? filterMayhemItemComponents(payload as ReferencePayloads["item_ratings"], JSON.parse(raw).dataDragon.metadata) : payload;
 }
 
 export async function saveReferenceSnapshot<K extends ReferenceKind>(input: {
@@ -108,7 +109,7 @@ const published = unstable_cache(async (id: number, kind: ReferenceKind, patch: 
   const row = validRelease(result.data as ReferenceRelease);
   if (row.status !== "approved" || row.kind !== kind || row.client_patch !== patch || row.champion_id !== championId) throw failure();
   return { row, payload: await verifiedPayload(row) };
-}, ["lol-mayhem-reference-payload-v1"], { revalidate: 3600 });
+}, ["lol-mayhem-reference-payload-v2-no-components"], { revalidate: 3600 });
 
 export async function getPublicReference<K extends ReferenceKind>(kind: K, patch?: string, championId = 0): Promise<ReferencePayloads[K] | null> {
   if (!referencePublicEnabled()) return null;

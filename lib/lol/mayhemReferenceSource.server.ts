@@ -38,12 +38,12 @@ const EXCLUDED_ITEM_IDS=new Set([2052,220013]);
 function itemMetadataSubset(value:unknown,parsed:NonNullable<ReturnType<typeof parseMayhemItemRatings>>):unknown {
   const data=record(record(value).data);const ids=new Set(parsed.ratings.filter(row=>row.id!==1001&&!EXCLUDED_ITEM_IDS.has(row.id)).map(row=>row.id));
   for(const id of [...ids]){
-    const from=(data[String(id)] as {from?:unknown}|undefined)?.from;
-    if(Array.isArray(from)&&from.length<=8)for(const component of from)if(typeof component==="string"&&/^[1-9][0-9]{0,5}$/.test(component)&&!EXCLUDED_ITEM_IDS.has(Number(component)))ids.add(Number(component));
+    const row=data[String(id)] as {from?:unknown;into?:unknown}|undefined;
+    for(const related of [row?.from,row?.into])if(Array.isArray(related)&&related.length<=64)for(const component of related)if(typeof component==="string"&&/^[1-9][0-9]{0,5}$/.test(component)&&!EXCLUDED_ITEM_IDS.has(Number(component)))ids.add(Number(component));
   }
   return {data:Object.fromEntries([...ids].sort((a,b)=>a-b).flatMap(id=>{
     const row=data[String(id)];if(!row||typeof row!=="object"||Array.isArray(row))return [];
-    const metadata=row as Record<string,unknown>;return [[String(id),{name:metadata.name,image:metadata.image,from:metadata.from,tags:metadata.tags}]];
+    const metadata=row as Record<string,unknown>;return [[String(id),{name:metadata.name,image:metadata.image,from:metadata.from,tags:metadata.tags,into:metadata.into,gold:metadata.gold}]];
   }))};
 }
 

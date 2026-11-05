@@ -4,6 +4,19 @@ export type MayhemItemRatings = { championId: number; patch: string; date: strin
 export type ParsedMayhemRatings = { championId: number; patch: string; date: string; ratings: Array<{ id: number; tier: number }> };
 const PORO_SNAX_IDS = new Set([2052, 220013]);
 const invalid = () => new Error("mayhem_items_invalid");
+type ItemMetadata = { from?: unknown; into?: unknown; gold?: { purchasable?: unknown } };
+export function filterMayhemItemComponents(data: MayhemItemRatings, value: unknown): MayhemItemRatings {
+  const items = (value as { data?: Record<string, ItemMetadata> } | null)?.data;
+  if (!items || typeof items !== "object" || Array.isArray(items)) throw invalid();
+  const components = new Set(Object.values(items).flatMap(item => Array.isArray(item?.from) ? item.from : []));
+  const hasUpgradeMetadata = Object.values(items).some(item => Array.isArray(item?.into));
+  return { ...data, items: data.items.filter(item => {
+    if (item.isBoots) return true;
+    const into = items[String(item.id)]?.into;
+    // 이전 저장본은 into가 없으므로 보관된 제작 관계를 사용한다.
+    return !(Array.isArray(into) ? into.some(id => typeof id === "string" && items[id]?.gold?.purchasable === true) : !hasUpgradeMetadata && components.has(String(item.id)));
+  }) };
+}
 export function parseMayhemItemRatings(value: unknown, championId: number): ParsedMayhemRatings | null {
   const root = value as { data?: unknown; meta?: { query?: unknown; game?: unknown } } | null;
   if (!root || root.meta?.query !== "aram_mayhem_champion" || root.meta.game !== "lol" || !Array.isArray(root.data) || root.data.length > 1) throw invalid();

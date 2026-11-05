@@ -2,6 +2,7 @@ import "server-only";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import { createSourceDownloader, sha256, validClientPatch } from "./augments/ingest";
 import { downloadMayhemDataset } from "./mayhemDataset";
+import { prepareReviewedMayhemDataset, type MayhemOfficialAugment } from "./mayhemReviewedDataset";
 
 const SOURCE = "arammayhem";
 const JOB = "mayhem-external:arammayhem";
@@ -30,7 +31,8 @@ export async function ingestMayhemDataset(options: { apply: boolean; patch?: str
     }
     throw error;
   });
-  const counts = { augments: dataset.rates.length, combos: dataset.combos.length };
+  const sourceCounts = { augments: dataset.rates.length, combos: dataset.combos.length };
+  let counts = sourceCounts;
   if (!options.apply) return { dryRun: true, releaseId: dataset.releaseId, batchHash: dataset.batchHash, ...counts, ...dataset.metadata };
   const db = createServiceRoleSupabase(boundedFetch);
   async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
@@ -69,13 +71,31 @@ export async function ingestMayhemDataset(options: { apply: boolean; patch?: str
     const champions = new Map(Object.values(rows).map(row => [row.id, Number(row.key)]));
     const combos = dataset.combos.map(combo => {
       const championId = champions.get(combo.championId);
-      if (!Number.isSafeInteger(championId) || championId! <= 0) throw new Error("unknown_champion");
+      if (championId === undefined || !Number.isSafeInteger(championId) || championId <= 0) throw new Error("unknown_champion");
       return { ...combo, championId };
     });
+    const scopes = [...new Set([patch, sourcePatch])];
+    const [states, texts] = await Promise.all([
+      db.from("lol_augment_patch_states").select("platform_id,client_patch,rarity,enabled,in_pool,is_internal,state").in("client_patch", scopes).eq("mode_name", "KIWI").limit(1000).abortSignal(signal()),
+      db.from("lol_augment_localizations").select("platform_id,client_patch,locale,name,display_text").in("client_patch", scopes).in("locale", ["ko_kr", "en_us"]).limit(1000).abortSignal(signal()),
+    ]);
+    if (states.error || texts.error || states.data.length >= 1000 || texts.data.length >= 1000) throw new Error("official_archive_catalog_missing");
+    const officials: Record<string, MayhemOfficialAugment[]> = {};
+    for (const scope of scopes) officials[scope] = states.data.filter(row => row.client_patch === scope && !row.is_internal).map(row => {
+      const ko = texts.data.find(text => text.client_patch === scope && text.platform_id === row.platform_id && text.locale === "ko_kr");
+      const en = texts.data.find(text => text.client_patch === scope && text.platform_id === row.platform_id && text.locale === "en_us");
+      if (!ko?.name || !en?.name || !ko.display_text) throw new Error("official_archive_catalog_missing");
+      return { id: row.platform_id, name: ko.name, nameEn: en.name, text: ko.display_text, rarity: row.rarity, enabled: row.enabled, inPool: row.in_pool, internal: row.is_internal, state: row.state, icon: null, notice: null, isNew: false };
+    });
+    const reviewed = prepareReviewedMayhemDataset({ dataset, patch, sourcePatch, combos, officials, mappings: mappings.data });
+    if (!reviewed.rates.length || !reviewed.combos.length) throw new Error("reviewed_dataset_empty");
+    const archiveBody = JSON.stringify(reviewed.archive), archiveHash = sha256(archiveBody);
+    if (Buffer.byteLength(archiveBody) > 4 * 1024 * 1024) throw new Error("reviewed_archive_too_large");
+    counts = { augments: reviewed.rates.length, combos: reviewed.combos.length };
     const mappingHash = sha256(JSON.stringify(mappings.data));
     const prior = latest.data[0];
-    const mappingRevision = prior?.metadata?.mappingHash === mappingHash ? prior.mapping_revision : (prior?.mapping_revision ?? 0) + 1;
-    const rates = dataset.rates.map(rate => ({ externalId: rate.externalId, pickRate: rate.pickRate, pickRateRank: rate.pickRateRank, sourceClientPatch: sourcePatch }));
+    const mappingRevision = prior?.metadata?.mappingHash === mappingHash && prior?.metadata?.archiveHash === archiveHash ? prior.mapping_revision : (prior?.mapping_revision ?? 0) + 1;
+    const rates = reviewed.rates.map(rate => ({ externalId: rate.externalId, pickRate: rate.pickRate, pickRateRank: rate.pickRateRank, sourceClientPatch: sourcePatch }));
     const prefix = `external/${SOURCE}/batches/${dataset.batchHash}`;
     const files = Object.fromEntries(Object.entries(dataset.raw).map(([kind, file]) => [kind, {
       path: `external/${SOURCE}/objects/${file.hash}.json`, url: file.url, hash: file.hash,
@@ -85,11 +105,11 @@ export async function ingestMayhemDataset(options: { apply: boolean; patch?: str
     const rawManifest = JSON.stringify({ source: SOURCE, releaseId: dataset.releaseId, files, license: dataset.metadata.license, attribution: dataset.metadata.attribution });
     const captureHash = sha256(rawManifest);
     const rawManifestPath = `${prefix}/captures/${captureHash}/manifest.json`;
-    const manifestPath = `${prefix}/captures/${captureHash}/normalized/${patch}/v1-m${mappingRevision}.json`;
+    const manifestPath = `${prefix}/captures/${captureHash}/normalized/${patch}/v2-m${mappingRevision}.json`;
     const mappingSnapshot = mappings.data.map(({ external_id, client_patch, platform_id, status, reviewed_at }) => ({ external_id, client_patch, platform_id, status, reviewed_at }));
-    const metadata = { ...dataset.metadata, sourceClientPatch: sourcePatch, ...counts, counts, captureHash, mappingSnapshot, rawManifestPath, normalizerVersion: 1, mappingRevision, mappingHash,
+    const metadata = { ...dataset.metadata, sourceClientPatch: sourcePatch, ...counts, counts, captureHash, mappingSnapshot, rawManifestPath, normalizerVersion: 2, mappingRevision, mappingHash, archiveHash, archiveBytes: Buffer.byteLength(archiveBody), archiveSummary: reviewed.summary, sourceCounts,
       championVersion: version, championCatalogHash: sha256(rawChampions), leaseToken: token };
-    const normalized = JSON.stringify({ ...metadata, leaseToken: undefined, mappings: mappings.data, rates, combos });
+    const normalized = JSON.stringify({ ...metadata, leaseToken: undefined, mappings: mappings.data, rates, combos: reviewed.combos, archive: reviewed.archive });
     const storage = db.storage.from("lol-augment-snapshots");
     for (const [path, body] of [...Object.entries(dataset.raw).map(([kind, file]) => [files[kind].path, file.body]), [files.champions.path, rawChampions], [rawManifestPath, rawManifest], [manifestPath, normalized]]) {
       await rpc("renew_lol_mayhem_dataset_lease", { p_token: token });
@@ -98,7 +118,7 @@ export async function ingestMayhemDataset(options: { apply: boolean; patch?: str
     }
     await rpc("renew_lol_mayhem_dataset_lease", { p_token: token });
     const id = await rpc<number>("ingest_lol_mayhem_dataset", { p_patch: patch, p_batch_hash: dataset.batchHash, p_release_id: dataset.releaseId,
-      p_manifest_path: manifestPath, p_metadata: metadata, p_rates: rates, p_combos: combos });
+      p_manifest_path: manifestPath, p_metadata: metadata, p_rates: rates, p_combos: reviewed.combos });
     return { dryRun: false, id, patch, batchHash: dataset.batchHash, ...counts, status: "awaiting_review" };
   } catch (error) {
     const saved = await db.from("lol_data_sync_status").upsert({ job_key: JOB, last_checked_at: startedAt, last_error_code: errorCode(error),

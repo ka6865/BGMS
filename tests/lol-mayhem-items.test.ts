@@ -61,3 +61,17 @@ describe("증바람 전용 아이템 자료", () => {
     expect(withMayhemItemMetadata(parsed, "16.22.1", malicious).items[0]).toMatchObject({ name: "아이템 3089", image: null, components: [{ id: 1058 }] });
   });
 });
+
+import { filterMayhemItemComponents } from '../lib/lol/mayhemItems';
+it('재료는 티어에서 제외하고 제작 재료·신발·자동 변환 완성품은 유지한다',()=>{
+  const parsed={championId:29,patch:'16.22',date:'2026-11-04',ratings:[1036,3108,3089,3006,773003].map(id=>({id,tier:1}))};
+  const value={data:{...metadata.data,'1036':{name:'롱소드',into:['3089']},'3108':{name:'악마의 마법서',into:['3089']},'3089':{...metadata.data['3089'],gold:{purchasable:true}},'3006':{name:'광전사의 군화',tags:['Boots'],into:['3172']},'3172':{gold:{purchasable:true}},'773003':{name:'대천사의 지팡이',into:['773040']},'773040':{gold:{purchasable:false}},'999999':{from:['3089'],gold:{purchasable:false}}}};
+  const result=filterMayhemItemComponents(withMayhemItemMetadata(parsed,'16.22.1',value),value);
+  expect(result.items.map(i=>i.id).sort((a,b)=>a-b)).toEqual([3006,3089,773003]);
+  expect(result.items.find(i=>i.id===3089)?.components.map(i=>i.id)).toEqual([1058,1058]);
+});
+it('기존 승인본도 제작 관계로 재료를 제외하며 저장본 자체는 변경하지 않는다',()=>{
+  const parsed={championId:29,patch:'16.22',date:'2026-11-04',ratings:[1058,3089].map(id=>({id,tier:1}))};
+  const stored=withMayhemItemMetadata(parsed,'16.22.1',metadata);const result=filterMayhemItemComponents(stored,metadata);
+  expect(result.items.map(i=>i.id)).toEqual([3089]);expect(stored.items).toHaveLength(2);
+});

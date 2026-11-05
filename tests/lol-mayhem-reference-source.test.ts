@@ -10,7 +10,7 @@ import { fetchChampionTierSnapshot, fetchItemRatingSnapshot, fetchRankingIndex, 
 const version={gamePatch:"16.22",dataVersion:"16.22.1",schemaVersion:1};
 const tiers={meta:{service:"aramgg-data-api",schemaVersion:1,apiVersion:"v1",locale:"ko",gamePatch:"16.22",apiRelease:5,dataVersion:"16.22.1",generatedAt:"2026-11-04T00:00:00Z",publishedAt:"2026-11-04T00:00:00Z",configRevision:"capture",resource:"champions",total:1},data:[{id:29,stats:{tier:2,gamePatch:"16.22",date:"2026-11-03"}}]};
 const itemSource={meta:{query:"aram_mayhem_champion",game:"lol"},data:[{champion_id:"29",patch:"16.22",dt:"2026-11-03",data:{items:{"3089":{tier:1}}}}]};
-const metadata={data:{"3089":{name:"라바돈의 죽음모자",image:{full:"3089.png"},from:["1058"]},"1058":{name:"쓸데없이 큰 지팡이",image:{full:"1058.png"}}}};
+const metadata={data:{"3089":{name:"라바돈의 죽음모자",image:{full:"3089.png"},from:["1058"],gold:{purchasable:true}},"1058":{name:"쓸데없이 큰 지팡이",image:{full:"1058.png"},into:["3089"]}}};
 const index={schemaVersion:1,patches:[{patch:"26.20",files:{augments:{json:"https://arammayhem.com/data/v1/26-20/augments.json"}}}]};
 const ranking={schemaVersion:1,licenseUrl:"https://creativecommons.org/licenses/by/4.0/",meta:{patch:"26.20",statsDate:"2026-10-20",statsDateSource:"estimated"},rows:[{augmentId:"test",name:{"ko-KR":"테스트 증강"},rarity:"gold",pickRate:null,pickRateRank:null}]};
 beforeEach(()=>{
@@ -37,7 +37,7 @@ it("티어 snapshot은 free config, 기존 champion GET 응답을 쓰고 캡처 
 it("아이템 원본은 IESDEV 원문과 사용한 Data Dragon metadata subset을 함께 보존해 재검증한다",async()=>{
   const result=await fetchItemRatingSnapshot(29);
   expect(result?.normalized.items).toMatchObject([{id:3089,tier:1,components:[{id:1058}]}]);
-  const raw=JSON.parse(result!.raw);expect(raw).toEqual({schemaVersion:1,championId:29,iesdev:itemSource,dataDragon:{version:"16.22.1",metadata:{data:{"1058":{name:"쓸데없이 큰 지팡이",image:{full:"1058.png"}},"3089":{name:"라바돈의 죽음모자",image:{full:"3089.png"},from:["1058"]}}}}});
+  const raw=JSON.parse(result!.raw);expect(raw).toEqual({schemaVersion:1,championId:29,iesdev:itemSource,dataDragon:{version:"16.22.1",metadata}});
   expect(normalizeItemRatingSnapshot(raw,29)).toEqual(result?.normalized);
   expect(mocks.download.mock.calls.map(call=>call[0])).toEqual([
     "https://data.v2.iesdev.com/api/v1/query_objects/prod/lol/aram_mayhem_champion?champion_id=29",
