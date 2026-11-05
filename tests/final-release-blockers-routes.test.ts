@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AI_SQUAD_CACHE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { AI_SQUAD_CACHE_VERSION, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 
 const {
   mockWithAuthGuard,
@@ -267,8 +267,8 @@ describe("AI squad release blockers", () => {
     expect(providerSignal?.aborted).toBe(true);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ mode: "facts_only", errorCode: "PUBG_AI_SQUAD_FACTS_ONLY", reason: "timeout" });
-    expect(mockGenerateContent).toHaveBeenCalledTimes(4);
-    expect(mockStreamText).toHaveBeenCalledTimes(4);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(GEMINI_MODELS_TO_TRY.length);
+    expect(mockStreamText).toHaveBeenCalledTimes(GEMINI_MODELS_TO_TRY.length);
     expect(cache.upsert).not.toHaveBeenCalled();
   });
 
@@ -372,8 +372,8 @@ describe("AI squad release blockers", () => {
       reason: "provider",
       retryable: true,
     });
-    expect(mockGenerateContent).toHaveBeenCalledTimes(4);
-    expect(mockStreamText).toHaveBeenCalledTimes(4);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(GEMINI_MODELS_TO_TRY.length);
+    expect(mockStreamText).toHaveBeenCalledTimes(GEMINI_MODELS_TO_TRY.length);
     expect(cache.upsert).not.toHaveBeenCalled();
   });
 });

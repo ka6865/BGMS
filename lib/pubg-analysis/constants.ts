@@ -39,13 +39,11 @@ export const POPULATION_EVIDENCE_VERSION = 1;
  * 무료 티어 및 고효율 운영을 위한 Gemini 모델 폴백 우선순위
  * 1순위: gemini-3.5-flash-lite (초고속, 쿼터 절약)
  * 2순위: gemini-3.1-flash-lite (Lite 계열 안정적 보조)
- * 3순위: gemini-3.5-flash (표준 고성능)
- * 4순위: gemini-3.6-flash (최고 성능 폴백)
+ * 3순위: gemini-3.6-flash (최고 성능 폴백, 지원 종료된 3.5-flash 대체)
  */
 export const GEMINI_MODELS_TO_TRY = [
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
-  "gemini-3.5-flash",
   "gemini-3.6-flash",
 ] as const;
 
