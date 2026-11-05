@@ -66,7 +66,6 @@ function parseArgs(argv: string[]): CliOptions {
     model: "gemini-3.5-flash-lite",
     fallbackModels: [
       "gemini-3.1-flash-lite",
-      "gemini-3.5-flash",
       "gemini-3.6-flash"
     ],
     aiRetries: 2

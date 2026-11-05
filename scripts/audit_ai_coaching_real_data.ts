@@ -99,7 +99,6 @@ async function callGeminiJson(prompt: string, systemInstruction?: string, respon
   const models = [
     process.env.GEMINI_COACHING_TEST_MODEL || "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
-    "gemini-3.5-flash",
     "gemini-3.6-flash",
   ];
   let lastError: unknown = null;
