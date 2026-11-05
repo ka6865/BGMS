@@ -10,7 +10,7 @@ import type { MayhemDatasetAdminData, PublicMayhemDataset } from "../lib/lol/may
 import type { ChampionDatasetAdminData, ChampionDatasetManifest, PublicChampionStats } from "../lib/lol/mayhemChampionDataset";
 
 import { archivePage, type MayhemArchive } from "../lib/lol/mayhemArchive";
-const archiveFixture: MayhemArchive = { schemaVersion:1, patch:"16.21", augments: Array.from({length:54},(_,i)=>({key:`official:${i+1}`,officialId:i+1,externalIds:[],name:i===52?"비활성 증강":i===53?"삭제된 증강":`사용 중 증강 ${i+1}`,nameEn:`Archive ${i+1}`,sourceName:null,rarity:"gold",status:i===52?"disabled":i===53?"removed":"active",removedPatch:i===53?"26.18":null,reason:i===53?"원본 26.18 삭제 기록":"공식 카탈로그",text:"증강 효과 ".repeat(10),sourceUrl:null})), combos:[{id:1,championId:63,augments:["official:1"],status:"active",types:["god"],sourceUrl:"https://arammayhem.com/combo/test/"},{id:2,championId:63,augments:["official:53"],status:"disabled",types:["trap"],sourceUrl:"https://arammayhem.com/combo/test/"},{id:3,championId:63,augments:["official:54"],status:"removed",types:[],sourceUrl:"https://arammayhem.com/combo/test/"}] };
+const archiveFixture: MayhemArchive = { schemaVersion:1, patch:"16.21", augments: Array.from({length:54},(_,i)=>({key:`official:${i+1}`,officialId:i+1,externalIds:[],name:i===52?"비활성 증강":i===53?"삭제된 증강":`사용 중 증강 ${i+1}`,nameEn:`Archive ${i+1}`,sourceName:null,rarity:"gold",status:i===52?"disabled":i===53?"removed":"active",removedPatch:i===53?"26.18":null,reason:i===53?"원본 26.18 삭제 기록":"공식 카탈로그",text:"증강 효과 ".repeat(10),sourceUrl:null})), combos:[{id:1,championId:63,augments:Array.from({length:15},(_,i)=>`official:${i+1}`),status:"active",types:["god"],sourceUrl:"https://arammayhem.com/combo/test/"},{id:2,championId:63,augments:["official:53"],status:"disabled",types:["trap"],sourceUrl:"https://arammayhem.com/combo/test/"},{id:3,championId:63,augments:["official:54"],status:"removed",types:[],sourceUrl:"https://arammayhem.com/combo/test/"},{id:4,championId:64,augments:["official:2"],status:"active",types:["strong"],sourceUrl:"https://arammayhem.com/combo/test/"}] };
 async function openChampionPicker(page: Page) {
   const toggle = '[aria-label="챔피언 선택 열기"]';
   if (await page.$eval(toggle, node => node.getBoundingClientRect().height > 0 && node.getAttribute("aria-expanded") === "false")) await page.click(toggle);
@@ -63,6 +63,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         hydrateRoot(document.getElementById('root'), location.pathname === '/admin' ? <Admin /> : <View {...JSON.parse(document.getElementById('props').textContent)} />);
       ` },
     });
+    const artwork = JSON.parse(await readFile("lib/lol/data/mayhem-retired-icons.json", "utf8")).images[0];
+    const iconFixture = await readFile(`public/lol/augment-art/${artwork.hash}.webp`);
     const css = await postcss([tailwind()]).process(await readFile("app/globals.css", "utf8"), { from: "app/globals.css" });
     const { renderToString } = await import("react-dom/server");
     const { createElement } = await import("react");
@@ -70,6 +72,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const Admin = (await import("../app/admin/lol/mayhem-datasets/MayhemDatasetReviewPanel")).default;
     let archiveError = false; let archiveRace = false; let admin = adminFixture(); let referenceAdmin = referenceAdminFixture(); let statsMode: "success" | "empty" | "error" | "race" = "success"; let itemMode = "success"; let historyMode = "success"; let rankingMode = "success";
     server = createServer((req, res) => {
+      if (req.url === "/fixture-augment.webp") { res.setHeader("Content-Type","image/webp");res.end(iconFixture);return; }
       if (req.url === "/archive-error") archiveError = true;
       if (req.url === "/archive-race") archiveRace = true;
       if (req.url === "/archive") { archiveError = false; archiveRace = false; }
@@ -77,9 +80,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         res.setHeader("Content-Type","application/json");
         if (archiveError) { archiveError = false; res.statusCode=503;res.end(JSON.stringify({error:"failed"}));return; }
         const p = new URL(req.url,"http://fixture").searchParams;
-        const payload = archivePage(archiveFixture,{kind:p.get("kind") as "augments"|"combos",status:p.get("status") as "active",query:p.get("q")??"",championId:p.has("championId")?Number(p.get("championId")):null,offset:Number(p.get("offset")??0)},"2026-11-05T00:00:00Z");
+        const payload = archivePage(archiveFixture,{kind:p.get("kind") as "augments"|"combos",status:p.get("status") as "active",query:p.get("q")??"",championId:p.has("championId")?Number(p.get("championId")):null,offset:Number(p.get("offset")??0)},"2026-11-05T00:00:00Z",Object.fromEntries(archiveFixture.augments.map(a=>[a.key,"/fixture-augment.webp"])));
         const send = () => res.end(JSON.stringify(payload));
-        if (archiveRace && p.get("status")==="disabled") { server.emit("delayed-archive-started");setTimeout(()=>{send();server.emit("delayed-archive-sent");},700); } else send();return;
+        if (archiveRace && (p.get("status")==="disabled" || p.get("championId")==="63")) { server.emit("delayed-archive-started");setTimeout(()=>{send();server.emit("delayed-archive-sent");},700); } else send();return;
       }
       if (req.url === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css.css); return; }
       if (req.url === "/client.js") { res.setHeader("Content-Type", "text/javascript"); res.end(client.outputFiles[0].text); return; }
@@ -188,7 +191,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       }
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
       const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items") || req.url?.startsWith("/history") || req.url?.startsWith("/rankings");
-      const props = req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championStatsEnabled:false} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/dataset"
+      const props = req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championVersion:"16.21.1",championStatsEnabled:false,championTiers:{patch:"16.21",dataVersion:"16.21.1",date:"2026-11-04",tiers:{"63":3,"64":1}}} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/dataset"
         ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: req.url !== "/items-only", championVersion: "16.21.1", itemsEnabled: true, championTiers: req.url?.startsWith("/rankings") ? {patch:"16.21",dataVersion:"16.21.5",date:"2026-10-30",tiers:{"63":3,"64":1}} : null, patchRankingsEnabled: req.url?.startsWith("/rankings") } : { catalog };
       res.setHeader("Content-Type", "text/html");
       res.end('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -509,10 +512,25 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const press=(label:string)=>page.$$eval('button',(buttons,text)=>(buttons as HTMLButtonElement[]).find(b=>b.textContent?.trim().startsWith(text))!.click(),label);
     await page.goto(`${base}/archive`,{waitUntil:"networkidle0"});expect(requests).toBe(0);
     await press("조합·증강 상태");await page.waitForSelector('[aria-label="보존 조합 목록"] > li');expect(requests).toBe(1);
+    expect(await page.$eval('[aria-label="보존 조합 목록"] img',n=>n.getAttribute("src"))).toContain("/img/champion/Brand.png");
+    await page.waitForFunction(()=>{const i=document.querySelector('[aria-label="조합 증강"] img')as HTMLImageElement;return i?.complete&&i.naturalWidth>0;});
+    await page.screenshot({path:`tmp/lol-mayhem-review/archive-combos-${width}x${height}.png`});
+    expect(await page.$('select[aria-label="보존 조합 챔피언"]')).toBeNull();
+    if(width<1024)await page.click('[aria-label="조합 챔피언 선택 열기"]');
+    expect(await page.$$eval('[aria-label="조합 챔피언 목록"] button',ns=>ns.map(n=>n.getAttribute("data-combo-champion-id")))).toEqual(["64","63"]);
+    expect(await page.$eval('button[data-combo-champion-id="64"]',n=>n.textContent)).toContain("1티어");
+    await page.type('[aria-label="조합 챔피언 검색"]',"ㄹㅅ");
+    expect(await page.$$eval('[aria-label="조합 챔피언 목록"] button',ns=>ns.map(n=>n.getAttribute("data-combo-champion-id")))).toEqual(["64"]);
+    await page.click('button[data-combo-champion-id="64"]');await page.waitForFunction(()=>[...document.querySelectorAll('[aria-label="보존 조합 목록"] > li h3')].every(n=>n.textContent==="럭스")&&document.querySelectorAll('[aria-label="보존 조합 목록"] > li').length===1);
+    if(width<1024){expect(await page.$eval('[aria-label="조합 챔피언 선택 열기"]',n=>n.getAttribute("aria-expanded"))).toBe("false");await page.click('[aria-label="조합 챔피언 선택 열기"]');}
+    await page.click('button[data-combo-champion-id=""]');await page.waitForFunction(()=>document.querySelectorAll('[aria-label="보존 조합 목록"] > li').length===2);
     await press("비활성");await page.waitForFunction(()=>document.querySelector('[aria-label="보존 조합 목록"]')?.textContent?.includes("비활성 증강"));
     await press("삭제");await page.waitForFunction(()=>document.querySelector('[aria-label="보존 조합 목록"]')?.textContent?.includes("삭제된 증강"));
     await press("증강 상태");await page.waitForSelector('[aria-label="보존 증강 목록"] > li');
     expect(await page.$eval('[aria-label="보존 증강 목록"]',n=>n.textContent)).toContain("26.18");
+    await page.waitForFunction(()=>{const i=document.querySelector('[aria-label="보존 증강 목록"] img')as HTMLImageElement;return i?.complete&&i.naturalWidth>0;});
+    await page.screenshot({path:`tmp/lol-mayhem-review/archive-removed-${width}x${height}.png`});
+    await page.$eval('[aria-label="보존 증강 목록"] img',n=>n.dispatchEvent(new Event("error")));expect(await page.$('[aria-label="보존 증강 목록"] h3')).not.toBeNull();
     await press("사용 중");await page.waitForFunction(()=>document.querySelectorAll('[aria-label="보존 증강 목록"] > li').length===50);
     await press("다음");await page.waitForFunction(()=>document.querySelectorAll('[aria-label="보존 증강 목록"] > li').length===2);await press("이전");await page.waitForFunction(()=>document.querySelectorAll('[aria-label="보존 증강 목록"] > li').length===50);
     await page.type('[aria-label="보존 증강 검색"]',"없는이름");await page.waitForFunction(()=>document.querySelector('[aria-label="증강·조합 상태 조회"]')?.textContent?.includes("해당 조건의 자료가 없습니다"));
@@ -525,6 +543,11 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const page=await browser.newPage();const press=(label:string)=>page.$$eval('button',(buttons,text)=>(buttons as HTMLButtonElement[]).find(b=>b.textContent?.trim().startsWith(text))!.click(),label);
     await page.goto(`${base}/archive-race`,{waitUntil:"networkidle0"});await press("조합·증강 상태");await page.waitForSelector('[aria-label="보존 조합 목록"] > li');
     const started=new Promise<void>(resolve=>server.once("delayed-archive-started",resolve));const sent=new Promise<void>(resolve=>server.once("delayed-archive-sent",resolve));await press("비활성");await started;await press("삭제");await page.waitForFunction(()=>document.querySelector('[aria-label="보존 조합 목록"]')?.textContent?.includes("삭제된 증강"));await sent;await page.waitForNetworkIdle();expect(await page.$eval('[aria-label="보존 조합 목록"]',n=>n.textContent)).not.toContain("비활성 증강");await page.close();
+  });
+
+  it("늦게 온 챔피언 조합이 새로 선택한 챔피언을 덮어쓰지 않는다",async()=>{
+    const page=await browser.newPage();await page.setViewport({width:1440,height:900});await page.goto(`${base}/archive-race`,{waitUntil:"networkidle0"});await page.$$eval('button',ns=>(ns as HTMLButtonElement[]).find(n=>n.textContent==="조합·증강 상태")!.click());await page.waitForSelector('[aria-label="보존 조합 목록"] > li');
+    const started=new Promise<void>(resolve=>server.once("delayed-archive-started",resolve));const sent=new Promise<void>(resolve=>server.once("delayed-archive-sent",resolve));await page.click('button[data-combo-champion-id="63"]');await started;await page.click('button[data-combo-champion-id="64"]');await page.waitForFunction(()=>document.querySelectorAll('[aria-label="보존 조합 목록"] > li').length===1&&document.querySelector('[aria-label="보존 조합 목록"] h3')?.textContent==="럭스");await sent;await page.waitForNetworkIdle();expect(await page.$eval('[aria-label="보존 조합 목록"] h3',n=>n.textContent)).toBe("럭스");await page.close();
   });
 
 });

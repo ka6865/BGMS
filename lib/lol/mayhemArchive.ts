@@ -7,8 +7,9 @@ export type ArchiveCombo = { id: number; championId: number; augments: string[];
 export type MayhemArchive = { schemaVersion: 1; patch: string; augments: ArchiveAugment[]; combos: ArchiveCombo[] };
 export type AvailabilityCounts = Record<MayhemAvailability, number>;
 export type ArchiveSummary = { augments: AvailabilityCounts; combos: AvailabilityCounts; sourceRates: number; sourceCombos: number };
-export type ArchiveComboRow = Omit<ArchiveCombo, "augments"> & { augments: Pick<ArchiveAugment, "key" | "officialId" | "name" | "nameEn" | "status">[] };
-export type MayhemArchivePage = { patch: string; publishedAt: string; counts: AvailabilityCounts; total: number; offset: number; pageSize: number } & ({ kind: "augments"; rows: ArchiveAugment[] } | { kind: "combos"; rows: ArchiveComboRow[] });
+export type ArchiveAugmentRow = ArchiveAugment & { iconUrl: string | null };
+export type ArchiveComboRow = Omit<ArchiveCombo, "augments"> & { augments: (Pick<ArchiveAugment, "key" | "officialId" | "name" | "nameEn" | "status" | "rarity"> & { iconUrl: string | null })[] };
+export type MayhemArchivePage = { patch: string; publishedAt: string; counts: AvailabilityCounts; total: number; offset: number; pageSize: number } & ({ kind: "augments"; rows: ArchiveAugmentRow[] } | { kind: "combos"; rows: ArchiveComboRow[] });
 export const availabilityCounts = (rows: { status: MayhemAvailability }[]): AvailabilityCounts => Object.fromEntries(MAYHEM_AVAILABILITY.map(status => [status, rows.filter(row => row.status === status).length])) as AvailabilityCounts;
 export const comboAvailability = (statuses: MayhemAvailability[]): MayhemAvailability => (["removed", "disabled", "unverified"] as const).find(status => statuses.includes(status)) ?? "active";
 export const isMayhemAvailability = (value: unknown): value is MayhemAvailability => typeof value === "string" && MAYHEM_AVAILABILITY.includes(value as MayhemAvailability);
@@ -45,7 +46,7 @@ export function parseMayhemArchive(value: unknown, patch: string): MayhemArchive
   return root as unknown as MayhemArchive;
 }
 
-export function archivePage(archive: MayhemArchive, options: { kind: "augments" | "combos"; status: MayhemAvailability | "all"; query: string; championId: number | null; offset: number }, publishedAt: string): MayhemArchivePage {
+export function archivePage(archive: MayhemArchive, options: { kind: "augments" | "combos"; status: MayhemAvailability | "all"; query: string; championId: number | null; offset: number }, publishedAt: string, artwork: Record<string, string> = {}): MayhemArchivePage {
   const names = new Map(archive.augments.map(a => [a.key, a]));
   const q = options.query.normalize("NFKC").trim().toLocaleLowerCase("ko");
   const matches = (a: ArchiveAugment) => [a.name, a.nameEn, a.sourceName, a.text].some(t => t?.normalize("NFKC").toLocaleLowerCase("ko").includes(q));
@@ -54,10 +55,10 @@ export function archivePage(archive: MayhemArchive, options: { kind: "augments" 
   if (options.kind === "augments") {
     const all = archive.augments.filter(a => !q || matches(a));
     const filtered = all.filter(a => options.status === "all" || a.status === options.status);
-    return { ...base, kind: "augments", counts: availabilityCounts(all), total: filtered.length, rows: filtered.slice(options.offset, options.offset + pageSize) };
+    return { ...base, kind: "augments", counts: availabilityCounts(all), total: filtered.length, rows: filtered.slice(options.offset, options.offset + pageSize).map(a => ({ ...a, iconUrl: artwork[a.key] ?? null })) };
   }
   const all = archive.combos.filter(c => (!options.championId || c.championId === options.championId) && (!q || c.augments.some(key => matches(names.get(key)!))));
   const filtered = all.filter(c => options.status === "all" || c.status === options.status);
   return { ...base, kind: "combos", counts: availabilityCounts(all), total: filtered.length,
-    rows: filtered.slice(options.offset, options.offset + pageSize).map(c => ({ ...c, augments: c.augments.map(key => { const { officialId, name, nameEn, status } = names.get(key)!; return { key, officialId, name, nameEn, status }; }) })) };
+    rows: filtered.slice(options.offset, options.offset + pageSize).map(c => ({ ...c, augments: c.augments.map(key => { const { officialId, name, nameEn, status, rarity } = names.get(key)!; return { key, officialId, name, nameEn, status, rarity, iconUrl: artwork[key] ?? null }; }) })) };
 }

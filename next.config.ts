@@ -30,6 +30,12 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async headers() {
+    return [{ source: '/lol/augment-art/:path*', headers: [
+      { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+    ] }];
+  },
   async redirects() {
     return [
       // 총기 메타 시험 페이지는 무기도감 안의 대시보드로 통합했다.

@@ -1,6 +1,6 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
-import { lolAugmentIcons, toLolMayhemCatalog } from "./catalog";
+import { lolAugmentIcons, preferredAugmentIcon, toLolMayhemCatalog } from "./catalog";
 import { getLolAugmentCatalog } from "./persistence.server";
 
 export const LOL_AUGMENT_CATALOG_TAG = "lol-augment-catalog";
@@ -11,5 +11,6 @@ export const getCachedLolAugmentCatalog = unstable_cache(async (patch: string | 
   return catalog && {
     view: toLolMayhemCatalog(catalog),
     icons: lolAugmentIcons(catalog.augments.map(augment => ({ large: augment.iconLargePath, small: augment.iconSmallPath }))),
+    artwork: Object.fromEntries(catalog.augments.filter(augment => !augment.isInternal).map(augment => [augment.platformId, preferredAugmentIcon(augment.iconLargePath, augment.iconSmallPath)])),
   };
-}, ["lol-augment-catalog-v1"], { revalidate: 3600, tags: [LOL_AUGMENT_CATALOG_TAG] });
+}, ["lol-augment-catalog-v2-artwork"], { revalidate: 3600, tags: [LOL_AUGMENT_CATALOG_TAG] });

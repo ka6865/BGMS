@@ -5,12 +5,13 @@ import type { LolChampion } from "@/lib/lol/champions";
 import type { LolMayhemCatalog } from "@/lib/lol/augments/catalog";
 import LolMayhemArchive from "./LolMayhemArchive";
 import type { PublicMayhemDataset } from "@/lib/lol/mayhemDatasetView";
+import type { MayhemChampionTiers } from "@/lib/lol/mayhemChampionTiers";
 
-export default function LolMayhemDatasetView({ data, champions, catalog }: { data: PublicMayhemDataset; champions: LolChampion[]; catalog: LolMayhemCatalog }) {
+export default function LolMayhemDatasetView({ data, champions, catalog, championVersion = null, championTiers = null }: { data: PublicMayhemDataset; champions: LolChampion[]; catalog: LolMayhemCatalog; championVersion?: string | null; championTiers?: MayhemChampionTiers | null }) {
   const [championId, setChampionId] = useState("");
   if (data.archiveAvailable) return <section aria-label="해외 증바람 자료" className="space-y-4 py-4">
     <header><h2 className="text-lg font-semibold">조합·증강 상태</h2><p className="mt-1 text-xs text-zinc-400">기준 패치 {catalog.displayPatch} · 공개 {new Date(data.publishedAt).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</p><p className="mt-2 text-sm text-zinc-400">해외 편집 자료의 추천·주의·재미용 조합입니다. 실제 선택률이나 등장 확률을 뜻하지 않습니다.</p></header>
-    <LolMayhemArchive patch={data.patch} champions={champions} />
+    <LolMayhemArchive patch={data.patch} champions={champions} championVersion={championVersion} championTiers={championTiers} />
     <a className="inline-flex min-h-11 items-center text-xs text-zinc-400 underline" href="https://arammayhem.com/data/" target="_blank" rel="noreferrer">데이터 출처: arammayhem.com · CC BY 4.0</a>
   </section>;
   const names = new Map(catalog.augments.map(augment => [augment.id, augment.name]));
