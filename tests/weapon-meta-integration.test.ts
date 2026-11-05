@@ -41,3 +41,14 @@ describe("Weapon Meta Integration Verification", () => {
    expect(categorizeWeapon(name)).toBe("OTHERS");
    expect(categorizeWeapon("WeapUMP_C")).toBe("SMG");
  });
+
+
+it.each([
+  ["WeapM16A4_C", "AR"], ["WeapQBZ95_C", "AR"], ["WeapMk47Mutant_C", "AR"],
+  ["WeapM416_C", "AR"], ["WeapAKM_C", "AR"], ["WeapFNFal_C", "DMR"],
+  ["WeapWin94_C", "SR"], ["WeapL6_C", "SR"], ["WeapSaiga12_C", "SG"],
+  ["WeapBerreta686_C", "SG"], ["WeapWinchester_C", "SG"],
+  ["WeapTommyGun_C", "SMG"], ["WeapP90_C", "SMG"], ["WeapMP9_C", "SMG"],
+])("classifies known weapon %s as %s", (weapon, category) => {
+  expect(categorizeWeapon(weapon)).toBe(category);
+});

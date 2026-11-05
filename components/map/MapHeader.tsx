@@ -126,7 +126,7 @@ const MapHeader = memo(({
               <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
                 isWeaponsActive ? "bg-black/90 text-[#F2A900] shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
               }`}>
-                무기 도감
+                도감
                 {isWeaponsActive && (
                   <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
                 )}

@@ -1,4 +1,3 @@
-import OfficialCatalog from "@/components/game-data/OfficialCatalog";
 import { Metadata } from 'next';
 import { getBreadcrumbJsonLd } from '@/lib/seo-config';
 import JsonLd from '@/components/seo/JsonLd';
@@ -36,7 +35,6 @@ export default async function BackpackPage() {
     <>
       <JsonLd data={jsonLd} />
       <BackpackClient />
-      <OfficialCatalog category="vehicles" />
     </>
   );
 }
