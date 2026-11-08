@@ -106,3 +106,21 @@ it('공개하지 않는 내부 전용 증강의 영문명이 비어 있어도 �
   client.from=(table:string)=>{const q=from(table);if(table==='lol_augment_patch_states'){const then=q.then;q.then=(resolve:(value:unknown)=>unknown)=>then((r:{data:unknown[];error:unknown})=>resolve({...r,data:[...r.data,{platform_id:3176,client_patch:'16.21',is_internal:true,enabled:false,in_pool:false,state:'internal_excluded',rarity:'gold'}]}));}return q;};
   expect(await ingestMayhemDataset({apply:true})).toMatchObject({id:42,augments:1,combos:1});
 });
+
+it('새 패치 원본은 직전 패치 검수 연결을 DB에 이어받아 저장한 뒤 후보를 만든다',async()=>{
+  const reviewer='22222222-2222-4222-8222-222222222222';
+  const next=dataset();next.metadata.sourcePatch='26.22';next.rates[0].sourcePatch='26.22';mocks.download.mockResolvedValue(next);
+  const client=mocks.db(),from=client.from;
+  const extra:Record<string,unknown[]>={
+    lol_game_patches:[{client_patch:'16.22',display_patch:'26.22',ddragon_version:'16.22.1'}],
+    lol_augment_patch_states:[{platform_id:1,client_patch:'16.22',rarity:'gold',enabled:true,in_pool:true,is_internal:false,state:'official_active'}],
+    lol_augment_localizations:['ko_kr','en_us'].map(locale=>({platform_id:1,client_patch:'16.22',locale,name:locale==='ko_kr'?'증강':'Augment',display_text:'공식 효과'})),
+  };
+  client.from=(table:string)=>{const q=from(table),then=q.then;q.then=(resolve:(value:unknown)=>unknown)=>then((r:{data:Record<string,unknown>[];error:unknown})=>resolve({...r,data:table==='lol_mayhem_augment_mappings'?r.data.map(m=>({...m,evidence:{note:'검수'},reviewed_by:reviewer})):[...r.data,...(extra[table]??[])]}));return q;};
+  mocks.db.mockReturnValue(client);
+  expect(await ingestMayhemDataset({apply:true})).toMatchObject({id:42,augments:1,combos:1});
+  expect(mocks.updates).toContainEqual([expect.objectContaining({external_id:'augment!',client_patch:'16.22',platform_id:1,status:'approved',reviewed_by:reviewer,evidence:expect.objectContaining({carriedFrom:'16.21'})})]);
+  expect(mocks.rpc).toHaveBeenCalledWith('ingest_lol_mayhem_dataset',expect.objectContaining({p_rates:[expect.objectContaining({sourceClientPatch:'16.22'})]}));
+  const normalized=JSON.parse(mocks.upload.mock.calls.at(-1)![1]);
+  expect(JSON.stringify(normalized.mappings)).not.toContain(reviewer);
+});
