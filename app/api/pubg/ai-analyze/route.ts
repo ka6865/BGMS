@@ -339,6 +339,12 @@ export async function POST(request: Request) {
     }
 
     if (modelTimeoutObserved && !streamResult && !fallbackText && !request.signal.aborted && !overallSignal.aborted) {
+      trackAiFailure(authenticatedUserId, "analyze", "first_part: all models timed out", {
+        errorCode: "PUBG_AI_ROUTE_TIMEOUT",
+        durationMs: Date.now() - startedAt,
+        requestId,
+        platform: requestedPlatform,
+      });
       return NextResponse.json({
         error: "AI analysis request timed out",
         errorCode: "PUBG_AI_ROUTE_TIMEOUT",
@@ -438,12 +444,16 @@ export async function POST(request: Request) {
           if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
           controller.enqueue(encoder.encode(JSON.stringify({ type: "done" }) + "\n"));
         } catch (e) {
-          if (isStreamCancelled() || isRouteAborted()) return;
+          if (isStreamCancelled() || request.signal.aborted) return;
+          // 응답 도중 route 시간 제한에 걸린 경우도 실패로 남긴다.
           trackAiFailure(authenticatedUserId, "analyze", e, {
+            errorCode: isRouteAborted() ? "PUBG_AI_ROUTE_TIMEOUT" : undefined,
+            modelName: selectedModelName,
             durationMs: Date.now() - startedAt,
             requestId,
             platform: requestedPlatform,
           });
+          if (isRouteAborted()) return;
           controller.error(e);
         } finally {
           cleanupRoute();
@@ -462,6 +472,14 @@ export async function POST(request: Request) {
     return new Response(stream, { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
   } catch (error: any) {
     if (isRouteAborted()) {
+      if (!request.signal.aborted && !isStreamCancelled()) {
+        trackAiFailure(authenticatedUserId, "analyze", "AI analysis request timed out", {
+          errorCode: "PUBG_AI_ROUTE_TIMEOUT",
+          durationMs: Date.now() - startedAt,
+          requestId,
+          platform: requestedPlatform,
+        });
+      }
       return NextResponse.json({
         error: request.signal.aborted
           ? "canonical match analysis is not ready"

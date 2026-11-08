@@ -20,7 +20,7 @@
  *     persist?: { ms, status: "ok" | "failed" | "skipped" },
  *     total: number
  *   },
- *   attempts: Array<{ model: string, outcome: "ok" | "first_part_timeout" | "rate_limited" | "provider_error" | "stream_deadline", ms: number }>,
+ *   attempts: Array<{ model: string, outcome: "ok" | "first_part_timeout" | "rate_limited" | "provider_error" | "stream_deadline" | "truncated", ms: number }>,
  *   reasons?: string,                       검증 사유 id 목록(쉼표 구분, 500자 이하)
  *   actionDrops?: string                    탈락한 행동 제안의 사유 id 목록
  * }
@@ -33,7 +33,7 @@ export const AI_ROUTE_TIMING_KIND = "ai-route-timing" as const;
 export const AI_ROUTE_REASON_MAX_LENGTH = 500;
 
 export type AiRouteTimingRoute = "summary" | "analyze" | "squad";
-export type AiRouteAttemptOutcome = "ok" | "first_part_timeout" | "rate_limited" | "provider_error" | "stream_deadline";
+export type AiRouteAttemptOutcome = "ok" | "first_part_timeout" | "rate_limited" | "provider_error" | "stream_deadline" | "truncated";
 export type AiRouteAttempt = { model: string; outcome: AiRouteAttemptOutcome; ms: number };
 
 export type AiRouteTimingStages = {

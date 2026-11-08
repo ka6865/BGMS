@@ -508,6 +508,9 @@ export async function POST(request: Request) {
   let outcomeRecorded = false;
   let selectedModelName = "";
   let providerUsage: { inputTokens?: number; outputTokens?: number } = {};
+  // 응답이 끊겨 다른 모델로 다시 생성한 경우, 끊긴 모델과 그 사용량을 결과 기록에 합친다.
+  let truncationRetryFrom = "";
+  let truncatedUsage: { inputTokens?: number; outputTokens?: number } = {};
   let providerUsageTask: Promise<void> | undefined;
   const recordOutcome = (outcome: {
     status?: "success" | "partial" | "cancelled";
@@ -530,8 +533,11 @@ export async function POST(request: Request) {
     });
     const context = {
       durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform,
-      errorCode: outcome.errorCode, errorMessage: outcome.errorMessage,
+      errorCode: outcome.errorCode,
+      errorMessage: outcome.errorMessage ?? (truncationRetryFrom ? `retried_after_truncation: ${truncationRetryFrom}` : undefined),
     };
+    const promptTokens = () => (providerUsage.inputTokens ?? 0) + (truncatedUsage.inputTokens ?? 0);
+    const completionTokens = () => (providerUsage.outputTokens ?? 0) + (truncatedUsage.outputTokens ?? 0);
     try {
       const task = (async () => {
         // Cancellation can precede the SDK's usage settlement. Bound the wait;
@@ -547,10 +553,10 @@ export async function POST(request: Request) {
         return outcome.error !== undefined
           ? trackAiFailure(authenticatedUserId, "summary", outcome.error, {
             ...context, modelName: selectedModelName,
-            promptTokens: providerUsage.inputTokens, completionTokens: providerUsage.outputTokens,
+            promptTokens: promptTokens(), completionTokens: completionTokens(),
           })
           : trackAiUsage(authenticatedUserId, outcome.modelName || selectedModelName || "unknown",
-            providerUsage.inputTokens ?? 0, providerUsage.outputTokens ?? 0, "summary", { ...context, status: outcome.status ?? "success" });
+            promptTokens(), completionTokens(), "summary", { ...context, status: outcome.status ?? "success" });
       })().catch(error => { console.error("[AI-SUMMARY] Outcome tracking failed:", error); });
       // Keep the insert alive after the streamed response ends, including failed generations.
       after(task);
@@ -2071,128 +2077,132 @@ export async function POST(request: Request) {
     let generationTimedOut = false;
     let modelTimeoutObserved = false;
     let providerRateLimited = false;
-    for (const modelName of modelsToTry) {
-      const remainingGenerationMs = generationDeadlineAt - Date.now();
-      if (remainingGenerationMs <= 0 || overallSignal.aborted || request.signal.aborted) {
-        generationTimedOut = true;
-        break;
-      }
-
-      const modelAttemptStartedAt = Date.now();
-      const modelAttemptController = new AbortController();
-      const modelAttemptBudgetMs = Math.min(AI_SUMMARY_MODEL_TIMEOUT_MS, remainingGenerationMs);
-      let modelAttemptTimedOut = false;
-      const modelAttemptTimer = setTimeout(
-        () => {
-          modelAttemptTimedOut = true;
-          modelTimeoutObserved = true;
-          modelAttemptController.abort();
-        },
-        modelAttemptBudgetMs,
-      );
-      const modelAttemptSignal = composeAbortSignals([
-        generationSignal.signal,
-        modelAttemptController.signal,
-      ]);
-      const markModelAttemptTimeout = () => {
-        modelAttemptTimedOut = true;
-      };
-      let preserveModelAttemptSignal = false;
-      try {
-        const aiSdkResult = streamText({
-          model: googleProvider(modelName),
-          system: promptLines.join("\n"),
-          prompt: userPrompt,
-          temperature: 0.75,
-          maxOutputTokens: 2500,
-          output: Output.json(),
-          // 실패 시 같은 모델을 재시도하지 않고 기존처럼 바로 다음 모델로 넘긴다.
-          maxRetries: 0,
-          // 숫자 timeout은 호출 전체 시간이라 긴 생성을 끊는다. 모델별 제한은 응답 시작까지만
-          // modelAttemptSignal로 적용하고, 이후는 전체 생성 예산이 관리한다.
-          abortSignal: modelAttemptSignal.signal,
-          providerOptions: { google: { safetySettings } },
-        });
-        modelAttemptController.signal.addEventListener("abort", markModelAttemptTimeout, { once: true });
-
-        // streamText는 provider 오류를 던지지 않고 fullStream의 error part로 전달한다.
-        // 응답 시작(start-step) 전 오류·시간 초과는 기존 SDK의 스트림 생성 실패처럼 다음 모델로 넘기고,
-        // 응답이 시작되면 이 모델로 확정해 나머지 part는 응답 스트림에서 읽는다.
-        const iterator = aiSdkResult.fullStream[Symbol.asyncIterator]();
-        let started = false;
-        let startedText = "";
-        while (!started) {
-          const nextPromise = iterator.next();
-          nextPromise.catch(() => undefined);
-          const abortPromise = createAbortPromise(modelAttemptSignal.signal);
-          let nextResult: IteratorResult<any>;
-          try {
-            nextResult = await Promise.race([nextPromise, abortPromise.promise]) as IteratorResult<any>;
-          } finally {
-            abortPromise.cleanup();
-          }
-          if (modelAttemptSignal.signal.aborted) {
-            iterator.return?.()?.catch(() => undefined);
-            throw new Error("AI summary model attempt aborted");
-          }
-          if (nextResult.done) throw new Error("AI summary provider stream ended before a response");
-          const part = nextResult.value;
-          if (part?.type === "error") throw part.error ?? new Error("AI summary provider stream failed");
-          if (part?.type === "start-step" || part?.type === "text-delta") {
-            if (part.type === "text-delta") startedText = String(part.text ?? "");
-            started = true;
-          }
-        }
-
-        streamResult = aiSdkResult;
-        fullStreamIterator = iterator;
-        prefixText = startedText;
-        selectedModelName = modelName;
-        timing.attempt({ model: modelName, outcome: "ok", ms: Date.now() - modelAttemptStartedAt });
-        preserveModelAttemptSignal = true;
-        selectedModelAttemptSignalCleanup = modelAttemptSignal.cleanup;
-        providerUsageTask = Promise.resolve(aiSdkResult.usage).then((usage) => { providerUsage = usage; }).catch(() => undefined);
-        break;
-      } catch (err: any) {
-        const errorMessage = String(err?.message || "");
-        providerRateLimited ||= isProviderRateLimited(err);
-        const providerTimedOut = err?.name === "TimeoutError"
-          || /timeout|timed out/i.test(errorMessage);
-        const providerAborted = err?.name === "AbortError"
-          || /request aborted/i.test(errorMessage);
-        if (!overallSignal.aborted && !request.signal.aborted) {
-          timing.attempt({
-            model: modelName,
-            outcome: modelAttemptTimedOut || providerTimedOut || providerAborted
-              ? "first_part_timeout"
-              : isProviderRateLimited(err) ? "rate_limited" : "provider_error",
-            ms: Date.now() - modelAttemptStartedAt,
-          });
-        }
-        if (overallSignal.aborted || request.signal.aborted) {
+    // 응답이 시작된 첫 모델을 확정한다. 응답 도중 끊긴 경우 남은 후보로 다시 호출한다.
+    const openFirstPart = async (candidates: readonly string[]) => {
+      for (const modelName of candidates) {
+        const remainingGenerationMs = generationDeadlineAt - Date.now();
+        if (remainingGenerationMs <= 0 || overallSignal.aborted || request.signal.aborted) {
           generationTimedOut = true;
-          streamResult = null;
           break;
         }
-        if (modelAttemptTimedOut) {
-          modelTimeoutObserved = true;
-          streamResult = null;
-          console.warn(`[AI-SUMMARY] Model ${modelName} timed out; trying next...`);
-          continue;
+
+        const modelAttemptStartedAt = Date.now();
+        const modelAttemptController = new AbortController();
+        const modelAttemptBudgetMs = Math.min(AI_SUMMARY_MODEL_TIMEOUT_MS, remainingGenerationMs);
+        let modelAttemptTimedOut = false;
+        const modelAttemptTimer = setTimeout(
+          () => {
+            modelAttemptTimedOut = true;
+            modelTimeoutObserved = true;
+            modelAttemptController.abort();
+          },
+          modelAttemptBudgetMs,
+        );
+        const modelAttemptSignal = composeAbortSignals([
+          generationSignal.signal,
+          modelAttemptController.signal,
+        ]);
+        const markModelAttemptTimeout = () => {
+          modelAttemptTimedOut = true;
+        };
+        let preserveModelAttemptSignal = false;
+        try {
+          const aiSdkResult = streamText({
+            model: googleProvider(modelName),
+            system: promptLines.join("\n"),
+            prompt: userPrompt,
+            temperature: 0.75,
+            maxOutputTokens: 2500,
+            output: Output.json(),
+            // 실패 시 같은 모델을 재시도하지 않고 기존처럼 바로 다음 모델로 넘긴다.
+            maxRetries: 0,
+            // 숫자 timeout은 호출 전체 시간이라 긴 생성을 끊는다. 모델별 제한은 응답 시작까지만
+            // modelAttemptSignal로 적용하고, 이후는 전체 생성 예산이 관리한다.
+            abortSignal: modelAttemptSignal.signal,
+            providerOptions: { google: { safetySettings } },
+          });
+          modelAttemptController.signal.addEventListener("abort", markModelAttemptTimeout, { once: true });
+
+          // streamText는 provider 오류를 던지지 않고 fullStream의 error part로 전달한다.
+          // 응답 시작(start-step) 전 오류·시간 초과는 기존 SDK의 스트림 생성 실패처럼 다음 모델로 넘기고,
+          // 응답이 시작되면 이 모델로 확정해 나머지 part는 응답 스트림에서 읽는다.
+          const iterator = aiSdkResult.fullStream[Symbol.asyncIterator]();
+          let started = false;
+          let startedText = "";
+          while (!started) {
+            const nextPromise = iterator.next();
+            nextPromise.catch(() => undefined);
+            const abortPromise = createAbortPromise(modelAttemptSignal.signal);
+            let nextResult: IteratorResult<any>;
+            try {
+              nextResult = await Promise.race([nextPromise, abortPromise.promise]) as IteratorResult<any>;
+            } finally {
+              abortPromise.cleanup();
+            }
+            if (modelAttemptSignal.signal.aborted) {
+              iterator.return?.()?.catch(() => undefined);
+              throw new Error("AI summary model attempt aborted");
+            }
+            if (nextResult.done) throw new Error("AI summary provider stream ended before a response");
+            const part = nextResult.value;
+            if (part?.type === "error") throw part.error ?? new Error("AI summary provider stream failed");
+            if (part?.type === "start-step" || part?.type === "text-delta") {
+              if (part.type === "text-delta") startedText = String(part.text ?? "");
+              started = true;
+            }
+          }
+
+          streamResult = aiSdkResult;
+          fullStreamIterator = iterator;
+          prefixText = startedText;
+          selectedModelName = modelName;
+          timing.attempt({ model: modelName, outcome: "ok", ms: Date.now() - modelAttemptStartedAt });
+          preserveModelAttemptSignal = true;
+          selectedModelAttemptSignalCleanup = modelAttemptSignal.cleanup;
+          providerUsageTask = Promise.resolve(aiSdkResult.usage).then((usage) => { if (streamResult === aiSdkResult) providerUsage = usage; }).catch(() => undefined);
+          break;
+        } catch (err: any) {
+          const errorMessage = String(err?.message || "");
+          providerRateLimited ||= isProviderRateLimited(err);
+          const providerTimedOut = err?.name === "TimeoutError"
+            || /timeout|timed out/i.test(errorMessage);
+          const providerAborted = err?.name === "AbortError"
+            || /request aborted/i.test(errorMessage);
+          if (!overallSignal.aborted && !request.signal.aborted) {
+            timing.attempt({
+              model: modelName,
+              outcome: modelAttemptTimedOut || providerTimedOut || providerAborted
+                ? "first_part_timeout"
+                : isProviderRateLimited(err) ? "rate_limited" : "provider_error",
+              ms: Date.now() - modelAttemptStartedAt,
+            });
+          }
+          if (overallSignal.aborted || request.signal.aborted) {
+            generationTimedOut = true;
+            streamResult = null;
+            break;
+          }
+          if (modelAttemptTimedOut) {
+            modelTimeoutObserved = true;
+            streamResult = null;
+            console.warn(`[AI-SUMMARY] Model ${modelName} timed out; trying next...`);
+            continue;
+          }
+          if (providerTimedOut || providerAborted) {
+            modelTimeoutObserved = true;
+            streamResult = null;
+            console.warn(`[AI-SUMMARY] Model ${modelName} provider timeout/abort; trying next...`);
+            continue;
+          }
+          console.warn(`[AI-SUMMARY] Model ${modelName} failed (${errorMessage}), trying next...`);
+        } finally {
+          clearTimeout(modelAttemptTimer);
+          modelAttemptController.signal.removeEventListener("abort", markModelAttemptTimeout);
+          if (!preserveModelAttemptSignal) modelAttemptSignal.cleanup();
         }
-        if (providerTimedOut || providerAborted) {
-          modelTimeoutObserved = true;
-          streamResult = null;
-          console.warn(`[AI-SUMMARY] Model ${modelName} provider timeout/abort; trying next...`);
-          continue;
-        }
-        console.warn(`[AI-SUMMARY] Model ${modelName} failed (${errorMessage}), trying next...`);
-      } finally {
-        clearTimeout(modelAttemptTimer);
-        modelAttemptController.signal.removeEventListener("abort", markModelAttemptTimeout);
-        if (!preserveModelAttemptSignal) modelAttemptSignal.cleanup();
       }
-    }
+    };
+    await openFirstPart(modelsToTry);
 
     timing.stage("geminiFirstPart", Date.now() - generationStartedAt);
     if (generationTimedOut || isRouteAborted() || (modelTimeoutObserved && !streamResult)) {
@@ -2239,9 +2249,10 @@ export async function POST(request: Request) {
           if (useIdCards) controller.enqueue(encoder.encode(JSON.stringify({ type: "cards", data: serverCards }) + "\n"));
 
           // 4. Gemini 스트리밍 결과 처리 (모델 확정 단계에서 먼저 읽은 텍스트부터 이어 붙인다)
-          if (streamResult && fullStreamIterator) {
+          while (streamResult && fullStreamIterator) {
             const iterator = fullStreamIterator;
             aiResponseText = prefixText;
+            finishReason = null;
 
             try {
               while (true) {
@@ -2282,6 +2293,18 @@ export async function POST(request: Request) {
                 }
               }
             }
+
+            // Gemini가 OTHER로 생성을 중간에 멈추면 JSON이 완성되지 않는다. 다음 후보 모델로 한 번만 다시 생성한다.
+            if (finishReason !== "other" || truncationRetryFrom) break;
+            truncationRetryFrom = selectedModelName;
+            truncatedUsage = providerUsage;
+            providerUsage = {};
+            timing.settleLastAttempt("truncated");
+            selectedModelAttemptSignalCleanup?.();
+            selectedModelAttemptSignalCleanup = null;
+            streamResult = null;
+            fullStreamIterator = null;
+            await openFirstPart(modelsToTry.slice(modelsToTry.findIndex((name) => name === truncationRetryFrom) + 1));
           }
 
           if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
@@ -2368,7 +2391,7 @@ export async function POST(request: Request) {
             validationFailed = useIdCards && Boolean(streamResult);
             if (streamResult && !diagnosticCode) diagnosticCode = "parse";
             // 원문 없이 문법/구조 오류, 출력 잘림을 구분한다.
-            throw new Error(`${diagnosticCode === "schema" ? `AI response schema invalid: ${diagnosticReason}` : "No valid JSON extracted from AI response"} (length=${aiResponseText.length}, finishReason=${finishReason ?? "unknown"})`);
+            throw new Error(`${diagnosticCode === "schema" ? `AI response schema invalid: ${diagnosticReason}` : "No valid JSON extracted from AI response"} (length=${aiResponseText.length}, finishReason=${finishReason ?? "unknown"}${truncationRetryFrom ? `, retriedFrom=${truncationRetryFrom}` : ""})`);
           }
         } catch (e: any) {
           // Consumer cancellation already closes the Web Stream. It is normal
