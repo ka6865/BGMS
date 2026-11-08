@@ -1,6 +1,7 @@
 "use client";
 
-import type { StatsStoredSeasonSummary } from "@/types/stats-page";
+import { summarizeSeasonStats } from "@/lib/stats/seasonSummary";
+import type { PlayerStatsResponse, StatsStoredSeasonSummary } from "@/types/stats-page";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 
 export type StatsSeasonOverview = StatsStoredSeasonSummary & { seasonName: string | null };
@@ -9,12 +10,22 @@ export interface StatsSeasonOverviewCardProps {
   season: StatsSeasonOverview | null;
 }
 
-/** 화면에 보이는 플레이어가 서버가 요약한 URL 플레이어와 같을 때만 시즌 합계를 쓴다. */
+/** 현재 플레이어·시즌에 맞는 전체 모드 합계만 표시한다. */
 export function seasonOverviewForResult(
   summary: StatsStoredSeasonSummary | undefined,
-  result: { nickname: string; seasons: readonly { id: string; name: string }[] },
+  result: Pick<PlayerStatsResponse, "nickname" | "seasonId" | "seasons" | "stats" | "statsAvailability">,
 ): StatsSeasonOverview | null {
   if (!summary || normalizeName(summary.nickname) !== normalizeName(result.nickname)) return null;
+  const complete = result.statsAvailability?.ranked?.status === "ready"
+    && result.statsAvailability?.normal?.status === "ready"
+    && result.stats.ranked && result.stats.normal;
+  if (complete) {
+    const refreshed = summarizeSeasonStats({ [result.seasonId]: result.stats });
+    if (!refreshed) return null;
+    summary = { ...refreshed, nickname: result.nickname };
+  } else if (summary.seasonId !== result.seasonId) {
+    return null;
+  }
   return { ...summary, seasonName: result.seasons.find((season) => season.id === summary.seasonId)?.name ?? null };
 }
 
