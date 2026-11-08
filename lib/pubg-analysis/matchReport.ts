@@ -5,7 +5,7 @@ import { classifyDamageCause, isCombatDamageCause, type ReplayDamageCause } from
 import { FIGHT_GAP_MS } from "@/lib/replay/replayEngagements";
 import { normalizeName } from "./utils";
 
-export const MATCH_REPORT_VERSION = 3;
+export const MATCH_REPORT_VERSION = 4;
 
 /** 사망 직전 이 시간 안에 우리 팀과 싸운 적 팀이 둘 이상이면 써드파티로 본다. */
 export const THIRD_PARTY_WINDOW_MS = 60_000;
@@ -108,7 +108,8 @@ export type MatchTeamRow = {
   rank: number;
   kills: number;
   damage: number;
-  players: { name: string; kills: number; damage: number; isBot: boolean }[];
+  /** knocks와 longestDown(기절이나 킬을 만든 가장 먼 거리, m)은 버전 4부터 있다. */
+  players: { name: string; kills: number; damage: number; isBot: boolean; knocks?: number; longestDown?: number }[];
   isMine: boolean;
 };
 
@@ -255,6 +256,7 @@ export class MatchReportCollector {
   private readonly takenSources = new Map<string, MatchDamageSource & { weapons: Map<string, number> }>();
   private readonly myKills: (Omit<MatchMyKill, "victimRank"> & { victimKey: string })[] = [];
   private readonly knockers = new Map<string, "me" | "team" | "other">();
+  private readonly longestDownCm = new Map<string, number>();
   private damageTaken = 0;
 
   constructor(private readonly identity: MatchReportIdentity) {}
@@ -405,8 +407,15 @@ export class MatchReportCollector {
     });
   }
 
+  private recordDownDistance(attacker: Actor, victim: Actor, distance: unknown) {
+    const name = actorName(attacker);
+    if (!name || name === actorName(victim) || !finite(distance) || distance < 0) return;
+    this.longestDownCm.set(name, Math.max(this.longestDownCm.get(name) ?? 0, distance));
+  }
+
   private observeGroggy(event: Record<string, any>, ts: number) {
     const victim = event.victim;
+    this.recordDownDistance(event.attacker, victim, event.distance);
     if (this.isTeam(victim)) this.knockedAt.set(actorName(victim), this.rel(ts));
     if (!this.isTeam(victim)) {
       this.knockers.set(actorName(victim), this.isMe(event.attacker) ? "me" : this.isTeam(event.attacker) ? "team" : "other");
@@ -429,6 +438,7 @@ export class MatchReportCollector {
     const victim = event.victim;
     const killer = event.killer ?? event.finisher;
     const info = event.killerDamageInfo ?? event.finishDamageInfo;
+    this.recordDownDistance(killer, victim, info?.distance);
     const t = this.rel(ts);
     const victimName = displayName(victim);
     if (victimName) {
@@ -704,6 +714,8 @@ export class MatchReportCollector {
             name: String(stats.name ?? ""),
             kills: finite(stats.kills) ? stats.kills : 0,
             damage: finite(stats.damageDealt) ? round(stats.damageDealt) : 0,
+            knocks: finite(stats.DBNOs) ? stats.DBNOs : 0,
+            longestDown: round(Math.max((this.longestDownCm.get(normalizeName(String(stats.name ?? ""))) ?? 0) / 100, finite(stats.longestKill) ? stats.longestKill : 0)),
             isBot: typeof stats.playerId === "string" && stats.playerId.startsWith("ai."),
           }));
         return {

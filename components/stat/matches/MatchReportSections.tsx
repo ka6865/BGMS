@@ -10,14 +10,21 @@ import {
   DAMAGE_CAUSE_LABELS,
   KNOCKED_BY_LABELS,
   FIGHT_OUTCOME_LABELS,
+  PLAYER_RANK_LABELS,
+  PLAYER_RANK_UNITS,
   buildKillTree,
+  buildPlayerRanking,
   describeDeath,
   fightReplaySeconds,
   formatMatchClock,
+  playerRankMetrics,
   type KillTreeNode,
+  type PlayerRankMetric,
+  type PlayerRankRow,
 } from "@/lib/pubg-analysis/matchReportView";
 
 const TEAM_PREVIEW = 10;
+const RANK_PREVIEW = 5;
 const BOT_PREVIEW = 12;
 
 const weaponLabel = (weapon: string | null) => (weapon ? getWeaponDisplayName(weapon) : null);
@@ -310,6 +317,92 @@ export function MatchOverviewContent({ report }: { report: MatchReport }) {
             {report.bots.length > BOT_PREVIEW ? ` 외 ${report.bots.length - BOT_PREVIEW}명` : ""}
           </p>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** 접힌 헤더에 보여 줄 내 순위 요약. 예: "킬 4위 · 피해량 2위". 헤더 폭 때문에 최장 기절·킬은 뺀다. */
+export function playerRankSummary(report: MatchReport, nickname: string): string | null {
+  const parts = playerRankMetrics(report).filter((metric) => metric !== "longestDown").flatMap((metric) => {
+    const me = buildPlayerRanking(report, metric, nickname).find((row) => row.isMe);
+    return me ? [`${PLAYER_RANK_LABELS[metric]} ${me.rank}위`] : [];
+  });
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function PlayerRankItem({ row, unit, onNicknameClick }: { row: PlayerRankRow; unit: string; onNicknameClick?: (nickname: string) => void }) {
+  const clickable = !row.isMe && !!onNicknameClick;
+  return (
+    <li className={`flex items-center gap-3 border-b border-white/5 px-3 py-2 text-xs last:border-b-0 ${row.isMe ? "bg-[#F2A900]/10" : ""}`}>
+      <span className="w-6 shrink-0 font-black tabular-nums text-gray-400">{row.rank}</span>
+      {clickable ? (
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); onNicknameClick(row.name); }}
+          className="min-w-0 flex-1 truncate text-left text-gray-200 hover:text-white hover:underline"
+        >
+          {row.name}
+        </button>
+      ) : (
+        <span className="min-w-0 flex-1 truncate font-bold text-white">{row.name}</span>
+      )}
+      {(row.isMe || row.isTeammate) && (
+        <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-gray-400">{row.isMe ? "나" : "우리 팀"}</span>
+      )}
+      <span className="w-14 shrink-0 text-right font-black tabular-nums text-white">{row.value}{unit}</span>
+    </li>
+  );
+}
+
+/** 개인 성적: 봇을 뺀 매치 전체 선수의 지표별 상위 5명과 내 순위. */
+export function MatchPlayerRankingContent({
+  report,
+  nickname,
+  onNicknameClick,
+}: {
+  report: MatchReport;
+  nickname: string;
+  onNicknameClick?: (nickname: string) => void;
+}) {
+  const metrics = playerRankMetrics(report);
+  const [metric, setMetric] = useState<PlayerRankMetric>("kills");
+  const rows = useMemo(() => buildPlayerRanking(report, metric, nickname), [report, metric, nickname]);
+  const top = rows.slice(0, RANK_PREVIEW);
+  const me = rows.find((row) => row.isMe);
+  const meOutside = me && !top.includes(me);
+  const tied = !!me && rows.filter((row) => row.rank === me.rank).length > 1;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="개인 성적 지표">
+        {metrics.map((item) => (
+          <button
+            key={item}
+            type="button"
+            role="tab"
+            aria-selected={metric === item}
+            onClick={(event) => { event.stopPropagation(); setMetric(item); }}
+            className={`min-h-9 rounded-lg border px-3 text-xs font-bold transition-colors ${metric === item ? "border-[#F2A900]/40 bg-[#F2A900]/15 text-[#F2A900]" : "border-white/10 text-gray-400 hover:text-white"}`}
+          >
+            {PLAYER_RANK_LABELS[item]}
+          </button>
+        ))}
+      </div>
+      <ol className="overflow-hidden rounded-2xl border border-white/5" aria-label={`${PLAYER_RANK_LABELS[metric]} 순위`}>
+        {top.map((row) => <PlayerRankItem key={row.name} row={row} unit={PLAYER_RANK_UNITS[metric]} onNicknameClick={onNicknameClick} />)}
+        {meOutside && (
+          <>
+            <li aria-hidden="true" className="border-b border-white/5 px-3 py-1 text-center text-[10px] text-gray-600">⋯</li>
+            <PlayerRankItem row={me} unit={PLAYER_RANK_UNITS[metric]} onNicknameClick={onNicknameClick} />
+          </>
+        )}
+      </ol>
+      {me && (
+        <p className="text-[11px] text-gray-400">
+          봇 제외 {rows.length}명 중 {tied ? "공동 " : ""}{me.rank}위
+          {me.rank > 1 && ` · 상위 ${Math.max(1, Math.round((me.rank / rows.length) * 100))}%`}
+        </p>
       )}
     </div>
   );

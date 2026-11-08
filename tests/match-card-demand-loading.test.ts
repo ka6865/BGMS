@@ -229,7 +229,7 @@ describe("MatchCard demand loading", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
 
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("match-detail-expired")).not.toBeInTheDocument();
   });

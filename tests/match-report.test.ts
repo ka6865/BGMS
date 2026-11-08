@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MatchReportCollector, type MatchReport } from "@/lib/pubg-analysis/matchReport";
-import { buildKillTree, describeDeath, fightReplaySeconds, hasMatchFlow, hasMatchOverview, humanTeamPlace } from "@/lib/pubg-analysis/matchReportView";
+import { buildKillTree, buildPlayerRanking, describeDeath, fightReplaySeconds, hasMatchFlow, hasMatchOverview, humanTeamPlace, playerRankMetrics } from "@/lib/pubg-analysis/matchReportView";
 
 const START = Date.parse("2026-10-15T15:00:00.000Z");
 const at = (seconds: number) => new Date(START + seconds * 1000).toISOString();
@@ -228,8 +228,8 @@ describe("사망 유형", () => {
 
 describe("경기 전체", () => {
   const participants = [
-    { id: "p1", attributes: { stats: { name: "Me", playerId: "account.Me", kills: 2, damageDealt: 210.4 } } },
-    { id: "p2", attributes: { stats: { name: "Mate", playerId: "account.Mate", kills: 1, damageDealt: 90 } } },
+    { id: "p1", attributes: { stats: { name: "Me", playerId: "account.Me", kills: 2, damageDealt: 210.4, DBNOs: 3, longestKill: 87.6 } } },
+    { id: "p2", attributes: { stats: { name: "Mate", playerId: "account.Mate", kills: 1, damageDealt: 90, DBNOs: 1, longestKill: 212.2 } } },
     { id: "p3", attributes: { stats: { name: "Bot_1", playerId: "ai.1", kills: 0, damageDealt: 0 } } },
   ];
   const rosters = [
@@ -240,8 +240,38 @@ describe("경기 전체", () => {
   it("팀 순위와 봇 목록을 참가자 정보로 만든다", () => {
     const report = run([], participants, rosters);
     expect(report.teams.map((team) => [team.rank, team.kills, team.damage, team.isMine])).toEqual([[1, 3, 300, true], [5, 0, 0, false]]);
-    expect(report.teams[1].players[0]).toEqual({ name: "Bot_1", kills: 0, damage: 0, isBot: true });
+    expect(report.teams[1].players[0]).toEqual({ name: "Bot_1", kills: 0, damage: 0, knocks: 0, longestDown: 0, isBot: true });
     expect(report.bots).toEqual(["Bot_1"]);
+  });
+
+  it("개인 성적은 봇을 빼고 동점을 같은 순위로 센다", () => {
+    const report = run([], participants, rosters);
+    expect(playerRankMetrics(report)).toEqual(["kills", "knocks", "damage", "longestDown"]);
+    expect(buildPlayerRanking(report, "longestDown", "Me").map((row) => [row.rank, row.name, row.value])).toEqual([[1, "Mate", 212], [2, "Me", 88]]);
+    expect(buildPlayerRanking(report, "knocks", "me")).toEqual([
+      { rank: 1, name: "Me", value: 3, isMe: true, isTeammate: true },
+      { rank: 2, name: "Mate", value: 1, isMe: false, isTeammate: true },
+    ]);
+    const tied: MatchReport = { ...report, teams: [...report.teams, {
+      teamId: 3, rank: 2, kills: 2, damage: 0, isMine: false,
+      players: [{ name: "Rival", kills: 2, damage: 0, isBot: false }],
+    }] };
+    expect(buildPlayerRanking(tied, "kills", "Me").map((row) => [row.rank, row.name])).toEqual([[1, "Me"], [1, "Rival"], [3, "Mate"]]);
+  });
+
+  it("최장 기절·킬은 텔레메트리 기절 거리와 공식 최장 킬 중 먼 쪽을 쓴다", () => {
+    const report = run([{ ...groggy(110, ME, A1), distance: 30_040 }, { ...groggy(120, ME, ME), distance: 90_000 }], participants, rosters);
+    const players = report.teams[0].players;
+    expect(players.find((p) => p.name === "Me")?.longestDown).toBe(300);
+    expect(players.find((p) => p.name === "Mate")?.longestDown).toBe(212);
+  });
+
+  it("예전 결과처럼 선수별 기절·최장 기절·킬이 없으면 그 지표를 뺀다", () => {
+    const report = run([], participants, rosters);
+    const legacy: MatchReport = { ...report, teams: report.teams.map((team) => ({
+      ...team, players: team.players.map(({ name, kills, damage, isBot }) => ({ name, kills, damage, isBot })),
+    })) };
+    expect(playerRankMetrics(legacy)).toEqual(["kills", "damage"]);
   });
 
   it("킬 트리는 마지막 생존자부터 처치를 따라 내려간다", () => {

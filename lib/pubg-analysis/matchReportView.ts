@@ -10,6 +10,7 @@ import type {
 } from "./matchReport";
 import type { ReplayDamageCause } from "./replayEventKinds";
 import { FIGHT_LEAD_IN_MS } from "@/lib/replay/replayEngagements";
+import { normalizeName } from "./utils";
 
 export const DEATH_TYPE_LABELS: Record<MatchDeathType, string> = {
   zone: "자기장",
@@ -185,6 +186,36 @@ export function hasMatchFlow(report: MatchReport | null | undefined): report is 
 
 export function hasMatchOverview(report: MatchReport | null | undefined): report is MatchReport {
   return !!report && (report.teams.length > 0 || report.kills.length > 0);
+}
+
+export type PlayerRankMetric = "kills" | "knocks" | "damage" | "longestDown";
+
+export const PLAYER_RANK_LABELS: Record<PlayerRankMetric, string> = { kills: "킬", knocks: "기절", damage: "피해량", longestDown: "최장 기절·킬" };
+
+export const PLAYER_RANK_UNITS: Record<PlayerRankMetric, string> = { kills: "", knocks: "", damage: "", longestDown: "m" };
+
+export type PlayerRankRow = { rank: number; name: string; value: number; isMe: boolean; isTeammate: boolean };
+
+/** 예전 결과에는 선수별 기절·최장 기절·킬이 없어 그 지표는 뺀다. */
+export function playerRankMetrics(report: MatchReport): PlayerRankMetric[] {
+  const has = (metric: "knocks" | "longestDown") => report.teams.some((team) => team.players.some((player) => typeof player[metric] === "number"));
+  return (["kills", "knocks", "damage", "longestDown"] as const).filter((metric) => (metric === "knocks" || metric === "longestDown" ? has(metric) : true));
+}
+
+/** 봇을 뺀 선수 전체 순위. 동점은 같은 순위(1, 1, 3)로 센다. */
+export function buildPlayerRanking(report: MatchReport, metric: PlayerRankMetric, nickname: string): PlayerRankRow[] {
+  const me = normalizeName(nickname);
+  const rows = report.teams
+    .flatMap((team) => team.players
+      .filter((player) => !player.isBot)
+      .map((player) => ({
+        name: player.name,
+        value: player[metric] ?? 0,
+        isMe: normalizeName(player.name) === me,
+        isTeammate: team.isMine,
+      })))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+  return rows.map((row) => ({ ...row, rank: rows.findIndex((other) => other.value === row.value) + 1 }));
 }
 
 /** 2D 리플레이를 교전 직전부터 여는 시각(초). */
