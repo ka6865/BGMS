@@ -27,6 +27,7 @@
 - `rate_limited`: 제공자 429
 - `provider_error`: 그 밖의 제공자 오류
 - `stream_deadline`: 첫 파트 뒤 스트림 도중 데드라인
+- `truncated`: 요약에서 Gemini가 `finishReason=other`로 응답을 중간에 멈췄다. 다음 후보 모델로 한 번만 다시 생성한다.
 
 `outcome` 값:
 
@@ -41,6 +42,10 @@
 Vercel 대시보드의 로그 화면에서 검색어 `ai-route-timing`으로 시작한다. 원인별로 좁히려면 `first_part_timeout`(첫 파트 전 실패), `stream_deadline`(스트림 도중 데드라인), `"status":"failed"`(캐시 저장 실패)를 함께 넣는다. 검색 문법은 화면 기능에 따르며, 이 문서는 특정 CLI 명령을 전제하지 않는다.
 
 `error_message`에서도 두 경로를 구분할 수 있다. 첫 파트 전 실패는 `first_part: <모델>=<결과>,...`, 스트림 도중 데드라인은 `stream_deadline: <모델>`로 남는다. `error_code`는 기존과 같이 `PUBG_AI_ROUTE_TIMEOUT`이다.
+
+요약 재생성은 결과 한 줄로 남는다. 성공하면 `model_name`은 다시 생성한 모델이고 `error_message`는 `retried_after_truncation: <끊긴 모델>`이며, 토큰은 두 모델의 합이다(비용은 다시 생성한 모델 단가로 추정). 재생성도 실패하면 오류 문구 끝에 `retriedFrom=<끊긴 모델>`이 붙는다.
+
+매치 분석(`ai-analyze`)도 모든 모델의 첫 응답 시간 초과, 라우트 데드라인, 스트림 도중 실패를 `ai_usage_logs`에 남긴다. 클라이언트가 먼저 끊은 요청은 남기지 않는다.
 
 ## 2. Gemini 생성 차단 스위치
 

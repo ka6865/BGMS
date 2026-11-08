@@ -975,7 +975,8 @@ describe("AI cache route stabilization", () => {
       expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
       expect(mockGenerateContent).not.toHaveBeenCalled();
       expect(matchCache.upsert).not.toHaveBeenCalled();
-      expect(mockTrackAiFailure).not.toHaveBeenCalled();
+      expect(mockTrackAiFailure).toHaveBeenCalledTimes(1);
+      expect(mockTrackAiFailure.mock.calls[0][3]).toMatchObject({ errorCode: "PUBG_AI_ROUTE_TIMEOUT" });
     } finally {
       vi.useRealTimers();
     }
@@ -1581,6 +1582,59 @@ describe("AI cache route stabilization", () => {
       expect(mockTrackAiUsage).not.toHaveBeenCalled();
       expect(mockTrackAiFailure).toHaveBeenCalledTimes(1);
       expect(mockTrackAiFailure.mock.calls[0][3]).toMatchObject({ errorCode: "parse", promptTokens: 100, completionTokens: 25, modelName: expect.any(String) });
+    });
+
+    it("OTHER로 끊긴 응답은 다음 모델로 한 번 다시 생성하고 두 모델의 사용량을 한 기록에 합친다", async () => {
+      const summaryCache = setupSummary("sdk-truncated-other");
+      const validFinal = JSON.stringify(createValidSummaryFinal({ finalVerdict: "retried model summary" }));
+      mockStreamText
+        .mockImplementationOnce(() => sdkResult([
+          { type: "start-step" },
+          { type: "text-delta", text: "{\"cards\":[" },
+          { type: "finish", finishReason: "other", totalUsage: { inputTokens: 100, outputTokens: 5 } },
+        ]))
+        .mockImplementationOnce(() => sdkResult([
+          { type: "start-step" },
+          { type: "text-delta", text: validFinal },
+          { type: "finish", finishReason: "stop", totalUsage: { inputTokens: 90, outputTokens: 40 } },
+        ], { inputTokens: 90, outputTokens: 40 }));
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-truncated-other"], nickname: "Player_A", platform: "kakao", force: true }));
+      const records = parseSummaryNdjson(await response.text());
+
+      expect(mockStreamText).toHaveBeenCalledTimes(2);
+      const [first, second] = mockStreamText.mock.calls.map((call) => call[0].model.modelName);
+      expect(second).not.toBe(first);
+      expect(records.find((record) => record.type === "final")?.data).toContain("retried model summary");
+      expect(records.find((record) => record.type === "done")).toMatchObject({ valid: true });
+      expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(mockTrackAiUsage).toHaveBeenCalledWith(
+        "user-1", second, 190, 45, "summary",
+        expect.objectContaining({ status: "success", errorMessage: `retried_after_truncation: ${first}` }),
+      ));
+      expect(mockTrackAiFailure).not.toHaveBeenCalled();
+    });
+
+    it("다시 생성한 모델도 OTHER로 끊기면 한 번만 재시도하고 실패로 기록한다", async () => {
+      const summaryCache = setupSummary("sdk-truncated-twice");
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const truncated = () => sdkResult([
+        { type: "start-step" },
+        { type: "text-delta", text: "{\"cards\":[" },
+        { type: "finish", finishReason: "other", totalUsage: { inputTokens: 100, outputTokens: 5 } },
+      ]);
+      mockStreamText.mockImplementationOnce(truncated).mockImplementationOnce(truncated);
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-truncated-twice"], nickname: "Player_A", platform: "kakao", force: true }));
+      const records = parseSummaryNdjson(await response.text());
+
+      expect(mockStreamText).toHaveBeenCalledTimes(2);
+      expect(records.find((record) => record.type === "done")).toMatchObject({ valid: false });
+      expect(summaryCache.upsert).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(mockTrackAiFailure).toHaveBeenCalledTimes(1));
+      const failure = mockTrackAiFailure.mock.calls[0][2] as Error;
+      expect(failure.message).toMatch(/finishReason=other, retriedFrom=/);
+      expect(mockTrackAiFailure.mock.calls[0][3]).toMatchObject({ promptTokens: 200, completionTokens: 10 });
     });
 
     it("route의 Gemini 키와 기존 생성 설정을 AI SDK에 그대로 전달한다", async () => {
