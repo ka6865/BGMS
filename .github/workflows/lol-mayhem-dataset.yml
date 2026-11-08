@@ -42,3 +42,12 @@ jobs:
           else
             npx tsx scripts/lol_mayhem_dataset_sync.ts --apply
           fi
+      - name: 검증 통과 자료 자동 공개
+        if: ${{ !cancelled() && vars.LOL_MAYHEM_AUTO_PUBLISH_ENABLED == 'true' && (github.event_name == 'schedule' || inputs.dry_run == false) }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LOL_PERSISTENCE_ENABLED: 'true'
+          LOL_MAYHEM_DATASET_ENABLED: ${{ vars.LOL_MAYHEM_DATASET_ENABLED }}
+          LOL_MAYHEM_AUTO_REVIEWER_ID: ${{ vars.LOL_MAYHEM_AUTO_REVIEWER_ID }}
+        run: npx tsx scripts/lol_mayhem_auto_publish.ts --kind combos

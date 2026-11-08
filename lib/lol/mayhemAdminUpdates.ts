@@ -87,3 +87,16 @@ export function comboUpdateGroup(data: MayhemDatasetAdminData): UpdateGroup {
     syncError: data.sync.some(row => row.job_key === "mayhem-external:arammayhem" && !!row.last_error_code),
   });
 }
+
+// 자동 공개는 관리자 적용 버튼과 같은 대상·차단 규칙을 쓰고, 현재 공개본보다 수량이 크게 줄면 사람에게 넘긴다.
+// publishedAmount: 비교 대상이 없으면 undefined, 공개본 수량을 확인하지 못하면 null.
+export function autoPublishPlan(group: UpdateGroup, publishedAmount: (releaseId: number) => number | null | undefined) {
+  const ready: UpdateRow[] = [], held: Array<{ row: UpdateRow; reason: string }> = [];
+  for (const row of group.targets) {
+    const previous = row.expectedPublication === null ? undefined : publishedAmount(row.expectedPublication);
+    const reason = group.blocked || row.blocked || (previous === null ? "현재 공개본 수량을 확인할 수 없습니다."
+      : previous !== undefined && row.amount < previous * 0.9 ? `수량이 ${previous}에서 ${row.amount}로 줄었습니다.` : "");
+    if (reason) held.push({ row, reason }); else ready.push(row);
+  }
+  return { ready, held };
+}
