@@ -159,8 +159,8 @@ async function flushMicrotasks(iterations = 10) {
 
 async function openAiPanel() {
   fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-  await screen.findByText("AI 전술 코칭");
-  fireEvent.click(screen.getByRole("button", { name: /AI 전술 코칭/ }));
+  await screen.findByText("AI 코칭");
+  fireEvent.click(screen.getByRole("button", { name: /AI 코칭/ }));
 }
 
 function aiSuccessEvents() {
@@ -202,7 +202,7 @@ describe("MatchCard isolated detail state", () => {
     expect(onFailure).toHaveBeenCalledWith("detail_failed");
 
     fireEvent.click(screen.getByRole("button", { name: "상세 다시 시도" }));
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(onRecovery).toHaveBeenCalledTimes(1);
     expect(onRecovery).toHaveBeenCalledWith("detail_failed");
@@ -274,7 +274,7 @@ describe("MatchCard isolated detail state", () => {
     expect(basicStats.getByText("어시스트").nextElementSibling).toHaveTextContent("0");
     expect(screen.getByText(/안정도 .* \/ 100/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "상세 다시 시도" })).not.toBeInTheDocument();
-    expect(screen.queryByText("AI 전술 코칭")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI 코칭")).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -325,7 +325,7 @@ describe("MatchCard isolated detail state", () => {
     expect(screen.getByText("매치 상세를 불러오는 중")).toBeVisible();
 
     resolveDetail(jsonResponse(detail()));
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
   });
 
   it("detail URL은 특수문자·공백·유니코드 nickname을 하나의 query parameter로 보존한다", async () => {
@@ -339,7 +339,7 @@ describe("MatchCard isolated detail state", () => {
     renderCard({ nickname: specialNickname });
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
 
     const detailCall = fetchMock.mock.calls.find(([input]) => String(input).startsWith("/api/pubg/match?"));
     const detailUrl = new URL(String(detailCall?.[0]), "http://localhost");
@@ -370,7 +370,7 @@ describe("MatchCard isolated detail state", () => {
       baseSummary.mapName,
     );
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
     expect(onModeDetected).toHaveBeenLastCalledWith(
       "match-detail-1",
       "squad-fpp",
@@ -405,7 +405,7 @@ describe("MatchCard isolated detail state", () => {
     expect(screen.getByText("상위권")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
 
     expect(screen.queryByText("티어 미산정")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "S 티어 근거 보기" })).toBeVisible();
@@ -448,7 +448,7 @@ describe("MatchCard isolated detail state", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
     await screen.findByTestId("expanded-match-details");
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
     expect(screen.queryByRole("region", { name: "매치 성과 및 티어 근거" })).not.toBeInTheDocument();
     expect(screen.queryByText("티어 산정 근거")).not.toBeInTheDocument();
 
@@ -468,16 +468,17 @@ describe("MatchCard isolated detail state", () => {
     expect(within(combatEvidence).getByText("딜량 순위")).toBeInTheDocument();
     expect(within(combatEvidence).getByText("#2")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /무기 사용/ }));
-    expect(screen.getByText("M416")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /무기 기록/ }));
+    expect(screen.getByText("내 무기 상세 스탯")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /팀원/ }));
     fireEvent.click(screen.getAllByText("SquadMate").at(-1)!);
     expect(onNicknameClick).toHaveBeenCalledWith("SquadMate");
 
-    fireEvent.click(screen.getByRole("button", { name: /전술 위치 분석 및 타임라인/ }));
+    fireEvent.click(screen.getByRole("button", { name: /경기 흐름/ }));
+    fireEvent.click(screen.getByRole("button", { name: /지도와 전체 이벤트 보기/ }));
     expect(screen.getByTestId("match-tactical-map")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /AI 전술 코칭/ }));
+    fireEvent.click(screen.getByRole("button", { name: /AI 코칭/ }));
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     expect(await screen.findByText(/final fixture verdict/)).toBeInTheDocument();
     const aiCall = fetchMock.mock.calls.find(([input]) => String(input) === "/api/pubg/ai-analyze");
@@ -506,7 +507,7 @@ describe("MatchCard isolated detail state", () => {
     renderCard({ platform: "kakao", initialMatchData: summaryWithTierEvidence() });
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
     fireEvent.click(screen.getByRole("button", { name: "리플레이 분석" }));
 
     const replay2D = screen.getByRole("button", { name: /2D 맵 리플레이/ });
@@ -520,7 +521,7 @@ describe("MatchCard isolated detail state", () => {
     renderCard({ isMobile: true, initialMatchData: summaryWithTierEvidence() });
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
     expect(screen.queryByRole("region", { name: "매치 성과 및 티어 근거" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /티어 근거 보기/ }));
@@ -549,8 +550,8 @@ describe("MatchCard isolated detail state", () => {
     renderCard();
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("AI 전술 코칭");
-    fireEvent.click(screen.getByRole("button", { name: /AI 전술 코칭/ }));
+    await screen.findByText("AI 코칭");
+    fireEvent.click(screen.getByRole("button", { name: /AI 코칭/ }));
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1));
     const aiCall = fetchMock.mock.calls.find(([input]) => String(input) === "/api/pubg/ai-analyze")!;
@@ -564,7 +565,7 @@ describe("MatchCard isolated detail state", () => {
     await act(async () => resolveAi(aiResponse("retained AI verdict")));
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
     expect(await screen.findByText(/retained AI verdict/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /AI 전술 코칭/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /AI 코칭/ })).toHaveAttribute("aria-expanded", "true");
     expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith("/api/pubg/match?"))).toHaveLength(1);
   });
 
@@ -587,8 +588,8 @@ describe("MatchCard isolated detail state", () => {
     renderCard({ onFailure, onRecovery });
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("AI 전술 코칭");
-    fireEvent.click(screen.getByRole("button", { name: /AI 전술 코칭/ }));
+    await screen.findByText("AI 코칭");
+    fireEvent.click(screen.getByRole("button", { name: /AI 코칭/ }));
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     await waitFor(() => expect(onFailure).toHaveBeenCalledWith("analysis_failed"));
     expect(onFailure).toHaveBeenCalledTimes(1);
@@ -892,8 +893,8 @@ describe("MatchCard isolated detail state", () => {
       initialMatchData: summary("same-match", "PlayerA"),
     }));
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("AI 전술 코칭");
-    fireEvent.click(screen.getByRole("button", { name: /AI 전술 코칭/ }));
+    await screen.findByText("AI 코칭");
+    fireEvent.click(screen.getByRole("button", { name: /AI 코칭/ }));
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     const aiCallA = await waitFor(() => fetchMock.mock.calls.find(([input, init]) =>
       String(input) === "/api/pubg/ai-analyze" && String(init?.body).includes("PlayerA"),
@@ -911,8 +912,8 @@ describe("MatchCard isolated detail state", () => {
     expect(aiStop).toHaveBeenCalledWith("steam:playera:same-match");
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("AI 전술 코칭");
-    fireEvent.click(screen.getByRole("button", { name: /AI 전술 코칭/ }));
+    await screen.findByText("AI 코칭");
+    fireEvent.click(screen.getByRole("button", { name: /AI 코칭/ }));
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     await waitFor(() => expect(aiStart).toHaveBeenCalledWith("kakao:playerb:same-match"));
 
@@ -960,11 +961,11 @@ describe("MatchCard isolated detail state", () => {
     }));
     expect(signalA.aborted).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("팀원 교전 성적");
+    await screen.findByText("팀원 · 경기 전체");
 
     resolveA(jsonResponse(detail("same-match", "PlayerA")));
     await act(async () => Promise.resolve());
-    fireEvent.click(screen.getByRole("button", { name: /팀원 교전 성적/ }));
+    fireEvent.click(screen.getByRole("button", { name: /팀원 · 경기 전체/ }));
     expect(screen.getByText("PlayerB")).toBeInTheDocument();
     expect(screen.queryByText("PlayerA")).not.toBeInTheDocument();
     expect(onFailure).not.toHaveBeenCalled();
@@ -1028,16 +1029,16 @@ describe("상세 기록의 결측과 실제 0", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => data }));
     renderCard();
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByRole("button", { name: /팀원 교전 성적/ });
+    await screen.findByRole("button", { name: /팀원 · 경기 전체/ });
     const missing = value == null || Number.isNaN(value);
     for (const label of ["헤드샷", "어시스트", "기절시킴", "생존시간"]) {
       expect(screen.getByText(label).parentElement?.lastElementChild).toHaveTextContent(
         missing ? "—" : label === "생존시간" ? "0분" : "0",
       );
     }
-    fireEvent.click(screen.getByRole("button", { name: /팀원 교전 성적/ }));
-    for (const label of ["Kills", "Assists", "DBNOs", "Damage"]) {
-      expect(screen.getByText(label).parentElement?.lastElementChild).toHaveTextContent(missing ? "—" : "0");
+    fireEvent.click(screen.getByRole("button", { name: /팀원 · 경기 전체/ }));
+    for (const label of ["킬", "어시스트", "기절", "피해량"]) {
+      expect(screen.getAllByText(label).at(-1)?.parentElement?.lastElementChild).toHaveTextContent(missing ? "—" : "0");
     }
   });
 
@@ -1070,9 +1071,9 @@ describe("상세 기록의 결측과 실제 0", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(data)));
     renderCard();
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    fireEvent.click(await screen.findByRole("button", { name: /팀원 교전 성적/ }));
-    for (const label of ["Kills", "Assists", "DBNOs", "Damage"]) {
-      expect(screen.getByText(label).parentElement?.lastElementChild).toHaveTextContent("—");
+    fireEvent.click(await screen.findByRole("button", { name: /팀원 · 경기 전체/ }));
+    for (const label of ["킬", "어시스트", "기절", "피해량"]) {
+      expect(screen.getAllByText(label).at(-1)?.parentElement?.lastElementChild).toHaveTextContent("—");
     }
   });
 });

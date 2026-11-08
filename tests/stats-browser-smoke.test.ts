@@ -940,9 +940,9 @@ describeBrowser("stats browser smoke", () => {
         await waitForSummarySuccess(dispatcher, 'FixturePlayer', 'steam');
         await page.click('[data-compact-match-id="match-fixture-1"] button[aria-label="매치 상세 펼치기"]');
         await waitForDetailSuccess(dispatcher, 'FixturePlayer', 'steam');
-        await clickButtonText(page, '팀원 교전 성적');
+        await clickButtonText(page, '팀원 · 경기 전체');
         const detail = await page.$eval('[data-testid="expanded-match-details"]', (root) => {
-          const labels = ['헤드샷', '어시스트', '기절시킴', '생존시간', 'Kills', 'Assists', 'DBNOs', 'Damage'];
+          const labels = ['헤드샷', '어시스트', '기절시킴', '생존시간', '킬', '기절', '피해량'];
           return Array.from(root.querySelectorAll('span')).filter(node => labels.includes(node.textContent || '')).map(label => {
             const cell = label.parentElement!;
             const value = cell.lastElementChild!;
@@ -1608,19 +1608,17 @@ describeBrowser("stats browser smoke", () => {
         await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="내 처치"]' });
         await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="나를 맞힌 것"]' });
         await waitForStatsText({ dispatcher, page, text: "사람 팀 기준 #2" });
-        await clickButtonText(page, "경기 전체");
+        await clickButtonText(page, "팀원 · 경기 전체");
         await waitForStatsSelector({ dispatcher, page, selector: 'ol[aria-label="팀 순위"]' });
         const tierButtonSelector = '[data-compact-match-id="match-fixture-1"] button[aria-haspopup="dialog"]';
         await page.click(tierButtonSelector);
         await waitForStatsSelector({ dispatcher, page, selector: 'section[aria-label="매치 성과 및 티어 근거"]' });
         await page.click(viewport.width < 768 ? 'button[aria-label="티어 근거 닫기"]' : tierButtonSelector);
         await dispatcher.withFatal(page.waitForFunction(() => !document.querySelector('[data-testid="match-tier-tooltip"]')));
-        await clickButtonText(page, "무기 사용 및 고정밀 교전 분석");
+        await clickButtonText(page, "무기 기록");
         await waitForStatsText({ dispatcher, page, text: "내 무기 상세 스탯" });
-        await waitForStatsText({ dispatcher, page, text: "전술 위치 분석 및 타임라인" });
-        await clickButtonText(page, "팀원 교전 성적");
-        await waitForStatsText({ dispatcher, page, text: "팀원 교전 성적" });
-        await clickButtonText(page, "AI 전술 코칭");
+        await waitForStatsText({ dispatcher, page, text: "지도와 전체 이벤트 보기" });
+        await clickButtonText(page, "AI 코칭");
         await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label="이 매치 정밀 분석 시작하기"]' });
         await page.click('button[aria-label="이 매치 정밀 분석 시작하기"]');
         expect(dispatcher.ledger.count({ pathname: "/api/pubg/ai-analyze" })).toBe(0);

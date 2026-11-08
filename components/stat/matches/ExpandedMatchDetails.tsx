@@ -15,6 +15,7 @@ import {
   MousePointer2,
   Clock,
   Swords,
+  Trophy,
   User,
   PlayCircle,
   X,
@@ -36,7 +37,7 @@ export { MatchPerformancePanel } from "./MatchPerformancePanel";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { BOT_SHARE_LEVEL_LABELS, buildBotShare } from "@/lib/pubg-analysis/botShare";
 import { hasMatchFlow, hasMatchOverview, humanTeamPlace } from "@/lib/pubg-analysis/matchReportView";
-import { MatchDeathLine, MatchFlowContent, MatchOverviewContent } from "./MatchReportSections";
+import { MatchDeathLine, MatchFlowContent, MatchOverviewContent, MatchPlayerRankingContent, playerRankSummary } from "./MatchReportSections";
 import { normalizeSquadWeaponStats } from "@/lib/pubg-analysis/squadWeaponStats";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
@@ -60,7 +61,6 @@ const TimelineMiniMap = dynamic(
 
 const CollapsibleDetailSection = ({
   title,
-  eyebrow,
   icon,
   isOpen,
   onToggle,
@@ -68,7 +68,6 @@ const CollapsibleDetailSection = ({
   children
 }: {
   title: string;
-  eyebrow: string;
   icon: React.ReactNode;
   isOpen: boolean;
   onToggle: () => void;
@@ -91,7 +90,6 @@ const CollapsibleDetailSection = ({
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-black text-white">{title}</div>
-          <div className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-widest text-gray-400">{eyebrow}</div>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -368,12 +366,12 @@ export const ExpandedMatchDetails = ({
   const [detailState, setDetailState] = useState<MatchDetailState>({ status: "summary" });
   const [openDetailSections, setOpenDetailSections] = useState({
     weapons: false,
-    tactical: false,
     ai: false,
+    ranking: false,
     team: false,
-    flow: false,
-    overview: false
+    flow: false
   });
+  const [showFlowMap, setShowFlowMap] = useState(false);
   const [showReplayModal, setShowReplayModal] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -428,6 +426,7 @@ export const ExpandedMatchDetails = ({
   const botShare = matchData ? buildBotShare(matchData.totalPlayers, matchData.botCount) : null;
   const matchReport = matchData?.matchReport ?? null;
   const humanPlace = matchReport ? humanTeamPlace(matchReport) : null;
+  const rankSummary = useMemo(() => (matchReport ? playerRankSummary(matchReport, nickname) : null), [matchReport, nickname]);
   const normalizedNickname = normalizeName(nickname);
   const normalizedTeamMembers = useMemo(() => {
     const memberMap = new Map<string, MatchTeamMember>();
@@ -1106,12 +1105,12 @@ export const ExpandedMatchDetails = ({
       )}
 
 
-      {/* Quick Action Bar (Floating) */}
-      {!isTdmMatch && (
-        <div
-          data-testid="match-replay-action"
-          className="px-3.5 pt-4 pb-3.5 md:px-5 md:pt-5 md:pb-4 flex flex-wrap gap-2 md:gap-3"
-        >
+      {/* 리플레이·상대 보기 액션 */}
+      <div
+        data-testid="match-replay-action"
+        className="px-3.5 pt-4 pb-3.5 md:px-5 md:pt-5 md:pb-4 flex flex-wrap items-center gap-2 md:gap-3"
+      >
+        {!isTdmMatch && (
           <button
             type="button"
             aria-label="리플레이 분석"
@@ -1119,15 +1118,21 @@ export const ExpandedMatchDetails = ({
               e.stopPropagation();
               setShowReplayModal(true);
             }}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] md:text-[11px] font-black uppercase tracking-tighter transition-all hover:scale-105 active:scale-95 bg-[#ff9f0a] hover:bg-[#e08b00] text-[#0d1117] shadow-[0_0_20px_rgba(255,159,10,0.25)] border border-[#ff9f0a]/30 cursor-pointer`}
+            className={`flex min-h-11 items-center gap-1.5 px-4 rounded-xl text-[11px] font-black uppercase tracking-tighter transition-all hover:scale-105 active:scale-95 bg-[#ff9f0a] hover:bg-[#e08b00] text-[#0d1117] shadow-[0_0_20px_rgba(255,159,10,0.25)] border border-[#ff9f0a]/30 cursor-pointer`}
           >
-            <PlayCircle size={13} className="md:w-4 md:h-4 shrink-0" />
+            <PlayCircle size={14} className="shrink-0" />
             리플레이 분석
           </button>
-        </div>
-      )}
-
-      <Link className="inline-flex min-h-11 items-center rounded-xl border border-white/10 px-4 text-xs font-bold text-white/70" href={`/stats/${platform}/${encodeURIComponent(nickname)}/encounters?matchId=${encodeURIComponent(matchId)}`}>이 경기 상대 보기</Link>
+        )}
+        <Link
+          onClick={(e) => e.stopPropagation()}
+          className="flex min-h-11 items-center gap-1.5 px-4 rounded-xl text-[11px] font-black tracking-tighter text-white/80 bg-white/5 border border-white/10 transition-colors hover:bg-white/10 hover:text-white"
+          href={`/stats/${platform}/${encodeURIComponent(nickname)}/encounters?matchId=${encodeURIComponent(matchId)}`}
+        >
+          <Swords size={14} className="shrink-0" aria-hidden="true" />
+          이 경기 상대 보기
+        </Link>
+      </div>
 
       {/* Expanded Content */}
       <div className="p-3 md:p-6 pt-0 border-t border-white/10 animate-in slide-in-from-top-4 duration-500 bg-transparent rounded-b-2xl relative z-10">
@@ -1156,366 +1161,22 @@ export const ExpandedMatchDetails = ({
           )}
           {matchReport && <MatchDeathLine report={matchReport} />}
 
-          {hasMatchFlow(matchReport) && (
-            <CollapsibleDetailSection
-              title="경기 흐름"
-              eyebrow="착지 · 교전 · 자기장 · 회복"
-              icon={<Activity size={16} className="text-sky-400" />}
-              isOpen={openDetailSections.flow}
-              onToggle={() => toggleDetailSection("flow")}
-              summary={`교전 ${matchReport.fights.length}번`}
-            >
-              <MatchFlowContent
-                report={matchReport}
-                canReplay={replayMapId !== null && getMatchDetailRetention(matchDate).status === "available"}
-                onReplayAt={openReplayAt}
-              />
-            </CollapsibleDetailSection>
-          )}
-
-          {/* Premium Vehicle Combat Banner */}
-          {hasVehicleCombat && (() => {
-            const isMaster = vehicleCombatTotal >= 2;
-            const badgeTitle = isMaster ? "차량 전술 교전 마스터" : "차량 기동 교전";
-            const badgeDesc = isMaster
-              ? "차량 위에서 적을 격추하거나, 차량 내부의 적을 제압하거나, 차량 충돌로 적을 제압한 고급 플레이어 업적입니다."
-              : "차량 위에서 적을 사격하거나, 차량 내부의 적을 제압하거나, 차량 충돌로 적을 제압하는 기동 전술의 시작입니다.";
-
-            // 등급에 따른 그라데이션 및 광채 스타일 분기
-            const containerStyle = isMaster
-              ? "mt-6 relative overflow-hidden bg-gradient-to-r from-amber-500/5 via-orange-600/5 to-indigo-500/5 border border-white/10 rounded-[2rem] p-6 shadow-2xl transition-all duration-300 hover:border-amber-500/30"
-              : "mt-6 relative overflow-hidden bg-gradient-to-r from-slate-600/5 via-slate-700/5 to-slate-800/5 border border-white/5 rounded-[2rem] p-6 shadow-xl transition-all duration-300 hover:border-slate-500/20";
-
-            const iconBgStyle = isMaster
-              ? "w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0"
-              : "w-12 h-12 bg-gradient-to-br from-slate-500 to-slate-600 rounded-2xl flex items-center justify-center shadow-md shadow-slate-500/10 shrink-0";
-
-            const tagColorStyle = isMaster
-              ? "text-[10px] font-black text-amber-400 uppercase tracking-widest bg-amber-500/10 px-2 py-0.5 rounded-full"
-              : "text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-500/10 px-2 py-0.5 rounded-full";
-
-            return (
-              <div className={containerStyle}>
-                {/* 백그라운드 발광 효과 */}
-                {isMaster ? (
-                  <>
-                    <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-                    <div className="absolute bottom-0 left-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-                  </>
-                ) : (
-                  <>
-                    <div className="absolute top-0 right-0 w-48 h-48 bg-slate-500/5 rounded-full blur-3xl pointer-events-none" />
-                  </>
-                )}
-
-                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                  <div className="flex items-center gap-4">
-                    <div className={iconBgStyle}>
-                      <Car size={24} className="text-white" />
-                    </div>
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        <span className={tagColorStyle}>
-                          전술 업적
-                        </span>
-                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                          {badgeTitle}
-                        </span>
-                      </div>
-                      <h4 className="text-white font-black text-lg mt-1 tracking-tight">{badgeTitle}</h4>
-                      <p className="text-xs text-gray-400 mt-0.5 font-medium">
-                        {badgeDesc}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:flex gap-3 w-full md:w-auto">
-                    {Number(leadKills || leadKnocks) > 0 && (
-                      <div className="flex items-center gap-3 bg-black/40 border border-white/10 px-4 py-3 rounded-2xl flex-1 md:flex-none">
-                        <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shrink-0">
-                          <Crosshair size={16} />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] text-gray-400 font-bold uppercase">리드샷 (표적 사격)</span>
-                          <span className="text-[13px] text-white font-black leading-tight mt-0.5">
-                            기절 <span className="text-amber-400">{leadKnocks}</span> · 킬 <span className="text-red-400">{leadKills}</span>
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {Number(ridingKills || ridingKnocks) > 0 && (
-                      <div className="flex items-center gap-3 bg-black/40 border border-white/10 px-4 py-3 rounded-2xl flex-1 md:flex-none">
-                        <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 shrink-0">
-                          <Swords size={16} />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] text-gray-400 font-bold uppercase">라이딩샷 (탑승 사격)</span>
-                          <span className="text-[13px] text-white font-black leading-tight mt-0.5">
-                            기절 <span className="text-indigo-400">{ridingKnocks}</span> · 킬 <span className="text-red-400">{ridingKills}</span>
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {Number(roadKills || roadKnocks) > 0 && (
-                      <div className="flex items-center gap-3 bg-black/40 border border-white/10 px-4 py-3 rounded-2xl flex-1 md:flex-none">
-                        <div className="w-8 h-8 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-400 shrink-0">
-                          <Car size={16} />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[9px] text-gray-400 font-bold uppercase">로드킬 (차량 충돌)</span>
-                          <span className="text-[13px] text-white font-black leading-tight mt-0.5">
-                            기절 <span className="text-rose-400">{roadKnocks}</span> · 킬 <span className="text-rose-400">{roadKills}</span>
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* [V58.4] 무기 세부 분석 및 아군 기여도 (Weapon & Squad Armory) */}
-          {((matchData.weaponStats && Object.keys(matchData.weaponStats).length > 0) ||
-            (Object.keys(normalizedSquadWeaponStats).length > 0)) && (
-            <CollapsibleDetailSection
-              title="무기 사용 및 고정밀 교전 분석"
-              eyebrow="무기 숙련도 및 아군 화력 기여"
-              icon={<Flame size={16} className="text-amber-400" />}
-              isOpen={openDetailSections.weapons}
-              onToggle={() => toggleDetailSection("weapons")}
-              summary={`${Object.keys(matchData.weaponStats || {}).length}개 무기`}
-            >
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Left: 나의 무기 스탯 (7/12) */}
-                {matchData.weaponStats && Object.keys(matchData.weaponStats).length > 0 ? (
-                  <div className="lg:col-span-7 bg-white/2 border border-white/5 rounded-[2.5rem] p-6 flex flex-col gap-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">내 무기 상세 스탯</span>
-                      <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">공식 PUBG 통계 보정</span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {Object.entries(matchData.weaponStats).map(([wName, wStat]) => {
-                        const hasAccuracy = wStat.accuracy !== undefined;
-                        // Hit Area Precision Logic
-                        const hitDetails = wStat.hitDetails || [];
-                        let headHits = 0, torsoHits = 0, limbHits = 0;
-
-                        hitDetails.forEach(d => {
-                          if (d.bodyPart === "HeadShot" || d.bodyPart === "Head") headHits += d.hits;
-                          else if (d.bodyPart === "TorsoShot" || d.bodyPart === "PelvisShot") torsoHits += d.hits;
-                          else if (d.bodyPart === "ArmShot" || d.bodyPart === "LegShot") limbHits += d.hits;
-                        });
-
-                        const totalPrecisionHits = headHits + torsoHits + limbHits;
-                        const headPct = totalPrecisionHits > 0 ? (headHits / totalPrecisionHits) * 100 : 0;
-                        const torsoPct = totalPrecisionHits > 0 ? (torsoHits / totalPrecisionHits) * 100 : 0;
-                        const limbPct = totalPrecisionHits > 0 ? (limbHits / totalPrecisionHits) * 100 : 0;
-
-                        return (
-                          <div
-                            key={wName}
-                            className="bg-black/40 border border-white/10 p-5 rounded-3xl relative overflow-hidden group/wcard hover:border-amber-500/30 transition-all duration-300"
-                          >
-                            <div className="absolute top-0 right-0 w-24 h-24 bg-white/2 rounded-full blur-2xl group-hover/wcard:bg-amber-500/5 transition-all duration-500" />
-
-                            <div className="flex justify-between items-start mb-3 relative z-10">
-                              <div>
-                                <h5 className="text-white font-black text-[15px] tracking-tight">{getWeaponDisplayName(wName)}</h5>
-                                <span className="text-[9px] text-gray-400 font-bold uppercase">
-                                  {wStat.holdingTime ? `파지 ${Math.round(wStat.holdingTime)}초` : '주무기'}
-                                </span>
-                              </div>
-                              <div className="flex flex-col items-end">
-                                <span className="text-white font-black text-[14px]">
-                                  {Math.round(wStat.damage)} <span className="text-[10px] text-gray-400 font-medium">딜</span>
-                                </span>
-                                <span className="text-[10px] text-gray-400 font-bold">
-                                  기절 {wStat.dbnos} · {wStat.kills}킬
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* 명중률 (Accuracy) 프로그레스바 */}
-                            {hasAccuracy && (
-                              <div className="mt-4 flex flex-col gap-1 relative z-10">
-                                <div className="flex justify-between items-center text-[10px]">
-                                  <span className="text-gray-400 font-bold">명중률</span>
-                                  <span className="text-amber-400 font-black">
-                                    {wStat.accuracy}% <span className="text-gray-500 font-medium">({wStat.hits}/{wStat.shots}발)</span>
-                                  </span>
-                                </div>
-                                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/10">
-                                  <div
-                                    className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-1000"
-                                    style={{ width: `${wStat.accuracy}%` }}
-                                  />
-                                </div>
-                              </div>
-                            )}
-
-                            {/* 부위별 정밀 타격률 (Hit Area Precision) */}
-                            {totalPrecisionHits > 0 && (
-                              <div className="mt-3 pt-3 border-t border-white/5 flex flex-col gap-2 relative z-10">
-                                <div className="flex justify-between items-center text-[10px]">
-                                  <span className="text-gray-400 font-bold">정밀 타격률</span>
-                                  <span className="text-gray-500 font-medium">{totalPrecisionHits} Hit</span>
-                                </div>
-
-                                {/* Stacked Bar */}
-                                <div className="w-full h-1.5 flex rounded-full overflow-hidden border border-white/10 gap-[1px] bg-black/50">
-                                  {headPct > 0 && <div className="h-full bg-red-500 transition-all duration-1000" style={{ width: `${headPct}%` }} />}
-                                  {torsoPct > 0 && <div className="h-full bg-amber-500 transition-all duration-1000" style={{ width: `${torsoPct}%` }} />}
-                                  {limbPct > 0 && <div className="h-full bg-white/20 transition-all duration-1000" style={{ width: `${limbPct}%` }} />}
-                                </div>
-
-                                {/* Legend & Count */}
-                                <div className="flex justify-between items-center text-[9px] font-bold mt-0.5">
-                                  <div className="flex items-center gap-2">
-                                    {headHits > 0 && <span className="text-red-400 flex items-center gap-0.5"><span className="w-1 h-1 rounded-full bg-red-500"/> 헤드 {headHits}</span>}
-                                    {torsoHits > 0 && <span className="text-amber-400 flex items-center gap-0.5"><span className="w-1 h-1 rounded-full bg-amber-500"/> 몸통 {torsoHits}</span>}
-                                    {limbHits > 0 && <span className="text-gray-400 flex items-center gap-0.5"><span className="w-1 h-1 rounded-full bg-white/20"/> 팔다리 {limbHits}</span>}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="lg:col-span-7 bg-white/2 border border-white/5 rounded-[2.5rem] p-8 flex flex-col items-center justify-center text-center">
-                    <Target size={32} className="text-gray-600 mb-2" />
-                    <span className="text-xs text-gray-400 font-bold">본인 공식 무기 통계 기록 없음</span>
-                  </div>
-                )}
-
-                {/* Right: 아군 무기 기여도 (5/12) */}
-                {Object.keys(normalizedSquadWeaponStats).length > 0 ? (
-                  <div className="lg:col-span-5 bg-white/2 border border-white/5 rounded-[2.5rem] p-6 flex flex-col gap-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">아군 무기 상세 스탯</span>
-                      <span className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded-full">팀원 화력 기여</span>
-                    </div>
-
-                    <div className="flex flex-col gap-4 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
-                      {Object.entries(normalizedSquadWeaponStats).map(([sName, sWeapons]) => {
-                        if (!Array.isArray(sWeapons)) return null;
-                        const totalSDeamage = sWeapons.reduce((sum, w) => sum + w.damage, 0);
-
-                        return (
-                          <div
-                            key={sName}
-                            className="bg-black/30 border border-white/5 p-4 rounded-2xl flex flex-col gap-2.5"
-                          >
-                            <div className="flex justify-between items-center">
-                              <span className="text-white font-black text-[12px] tracking-tight truncate max-w-[150px]">
-                                {sName}
-                              </span>
-                              <span className="text-[11px] text-indigo-400 font-black">
-                                총 {Math.round(totalSDeamage)} 딜
-                              </span>
-                            </div>
-
-                            <div className="flex flex-col gap-2">
-                              {sWeapons.map((sw, sIdx) => (
-                                <div key={sIdx} className="flex flex-col gap-1 text-[10px]">
-                                  <div className="flex justify-between items-center text-gray-400">
-                                    <span className="font-bold">{getWeaponDisplayName(sw.weapon)}</span>
-                                    <span className="font-black text-white/80">
-                                      {Math.round(sw.damage)}딜 <span className="text-gray-500 font-medium">({sw.accuracy}%)</span>
-                                    </span>
-                                  </div>
-                                  <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                                    <div
-                                      className="h-full bg-indigo-500 rounded-full transition-all duration-1000"
-                                      style={{ width: `${Math.min(100, (sw.damage / Math.max(1, totalSDeamage)) * 100)}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="lg:col-span-5 bg-white/2 border border-white/5 rounded-[2.5rem] p-8 flex flex-col items-center justify-center text-center">
-                    <User size={32} className="text-gray-600 mb-2" />
-                    <span className="text-xs text-gray-400 font-bold">아군 화력 통계 기록 없음</span>
-                  </div>
-                )}
-              </div>
-            </CollapsibleDetailSection>
-          )}
-
-          {/* [V12.5] New Tactical Dashboard (Radar + Timeline) */}
-          {!isTdmMatch && (
-            <CollapsibleDetailSection
-              title="전술 위치 분석 및 타임라인"
-              eyebrow="전술 위치 및 매치 타임라인"
-              icon={<Target size={18} className="text-indigo-400" />}
-              isOpen={openDetailSections.tactical}
-              onToggle={() => toggleDetailSection("tactical")}
-              summary={`이벤트 ${matchData!.timeline?.filter((e: any) => e.type !== 'PHASE_START').length || 0}개`}
-            >
-                <div className="p-3 md:p-4 pt-0 grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-4 animate-in slide-in-from-top-2 duration-300">
-                  {/* Left: Mini Map */}
-                  <div data-testid="match-tactical-map" className="lg:col-span-5 xl:col-span-4 bg-white/2 border border-white/5 rounded-[1.5rem] overflow-hidden min-h-[240px] sm:min-h-[280px] lg:min-h-0 lg:h-[360px] relative group/map">
-                    <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-[9px] text-gray-400 font-black uppercase tracking-widest opacity-0 group-hover/map:opacity-100 transition-opacity">
-                      인터랙티브 전술 지도
-                    </div>
-                    <TimelineMiniMap
-                      selectedEvent={selectedEvent}
-                      mapId={mapId}
-                    />
-                    {!selectedEvent && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] pointer-events-none z-20">
-                        <div className="bg-black/80 backdrop-blur-xl px-5 py-3 rounded-2xl border border-white/10 flex flex-col items-center gap-2 shadow-2xl scale-90 md:scale-100">
-                          <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center mb-1">
-                            <MousePointer2 size={20} className="text-blue-400 animate-bounce" />
-                          </div>
-                          <span className="text-[11px] text-white font-black tracking-tight">이벤트를 클릭하여 위치 확인</span>
-                          <span className="text-[9px] text-gray-400 font-bold">지도에 교전 지점이 표시됩니다</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Right: Timeline */}
-                  <div className="lg:col-span-7 xl:col-span-8 bg-white/2 border border-white/5 rounded-[1.5rem] p-3 md:p-4 lg:h-[360px] flex flex-col">
-                    <div className="flex items-center justify-between mb-3 shrink-0">
-                      <div className="text-[10px] text-gray-400 font-black uppercase tracking-widest">매치 타임라인</div>
-                      <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] text-gray-400 font-bold">
-                        <Clock size={10} />
-                        <span>{Math.floor(matchData!.stats.timeSurvived / 60)}분 {matchData!.stats.timeSurvived % 60}초 생존</span>
-                      </div>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                      <MatchTimeline
-                        events={matchData!.timeline || []}
-                        nickname={nickname}
-                        onEventClick={(event: any) => {
-                          setSelectedEvent(event);
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-            </CollapsibleDetailSection>
+          {hasVehicleCombat && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400" aria-label="차량 교전">
+              <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 font-bold text-amber-300">
+                <Car size={11} aria-hidden="true" />
+                차량 교전
+              </span>
+              {Number(leadKills || leadKnocks) > 0 && <span>리드샷 기절 {leadKnocks} · 킬 {leadKills}</span>}
+              {Number(ridingKills || ridingKnocks) > 0 && <span>탑승 사격 기절 {ridingKnocks} · 킬 {ridingKills}</span>}
+              {Number(roadKills || roadKnocks) > 0 && <span>로드킬 기절 {roadKnocks} · 킬 {roadKills}</span>}
+            </p>
           )}
 
           {/* AI Analysis Section */}
           {!isTdmMatch && (
             <CollapsibleDetailSection
-              title="AI 전술 코칭"
-              eyebrow="Tactical Analysis"
+              title="AI 코칭"
               icon={<BarChart2 size={20} className={isRanked ? 'text-amber-500' : 'text-indigo-400'} />}
               isOpen={openDetailSections.ai}
               onToggle={() => toggleDetailSection("ai")}
@@ -1724,14 +1385,287 @@ export const ExpandedMatchDetails = ({
             </CollapsibleDetailSection>
           )}
 
-          {/* 팀원 리스트 및 개인 교전 성적 */}
+          {matchReport && matchReport.teams.length > 0 && (
+            <CollapsibleDetailSection
+              title="개인 성적"
+              icon={<Trophy size={16} className="text-[#F2A900]" />}
+              isOpen={openDetailSections.ranking}
+              onToggle={() => toggleDetailSection("ranking")}
+              summary={rankSummary ?? undefined}
+            >
+              <MatchPlayerRankingContent report={matchReport} nickname={nickname} onNicknameClick={onNicknameClick} />
+            </CollapsibleDetailSection>
+          )}
+
+          {(hasMatchFlow(matchReport) || !isTdmMatch) && (
+            <CollapsibleDetailSection
+              title="경기 흐름"
+              icon={<Activity size={16} className="text-sky-400" />}
+              isOpen={openDetailSections.flow}
+              onToggle={() => toggleDetailSection("flow")}
+              summary={hasMatchFlow(matchReport) ? `교전 ${matchReport.fights.length}번` : undefined}
+            >
+              {hasMatchFlow(matchReport) && (
+                <MatchFlowContent
+                  report={matchReport}
+                  canReplay={replayMapId !== null && getMatchDetailRetention(matchDate).status === "available"}
+                  onReplayAt={openReplayAt}
+                />
+              )}
+              {!isTdmMatch && (
+                <>
+                  <button
+                    type="button"
+                    aria-expanded={showFlowMap}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setShowFlowMap((current) => !current);
+                    }}
+                    className="mt-3 flex min-h-11 w-full items-center justify-between rounded-xl border border-white/10 px-4 text-xs font-bold text-white/70 hover:bg-white/5"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Target size={14} className="text-indigo-400" aria-hidden="true" />
+                      지도와 전체 이벤트 보기
+                    </span>
+                    <span className="flex items-center gap-2 text-[10px] text-white/50">
+                      이벤트 {matchData!.timeline?.filter((e: any) => e.type !== 'PHASE_START').length || 0}개
+                      <ChevronDown size={14} className={`transition-transform ${showFlowMap ? "rotate-180" : ""}`} aria-hidden="true" />
+                    </span>
+                  </button>
+                  {showFlowMap && (
+                  <div className="mt-3 grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-4 animate-in slide-in-from-top-2 duration-300">
+                    {/* Left: Mini Map */}
+                    <div data-testid="match-tactical-map" className="lg:col-span-5 xl:col-span-4 bg-white/2 border border-white/5 rounded-[1.5rem] overflow-hidden min-h-[240px] sm:min-h-[280px] lg:min-h-0 lg:h-[360px] relative group/map">
+                      <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-[9px] text-gray-400 font-black uppercase tracking-widest opacity-0 group-hover/map:opacity-100 transition-opacity">
+                        인터랙티브 전술 지도
+                      </div>
+                      <TimelineMiniMap
+                        selectedEvent={selectedEvent}
+                        mapId={mapId}
+                      />
+                      {!selectedEvent && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] pointer-events-none z-20">
+                          <div className="bg-black/80 backdrop-blur-xl px-5 py-3 rounded-2xl border border-white/10 flex flex-col items-center gap-2 shadow-2xl scale-90 md:scale-100">
+                            <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center mb-1">
+                              <MousePointer2 size={20} className="text-blue-400 animate-bounce" />
+                            </div>
+                            <span className="text-[11px] text-white font-black tracking-tight">이벤트를 클릭하여 위치 확인</span>
+                            <span className="text-[9px] text-gray-400 font-bold">지도에 교전 지점이 표시됩니다</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right: Timeline */}
+                    <div className="lg:col-span-7 xl:col-span-8 bg-white/2 border border-white/5 rounded-[1.5rem] p-3 md:p-4 lg:h-[360px] flex flex-col">
+                      <div className="flex items-center justify-between mb-3 shrink-0">
+                        <div className="text-[10px] text-gray-400 font-black uppercase tracking-widest">매치 타임라인</div>
+                        <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] text-gray-400 font-bold">
+                          <Clock size={10} />
+                          <span>{Math.floor(matchData!.stats.timeSurvived / 60)}분 {matchData!.stats.timeSurvived % 60}초 생존</span>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                        <MatchTimeline
+                          events={matchData!.timeline || []}
+                          nickname={nickname}
+                          onEventClick={(event: any) => {
+                            setSelectedEvent(event);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  )}
+                </>
+              )}
+            </CollapsibleDetailSection>
+          )}
+
+          {/* [V58.4] 무기 세부 분석 및 아군 기여도 (Weapon & Squad Armory) */}
+          {((matchData.weaponStats && Object.keys(matchData.weaponStats).length > 0) ||
+            (Object.keys(normalizedSquadWeaponStats).length > 0)) && (
+            <CollapsibleDetailSection
+              title="무기 기록"
+              icon={<Flame size={16} className="text-amber-400" />}
+              isOpen={openDetailSections.weapons}
+              onToggle={() => toggleDetailSection("weapons")}
+              summary={`${Object.keys(matchData.weaponStats || {}).length}개 무기`}
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left: 나의 무기 스탯 (7/12) */}
+                {matchData.weaponStats && Object.keys(matchData.weaponStats).length > 0 ? (
+                  <div className="lg:col-span-7 bg-white/2 border border-white/5 rounded-[2.5rem] p-6 flex flex-col gap-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">내 무기 상세 스탯</span>
+                      <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">공식 PUBG 통계 보정</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {Object.entries(matchData.weaponStats).map(([wName, wStat]) => {
+                        const hasAccuracy = wStat.accuracy !== undefined;
+                        // Hit Area Precision Logic
+                        const hitDetails = wStat.hitDetails || [];
+                        let headHits = 0, torsoHits = 0, limbHits = 0;
+
+                        hitDetails.forEach(d => {
+                          if (d.bodyPart === "HeadShot" || d.bodyPart === "Head") headHits += d.hits;
+                          else if (d.bodyPart === "TorsoShot" || d.bodyPart === "PelvisShot") torsoHits += d.hits;
+                          else if (d.bodyPart === "ArmShot" || d.bodyPart === "LegShot") limbHits += d.hits;
+                        });
+
+                        const totalPrecisionHits = headHits + torsoHits + limbHits;
+                        const headPct = totalPrecisionHits > 0 ? (headHits / totalPrecisionHits) * 100 : 0;
+                        const torsoPct = totalPrecisionHits > 0 ? (torsoHits / totalPrecisionHits) * 100 : 0;
+                        const limbPct = totalPrecisionHits > 0 ? (limbHits / totalPrecisionHits) * 100 : 0;
+
+                        return (
+                          <div
+                            key={wName}
+                            className="bg-black/40 border border-white/10 p-5 rounded-3xl relative overflow-hidden group/wcard hover:border-amber-500/30 transition-all duration-300"
+                          >
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-white/2 rounded-full blur-2xl group-hover/wcard:bg-amber-500/5 transition-all duration-500" />
+
+                            <div className="flex justify-between items-start mb-3 relative z-10">
+                              <div>
+                                <h5 className="text-white font-black text-[15px] tracking-tight">{getWeaponDisplayName(wName)}</h5>
+                                <span className="text-[9px] text-gray-400 font-bold uppercase">
+                                  {wStat.holdingTime ? `파지 ${Math.round(wStat.holdingTime)}초` : '주무기'}
+                                </span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="text-white font-black text-[14px]">
+                                  {Math.round(wStat.damage)} <span className="text-[10px] text-gray-400 font-medium">딜</span>
+                                </span>
+                                <span className="text-[10px] text-gray-400 font-bold">
+                                  기절 {wStat.dbnos} · {wStat.kills}킬
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 명중률 (Accuracy) 프로그레스바 */}
+                            {hasAccuracy && (
+                              <div className="mt-4 flex flex-col gap-1 relative z-10">
+                                <div className="flex justify-between items-center text-[10px]">
+                                  <span className="text-gray-400 font-bold">명중률</span>
+                                  <span className="text-amber-400 font-black">
+                                    {wStat.accuracy}% <span className="text-gray-500 font-medium">({wStat.hits}/{wStat.shots}발)</span>
+                                  </span>
+                                </div>
+                                <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/10">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full transition-all duration-1000"
+                                    style={{ width: `${wStat.accuracy}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 부위별 정밀 타격률 (Hit Area Precision) */}
+                            {totalPrecisionHits > 0 && (
+                              <div className="mt-3 pt-3 border-t border-white/5 flex flex-col gap-2 relative z-10">
+                                <div className="flex justify-between items-center text-[10px]">
+                                  <span className="text-gray-400 font-bold">정밀 타격률</span>
+                                  <span className="text-gray-500 font-medium">{totalPrecisionHits} Hit</span>
+                                </div>
+
+                                {/* Stacked Bar */}
+                                <div className="w-full h-1.5 flex rounded-full overflow-hidden border border-white/10 gap-[1px] bg-black/50">
+                                  {headPct > 0 && <div className="h-full bg-red-500 transition-all duration-1000" style={{ width: `${headPct}%` }} />}
+                                  {torsoPct > 0 && <div className="h-full bg-amber-500 transition-all duration-1000" style={{ width: `${torsoPct}%` }} />}
+                                  {limbPct > 0 && <div className="h-full bg-white/20 transition-all duration-1000" style={{ width: `${limbPct}%` }} />}
+                                </div>
+
+                                {/* Legend & Count */}
+                                <div className="flex justify-between items-center text-[9px] font-bold mt-0.5">
+                                  <div className="flex items-center gap-2">
+                                    {headHits > 0 && <span className="text-red-400 flex items-center gap-0.5"><span className="w-1 h-1 rounded-full bg-red-500"/> 헤드 {headHits}</span>}
+                                    {torsoHits > 0 && <span className="text-amber-400 flex items-center gap-0.5"><span className="w-1 h-1 rounded-full bg-amber-500"/> 몸통 {torsoHits}</span>}
+                                    {limbHits > 0 && <span className="text-gray-400 flex items-center gap-0.5"><span className="w-1 h-1 rounded-full bg-white/20"/> 팔다리 {limbHits}</span>}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="lg:col-span-7 bg-white/2 border border-white/5 rounded-[2.5rem] p-8 flex flex-col items-center justify-center text-center">
+                    <Target size={32} className="text-gray-600 mb-2" />
+                    <span className="text-xs text-gray-400 font-bold">본인 공식 무기 통계 기록 없음</span>
+                  </div>
+                )}
+
+                {/* Right: 아군 무기 기여도 (5/12) */}
+                {Object.keys(normalizedSquadWeaponStats).length > 0 ? (
+                  <div className="lg:col-span-5 bg-white/2 border border-white/5 rounded-[2.5rem] p-6 flex flex-col gap-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">아군 무기 상세 스탯</span>
+                      <span className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded-full">팀원 화력 기여</span>
+                    </div>
+
+                    <div className="flex flex-col gap-4 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
+                      {Object.entries(normalizedSquadWeaponStats).map(([sName, sWeapons]) => {
+                        if (!Array.isArray(sWeapons)) return null;
+                        const totalSDeamage = sWeapons.reduce((sum, w) => sum + w.damage, 0);
+
+                        return (
+                          <div
+                            key={sName}
+                            className="bg-black/30 border border-white/5 p-4 rounded-2xl flex flex-col gap-2.5"
+                          >
+                            <div className="flex justify-between items-center">
+                              <span className="text-white font-black text-[12px] tracking-tight truncate max-w-[150px]">
+                                {sName}
+                              </span>
+                              <span className="text-[11px] text-indigo-400 font-black">
+                                총 {Math.round(totalSDeamage)} 딜
+                              </span>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                              {sWeapons.map((sw, sIdx) => (
+                                <div key={sIdx} className="flex flex-col gap-1 text-[10px]">
+                                  <div className="flex justify-between items-center text-gray-400">
+                                    <span className="font-bold">{getWeaponDisplayName(sw.weapon)}</span>
+                                    <span className="font-black text-white/80">
+                                      {Math.round(sw.damage)}딜 <span className="text-gray-500 font-medium">({sw.accuracy}%)</span>
+                                    </span>
+                                  </div>
+                                  <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-indigo-500 rounded-full transition-all duration-1000"
+                                      style={{ width: `${Math.min(100, (sw.damage / Math.max(1, totalSDeamage)) * 100)}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="lg:col-span-5 bg-white/2 border border-white/5 rounded-[2.5rem] p-8 flex flex-col items-center justify-center text-center">
+                    <User size={32} className="text-gray-600 mb-2" />
+                    <span className="text-xs text-gray-400 font-bold">아군 화력 통계 기록 없음</span>
+                  </div>
+                )}
+              </div>
+            </CollapsibleDetailSection>
+          )}
+
+          {/* 팀원 성적과 경기 전체(팀 순위·킬 기록) */}
           <CollapsibleDetailSection
-            title="팀원 교전 성적"
-            eyebrow="Squad combat stats"
-            icon={<User size={18} className="text-gray-400" />}
+            title="팀원 · 경기 전체"
+            icon={<ListTree size={16} className="text-violet-300" />}
             isOpen={openDetailSections.team}
             onToggle={() => toggleDetailSection("team")}
-            summary={`${normalizedTeamMembers.length}명`}
+            summary={hasMatchOverview(matchReport) ? `${normalizedTeamMembers.length}명 · ${matchReport.teams.length}팀` : `${normalizedTeamMembers.length}명`}
           >
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {normalizedTeamMembers.map((member, idx) => {
@@ -1765,25 +1699,24 @@ export const ExpandedMatchDetails = ({
                         <span className={`text-sm font-black truncate ${isMe ? 'text-white' : 'text-gray-300'}`}>
                           {member.name}
                         </span>
-                        <span className="text-[10px] text-gray-400 font-bold">Player No.{idx + 1}</span>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-400 font-bold uppercase">Kills</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">킬</span>
                         <span className="text-sm font-black text-red-400">{displayStat(member.kills)}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-400 font-bold uppercase">Assists</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">어시스트</span>
                         <span className="text-sm font-black text-indigo-400">{displayStat(member.assists)}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-400 font-bold uppercase">DBNOs</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">기절</span>
                         <span className="text-sm font-black text-yellow-500">{displayStat(member.DBNOs)}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-400 font-bold uppercase">Damage</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">피해량</span>
                         <span className="text-sm font-black text-white">{displayStat(member.damageDealt, Math.floor)}</span>
                       </div>
                     </div>
@@ -1791,20 +1724,12 @@ export const ExpandedMatchDetails = ({
                 );
               })}
             </div>
+            {hasMatchOverview(matchReport) && (
+              <div className="mt-5 border-t border-white/5 pt-4">
+                <MatchOverviewContent report={matchReport} />
+              </div>
+            )}
           </CollapsibleDetailSection>
-
-          {hasMatchOverview(matchReport) && (
-            <CollapsibleDetailSection
-              title="경기 전체"
-              eyebrow="팀 순위 · 킬 트리 · 보급 · 봇"
-              icon={<ListTree size={16} className="text-violet-300" />}
-              isOpen={openDetailSections.overview}
-              onToggle={() => toggleDetailSection("overview")}
-              summary={`${matchReport.teams.length}팀 · ${matchReport.kills.length}킬`}
-            >
-              <MatchOverviewContent report={matchReport} />
-            </CollapsibleDetailSection>
-          )}
       </div>
 
       {/* ── 리플레이 분석 모드 선택 모달 ── */}
