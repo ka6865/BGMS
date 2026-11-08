@@ -7,8 +7,6 @@ import { JsonLdProps } from '@/types/seo';
 import { resolveMapIdFromSlug } from '@/lib/map-ids';
 import MapLoadingSkeleton from './MapLoadingSkeleton';
 
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://bgms.kr";
-
 export async function generateMetadata({ params }: { params: Promise<{ mapId: string }> }): Promise<Metadata> {
   const { mapId } = await params;
   // 지원 목록에 있는 지도만 SEO 메타데이터를 노출한다.
@@ -26,12 +24,6 @@ export default async function MapPage({ params }: { params: Promise<{ mapId: str
   if (!formattedId) notFound();
 
   const jsonLd: JsonLdProps[] = [
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "BGMS",
-      "url": baseUrl,
-    },
     getBreadcrumbJsonLd([
       { name: "지도", item: "/" },
       { name: formattedId, item: `/maps/${formattedId.toLowerCase()}` }

@@ -19,10 +19,12 @@ export const metadata: Metadata = {
     "밀수품 상자 시뮬",
     "BGMS"
   ],
+  alternates: { canonical: "/crates" },
   openGraph: {
     title: "배그 상자깡 시뮬레이터 & 배그 현질 시뮬 - BGMS",
     description: "배틀그라운드(PUBG) 공식 확률 기반의 이중가챠 및 밀수품 상자깡 시뮬레이터입니다. 가상 현질 가격 및 획득 스킨을 테스트해보세요.",
     type: "website",
+    images: ["/logo.png"],
   },
 };
 
@@ -63,6 +65,7 @@ export default async function CratesPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <main id="crates-simulator-page" className="w-full">
+        <h1 className="sr-only">배그 상자깡 시뮬레이터</h1>
         <CratesClient initialCrates={crates} exchangeRate={validRate} />
       </main>
     </>

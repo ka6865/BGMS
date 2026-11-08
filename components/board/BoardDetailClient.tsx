@@ -18,6 +18,7 @@ import TurnstileWidget from "./TurnstileWidget";
 import { TURNSTILE_ACTIONS } from "@/lib/board/turnstileContract";
 import AdSenseBanner from "@/components/ads/AdSenseBanner";
 import { rewriteBoardImageUrls, toBoardImageProxyUrl } from "@/lib/board-image-proxy";
+import { fillMissingImageAlt } from "@/lib/board/imageAlt";
 import { AppModal } from "@/components/common/AppModal";
 import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
@@ -488,6 +489,7 @@ export default function BoardDetailClient({
   const processedContent = useMemo(() => {
     let sanitizedContent = sanitizeHTML(post.content || "", mounted);
     sanitizedContent = rewriteBoardImageUrls(sanitizedContent);
+    sanitizedContent = fillMissingImageAlt(sanitizedContent, post.title || "");
     sanitizedContent = sanitizedContent
       .replace(/<p>\s*<\/p>/g, '<p class="board-empty-line"><br/></p>')
       .replace(/<p><br><\/p>/g, '<p class="board-empty-line"><br/></p>')
@@ -498,7 +500,7 @@ export default function BoardDetailClient({
       /<img/gi,
       '<img style="max-width:100%!important;height:auto!important;display:block;border-radius:8px;margin:20px auto;"'
     );
-  }, [post.content, mounted]);
+  }, [post.content, post.title, mounted]);
 
   const postImageUrl = toBoardImageProxyUrl(post.image_url);
 
