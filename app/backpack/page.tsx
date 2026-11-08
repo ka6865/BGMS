@@ -4,8 +4,6 @@ import JsonLd from '@/components/seo/JsonLd';
 import BackpackClient from './BackpackClient';
 import { JsonLdProps } from '@/types/seo';
 
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://bgms.kr";
-
 export const metadata: Metadata = {
   title: "배그 인벤토리 시뮬레이터 | 아이템 무게 및 배낭 용량 계산",
   description: "배틀그라운드 아이템별 무게와 가방/조끼 레벨에 따른 수납 용량을 실시간으로 계산해보세요. 트렁크 보관 기능도 지원합니다.",
@@ -19,12 +17,6 @@ export const metadata: Metadata = {
 
 export default async function BackpackPage() {
   const jsonLd: JsonLdProps[] = [
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "BGMS",
-      "url": baseUrl,
-    },
     getBreadcrumbJsonLd([
       { name: "홈", item: "/" },
       { name: "인벤토리 시뮬레이터", item: "/backpack" }
@@ -34,6 +26,10 @@ export default async function BackpackPage() {
   return (
     <>
       <JsonLd data={jsonLd} />
+      <div className="sr-only">
+        <h1>배그 인벤토리 시뮬레이터</h1>
+        <p>배틀그라운드 아이템별 무게와 가방, 조끼 레벨에 따른 수납 용량을 계산합니다. 차량 트렁크 보관도 함께 시뮬레이션할 수 있습니다.</p>
+      </div>
       <BackpackClient />
     </>
   );
