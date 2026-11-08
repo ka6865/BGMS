@@ -4,6 +4,7 @@ import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.serv
 import type { MayhemDatasetAdminData, MayhemDatasetRelease, PublicMayhemDataset } from "./mayhemDatasetView";
 import { getCachedLolAugmentCatalog } from "./augments/catalog.server";
 import { mappingSources, type MappingPreview } from "./mayhemMappingReview";
+import { compareReferencePatches } from "./mayhemReference";
 
 export const MAYHEM_DATASET_TAG = "lol-mayhem-dataset";
 const signal = () => AbortSignal.timeout(10_000);
@@ -111,9 +112,18 @@ const getPayload = unstable_cache(async (id: number) => {
     }) };
 }, ["lol-mayhem-payload-v1"], { revalidate: 3600 });
 
+const getMayhemDatasetPublications = unstable_cache(async () => {
+  const { data, error } = await createServiceRoleSupabase().from("lol_mayhem_dataset_publications")
+    .select("client_patch,release_id,published_at").eq("source", "arammayhem").limit(100).abortSignal(signal());
+  if (error) throw new Error("dataset_database_error");
+  return data;
+}, ["lol-mayhem-publications-v1"], { revalidate: 60, tags: [MAYHEM_DATASET_TAG] });
+
+// 새 패치 공개본이 생기기 전에는 직전 패치 공개본을 그 패치 표시와 함께 보여준다.
 export async function getPublicMayhemDataset(patch: string): Promise<PublicMayhemDataset | null> {
   if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return null;
-  const publication = await getMayhemDatasetPublication(patch);
+  const publication = (await getMayhemDatasetPublications()).filter(row => compareReferencePatches(row.client_patch, patch) >= 0)
+    .sort((a, b) => compareReferencePatches(a.client_patch, b.client_patch))[0];
   if (!publication) return null;
-  return { patch, publishedAt: publication.published_at, ...await getPayload(publication.release_id) };
+  return { patch: publication.client_patch, publishedAt: publication.published_at, ...await getPayload(publication.release_id) };
 }

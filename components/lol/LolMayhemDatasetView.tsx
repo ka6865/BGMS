@@ -9,7 +9,7 @@ import type { PublicMayhemDataset } from "@/lib/lol/mayhemDatasetView";
 export default function LolMayhemDatasetView({ data, champions, catalog }: { data: PublicMayhemDataset; champions: LolChampion[]; catalog: LolMayhemCatalog }) {
   const [championId, setChampionId] = useState("");
   if (data.archiveAvailable) return <section aria-label="해외 증바람 자료" className="space-y-4 py-4">
-    <header><h2 className="text-lg font-semibold">조합·증강 상태</h2><p className="mt-1 text-xs text-zinc-400">기준 패치 {catalog.displayPatch} · 공개 {new Date(data.publishedAt).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</p><p className="mt-2 text-sm text-zinc-400">해외 편집 자료의 추천·주의·재미용 조합입니다. 실제 선택률이나 등장 확률을 뜻하지 않습니다.</p></header>
+    <header><h2 className="text-lg font-semibold">조합·증강 상태</h2><p className="mt-1 text-xs text-zinc-400">기준 패치 {data.patch.replace(/^16\./, "26.")}{data.patch !== catalog.clientPatch && " (새 패치 자료 준비 중)"} · 공개 {new Date(data.publishedAt).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</p><p className="mt-2 text-sm text-zinc-400">해외 편집 자료의 추천·주의·재미용 조합입니다. 실제 선택률이나 등장 확률을 뜻하지 않습니다.</p></header>
     <LolMayhemArchive patch={data.patch} champions={champions} />
     <a className="inline-flex min-h-11 items-center text-xs text-zinc-400 underline" href="https://arammayhem.com/data/" target="_blank" rel="noreferrer">데이터 출처: arammayhem.com · CC BY 4.0</a>
   </section>;
@@ -20,7 +20,7 @@ export default function LolMayhemDatasetView({ data, champions, catalog }: { dat
     <div>
       <h2 className="text-lg font-semibold">챔피언별 외부 추천 조합</h2>
       <p className="mt-1 text-sm text-zinc-400">해외 편집 자료입니다. 실제 선택률이나 해당 챔피언의 등장 확률을 뜻하지 않습니다.</p>
-      <p className="mt-2 text-xs text-zinc-400">검수 패치 {catalog.displayPatch} · 공개 {new Date(data.publishedAt).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</p>
+      <p className="mt-2 text-xs text-zinc-400">검수 패치 {data.patch.replace(/^16\./, "26.")}{data.patch !== catalog.clientPatch && " (새 패치 자료 준비 중)"} · 공개 {new Date(data.publishedAt).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</p>
     </div>
     <label className="block text-sm">챔피언
       <select value={championId} onChange={event => setChampionId(event.target.value)} className="mt-2 block min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 sm:max-w-sm">

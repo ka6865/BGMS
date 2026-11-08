@@ -20,7 +20,7 @@ export default async function LolAramMayhemPage() {
   const itemsEnabled = process.env.LOL_MAYHEM_ITEMS_ENABLED === "true";
   const champions = dataset || championStatsEnabled || itemsEnabled ? await getLolChampions() : null;
   const championTiers = referencePublicEnabled()
-    ? catalog ? await getPublicReference("champion_tiers", catalog.view.clientPatch).catch(() => null) : null
+    ? await getPublicReference("champion_tiers").catch(() => null)
     : parseMayhemChampionTiers(tierSnapshot);
   return <LolMayhemView catalog={catalog?.view ?? null} error={catalog === undefined} dataset={dataset} champions={champions?.champions} championStatsEnabled={championStatsEnabled} championVersion={champions?.version} itemsEnabled={itemsEnabled} championTiers={championTiers} patchRankingsEnabled />;
 }

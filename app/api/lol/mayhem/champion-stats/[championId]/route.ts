@@ -22,7 +22,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ cham
     const catalog = await getLolChampions();
     if (!catalog) return reply({ error: "챔피언 목록을 확인할 수 없습니다." }, 503);
     if (!catalog.champions.some(champion => champion.id === championId)) return reply({ error: "챔피언과 패치를 확인해 주세요." }, 400);
-    return reply({ dataset: await getPublicChampionStats(patch, championId) });
+    return reply({ dataset: await getPublicChampionStats(patch, championId, { fallback: true }) });
   } catch {
     return reply({ error: "챔피언 통계를 불러오지 못했습니다." }, 503);
   }

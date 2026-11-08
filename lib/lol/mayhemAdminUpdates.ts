@@ -13,7 +13,7 @@ export type UpdateRow = {
 };
 export type UpdateGroup = {
   key: string; title: string; effect: string; endpoint: string; unit: string;
-  rows: UpdateRow[]; targets: UpdateRow[]; publications: { release_id: number; published_at: string }[];
+  rows: UpdateRow[]; targets: UpdateRow[]; publications: { release_id: number; published_at: string; client_patch?: string }[];
   blocked: string; syncError: boolean;
 };
 

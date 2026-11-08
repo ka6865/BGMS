@@ -31,8 +31,8 @@ export default function LolMayhemChampionStats({ enabled = false, patch, champio
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [retry, setRetry] = useState(0);
   const [response, setResponse] = useState<{ key: string; dataset: PublicChampionStats | null; error: boolean } | null>(null);
-  const matchingChampions = sortMayhemChampions(filterLolChampions(champions, championQuery, null), championTiers, patch);
-  const tierMap = championTiers?.patch === patch ? championTiers.tiers : {};
+  const matchingChampions = sortMayhemChampions(filterLolChampions(champions, championQuery, null), championTiers);
+  const tierMap = championTiers?.tiers ?? {};
   const champion = champions.find(item => String(item.id) === championId) ?? champions[0];
   const selectedId = champion ? String(champion.id) : "";
   const requestKey = `${patch}:${selectedId}:${retry}`;
@@ -72,7 +72,7 @@ export default function LolMayhemChampionStats({ enabled = false, patch, champio
       <div id="mayhem-champion-picker" className={pickerOpen ? "block" : "hidden lg:block"}>
         <div className="space-y-3 px-3 pb-3 pt-4">
           <p className="hidden text-sm font-semibold lg:block">챔피언 선택 <span className="ml-1 font-normal text-zinc-400">{champions.length}</span></p>
-          {championTiers?.patch === patch && <p className="text-xs text-zinc-400">티어순 · {patch.replace(/^16\./,"26.")} 기준</p>}
+          {championTiers && <p className="text-xs text-zinc-400">티어순 · {championTiers.patch.replace(/^16\./,"26.")} 기준</p>}
           <label className="relative block"><span className="sr-only">챔피언 찾기</span><Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-3.5 text-zinc-400" />
             <input type="search" aria-label="통계 챔피언 검색" placeholder="챔피언 검색 · 이름, 초성" value={championQuery} onChange={event => setChampionQuery(event.target.value)} className={`${control} pl-9`} />
           </label>

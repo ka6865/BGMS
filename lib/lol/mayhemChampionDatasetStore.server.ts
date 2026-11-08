@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import { createSourceDownloader } from "./augments/ingest";
+import { compareReferencePatches } from "./mayhemReference";
 import {
   CHAMPION_DATASET_COHORT, CHAMPION_DATASET_MAX_FILE_BYTES, CHAMPION_DATASET_PREFIX, CHAMPION_DATASET_SOURCE,
   normalizeChampionAugments, validateChampionStatsFile,
@@ -223,10 +224,22 @@ const getPublishedStats = unstable_cache(async (releaseId: number, patch: string
   return { stats, attribution: manifest.attribution };
 }, ["lol-mayhem-champion-stats-v1"], { revalidate: 3600 });
 
-export async function getPublicChampionStats(patch: string, championId: number): Promise<PublicChampionStats | null> {
+const getPublications = unstable_cache(async () => {
+  const { data, error } = await createServiceRoleSupabase().from("lol_mayhem_champion_dataset_publications")
+    .select("client_patch,release_id,published_at").eq("source", CHAMPION_DATASET_SOURCE).eq("cohort", CHAMPION_DATASET_COHORT)
+    .limit(100).abortSignal(signal());
+  if (error) throw new Error("stats_database_error");
+  return data;
+}, ["lol-mayhem-champion-publications-v1"], { revalidate: 60, tags: [MAYHEM_CHAMPION_DATASET_TAG] });
+
+// fallback: 해당 패치 공개본이 없으면 직전 패치 공개본을 쓴다. 관측 이력은 패치별 원본만 비교해야 하므로 쓰지 않는다.
+export async function getPublicChampionStats(patch: string, championId: number, options: { fallback?: boolean } = {}): Promise<PublicChampionStats | null> {
   if (process.env.LOL_PERSISTENCE_ENABLED !== "true" || !getChampionDatasetReadiness().reuseConfirmed) return null;
-  const publication = await getPublication(patch);
+  const exact = await getPublication(patch);
+  const publication = exact ? { ...exact, client_patch: patch } : options.fallback
+    ? (await getPublications()).filter(row => compareReferencePatches(row.client_patch, patch) >= 0).sort((a, b) => compareReferencePatches(a.client_patch, b.client_patch))[0]
+    : null;
   if (!publication) return null;
-  const stats = await getPublishedStats(publication.release_id, patch, championId);
+  const stats = await getPublishedStats(publication.release_id, publication.client_patch, championId);
   return stats ? { ...stats.stats, attribution: stats.attribution, publishedAt: publication.published_at } : null;
 }

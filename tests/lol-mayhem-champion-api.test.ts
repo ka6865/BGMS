@@ -70,7 +70,7 @@ describe("증바람 챔피언 통계 API", () => {
     expect(mocks.stats).not.toHaveBeenCalled();
     const response = await publicGet(request("/api/lol/mayhem/champion-stats/63?patch=16.21"), { params: Promise.resolve({ championId: "63" }) });
     expect(response.status).toBe(200); const body = await response.text(); expect(JSON.parse(body)).toEqual({ dataset: stats });
-    expect(mocks.stats).toHaveBeenCalledWith("16.21", 63);
+    expect(mocks.stats).toHaveBeenCalledWith("16.21", 63, { fallback: true });
     expect(body).not.toMatch(/winrate|rank|tier/i);
   });
   it("패치 오류는 400, 게시 데이터 없음은 dataset:null, 저장 장애는 503", async () => {

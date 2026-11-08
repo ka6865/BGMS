@@ -77,7 +77,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
         res.setHeader("Content-Type","application/json");
         if (archiveError) { archiveError = false; res.statusCode=503;res.end(JSON.stringify({error:"failed"}));return; }
         const p = new URL(req.url,"http://fixture").searchParams;
-        const payload = archivePage(archiveFixture,{kind:p.get("kind") as "augments"|"combos",status:p.get("status") as "active",query:p.get("q")??"",championId:p.has("championId")?Number(p.get("championId")):null,offset:Number(p.get("offset")??0)},"2026-11-05T00:00:00Z");
+        const payload = archivePage({ ...archiveFixture, patch: p.get("patch") ?? archiveFixture.patch },{kind:p.get("kind") as "augments"|"combos",status:p.get("status") as "active",query:p.get("q")??"",championId:p.has("championId")?Number(p.get("championId")):null,offset:Number(p.get("offset")??0)},"2026-11-05T00:00:00Z");
         const send = () => res.end(JSON.stringify(payload));
         if (archiveRace && p.get("status")==="disabled") { server.emit("delayed-archive-started");setTimeout(()=>{send();server.emit("delayed-archive-sent");},700); } else send();return;
       }
@@ -188,7 +188,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       }
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
       const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items") || req.url?.startsWith("/history") || req.url?.startsWith("/rankings");
-      const props = req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championStatsEnabled:false} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/dataset"
+      const props = req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championStatsEnabled:false} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/fallback"
+        ? { catalog, dataset: { ...dataset, patch: "16.20", archiveAvailable: true }, champions: champs, championStatsEnabled: true, championVersion: "16.21.1", itemsEnabled: true, championTiers: { patch: "16.20", dataVersion: "16.20.3", date: "2026-10-16", tiers: { "63": 3, "64": 1 } } }
+        : req.url === "/dataset"
         ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: req.url !== "/items-only", championVersion: "16.21.1", itemsEnabled: true, championTiers: req.url?.startsWith("/rankings") ? {patch:"16.21",dataVersion:"16.21.5",date:"2026-10-30",tiers:{"63":3,"64":1}} : null, patchRankingsEnabled: req.url?.startsWith("/rankings") } : { catalog };
       res.setHeader("Content-Type", "text/html");
       res.end('<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -527,4 +529,16 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const started=new Promise<void>(resolve=>server.once("delayed-archive-started",resolve));const sent=new Promise<void>(resolve=>server.once("delayed-archive-sent",resolve));await press("비활성");await started;await press("삭제");await page.waitForFunction(()=>document.querySelector('[aria-label="보존 조합 목록"]')?.textContent?.includes("삭제된 증강"));await sent;await page.waitForNetworkIdle();expect(await page.$eval('[aria-label="보존 조합 목록"]',n=>n.textContent)).not.toContain("비활성 증강");await page.close();
   });
 
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 새 패치 자료 전에는 직전 패치 티어·조합을 기준 패치와 함께 보여준다", async (width, height) => {
+    const page = await browser.newPage(); await page.setViewport({ width, height });
+    await page.goto(`${base}/fallback`, { waitUntil: "networkidle0" });
+    await openChampionPicker(page);
+    expect(await page.evaluate(() => document.body.innerText)).toContain("티어순 · 26.20 기준");
+    await page.evaluate(() => [...document.querySelectorAll("button")].find(node => node.textContent === "조합·증강 상태")?.click());
+    await page.waitForFunction(() => document.body.innerText.includes("기준 패치 26.20 (새 패치 자료 준비 중)"));
+    await page.waitForFunction(() => !document.body.innerText.includes("자료를 불러오지 못했습니다") && document.querySelectorAll("li").length > 0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `tmp/lol-mayhem-review/fallback-${width}x${height}.png`, fullPage: true });
+    await page.close();
+  });
 });

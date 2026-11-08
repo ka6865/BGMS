@@ -86,7 +86,7 @@ export default function LolMayhemUpdateSummary({ refreshVersion = 0, onOpenMappi
 
   return <section aria-label="수집 자료와 화면 적용" className="space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-sm text-zinc-300">새 자료가 있으면 내용을 확인하고 적용하세요.</p>
+      <p className="text-sm text-zinc-300">검증을 통과한 자료는 수집 직후 자동으로 적용됩니다. &quot;적용 전 확인 필요&quot;로 표시된 자료만 확인하세요.</p>
       <button type="button" className={button} disabled={!!busy || loading} onClick={() => { setLoading(true); void refresh(); }}>새로고침</button>
     </div>
     {loading && <p role="status" className="text-sm text-zinc-400">수집한 자료를 확인하고 있습니다.</p>}
@@ -96,6 +96,7 @@ export default function LolMayhemUpdateSummary({ refreshVersion = 0, onOpenMappi
     <div className="divide-y divide-zinc-800">
       {groups.map(group => {
         const appliedAt = group.publications.map(pub => pub.published_at).sort().at(-1);
+        const livePatch = group.publications.map(pub => pub.client_patch).filter((patch): patch is string => !!patch).sort((a, b) => compareReferencePatches(a, b))[0];
         const amount = group.key === "champions" || group.key === "champion_tiers" ? Math.max(0, ...group.rows.map(row => row.amount)) : group.rows.reduce((sum, row) => sum + row.amount, 0);
         const blocked = group.blocked || group.targets.find(row => row.blocked)?.blocked;
         const held = group.rows.some(row => row.status === "rejected" && row.id !== row.expectedPublication);
@@ -108,7 +109,7 @@ export default function LolMayhemUpdateSummary({ refreshVersion = 0, onOpenMappi
           </div>
           <p className="break-words text-sm">{group.rows.length ? `${patches(group)} 패치 · ${amount ? `${amount.toLocaleString("ko-KR")}${group.unit}` : `${group.rows.length}개 자료`} 수집했습니다.` : "아직 수집한 자료가 없습니다."}</p>
           <p className="text-sm text-zinc-300">{group.effect}</p>
-          <p className="text-xs leading-relaxed text-zinc-400">최근 수집 {date(group.rows.map(row => row.fetchedAt).sort().at(-1))} · 최근 적용 {date(appliedAt)}</p>
+          <p className="text-xs leading-relaxed text-zinc-400">{livePatch && `공개 중 ${toDisplayPatch(livePatch) ?? livePatch} 패치 · `}최근 수집 {date(group.rows.map(row => row.fetchedAt).sort().at(-1))} · 최근 적용 {date(appliedAt)}</p>
           {group.syncError && <p className="text-sm text-amber-300">최근 수집이 완료되지 않았습니다. 기존 적용 자료는 유지됩니다.</p>}
           {blocked && <p className="text-sm text-amber-300">{blocked}</p>}
           {group.key === "combos" && group.targets.some(row => row.blocked) && onOpenMapping && <button type="button" className={button} disabled={!!busy} onClick={onOpenMapping}>이름 연결하기</button>}
