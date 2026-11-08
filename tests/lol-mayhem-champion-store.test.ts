@@ -118,3 +118,29 @@ describe("증바람 챔피언 통계 저장 경계", () => {
     expect(mocks.download).not.toHaveBeenCalled();
   });
 });
+
+describe("새 패치 통계 공개 전 대체", () => {
+  it("공개 API만 직전 패치 공개본을 쓰고 이후 패치 공개본은 고르지 않는다", async () => {
+    vi.stubEnv("LOL_PERSISTENCE_ENABLED", "true"); vi.stubEnv("LOL_MAYHEM_STATS_REUSE_CONFIRMED", "true");
+    vi.stubEnv("LOL_MAYHEM_STATS_REUSE_BASIS", "reviewed public use"); vi.stubEnv("LOL_MAYHEM_STATS_ATTRIBUTION", "Data provider");
+    const manifest = makeManifest();
+    const normalized = JSON.stringify({ schemaVersion: 1, source: "champion_api_v1", cohort: "source_default", clientPatch: "16.21",
+      upstreamVersion: "16.21.1", sourceDataDate: "2026-11-03", fetchedAt: "2026-11-04T00:00:00.000Z", championId: 1, catalogHash: manifest.catalogHash, rows: [] });
+    manifest.files[0].normalizedHash = sha(normalized); manifest.files[0].normalizedPath = `external/champion-stats/champion_api_v1/objects/${sha(normalized)}.json`;
+    manifest.files[0].normalizedBytes = Buffer.byteLength(normalized);
+    const manifestBody = JSON.stringify(manifest), captureHash = sha(manifestBody);
+    const release = { upstream_version: manifest.upstreamVersion, source_data_date: manifest.sourceDataDate, capture_hash: captureHash,
+      manifest_path: `external/champion-stats/champion_api_v1/captures/${captureHash}/manifest.json`, catalog_hash: manifest.catalogHash, metadata: manifest };
+    const releaseIds: unknown[] = [];
+    mocks.from.mockImplementation(() => {
+      const query = { select: () => query, eq: (column: string, value: unknown) => { if (column === "id") releaseIds.push(value); return query; }, limit: () => query, abortSignal: () => query,
+        maybeSingle: async () => ({ data: null, error: null }), single: async () => ({ data: release, error: null }),
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [{ client_patch: "16.23", release_id: 9, published_at: "x" }, { client_patch: "16.20", release_id: 3, published_at: "x" }, { client_patch: "16.21", release_id: 4, published_at: "2026-11-04T01:00:00Z" }], error: null }).then(resolve) };
+      return query;
+    });
+    mocks.download.mockImplementation(async (path: string) => ({ data: new Blob([path === release.manifest_path ? manifestBody : normalized]), error: null }));
+    expect(await getPublicChampionStats("16.22", 1)).toBeNull();
+    expect(await getPublicChampionStats("16.22", 1, { fallback: true })).toMatchObject({ clientPatch: "16.21", publishedAt: "2026-11-04T01:00:00Z" });
+    expect(releaseIds).toEqual([4]);
+  });
+});

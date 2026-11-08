@@ -14,9 +14,14 @@ const errorCode = (error: unknown) => error instanceof Error && /^[a-z_]{1,80}$/
 
 async function load(kind: AutoPublishKind): Promise<Source> {
   if (kind === "combos") {
-    const data = await getMayhemDatasetAdmin();
+    const [data, official] = await Promise.all([getMayhemDatasetAdmin(),
+      createServiceRoleSupabase().from("lol_augment_publication").select("client_patch").eq("singleton", true).abortSignal(AbortSignal.timeout(10_000)).maybeSingle()]);
+    if (official.error) throw new Error("dataset_database_error");
+    // 공개 RPC는 현재 공식 패치 후보만 받으므로 지난 패치 후보는 시도하지 않고 보류로 남긴다.
+    const group = comboUpdateGroup(data);
+    const targets = group.targets.map(row => row.patch === official.data?.client_patch ? row : { ...row, blocked: row.blocked || "현재 공식 패치가 아닌 후보입니다." });
     return {
-      groups: [comboUpdateGroup(data)],
+      groups: [{ ...group, targets }],
       publishedAmount: id => data.releases.find(row => row.id === id)?.metadata.combos ?? null,
       review: async input => {
         const result = await createServiceRoleSupabase().rpc("review_lol_mayhem_dataset", { p_id: input.id, p_action: input.action,

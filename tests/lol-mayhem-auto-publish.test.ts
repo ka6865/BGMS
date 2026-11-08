@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ reference: vi.fn(), reviewReference: vi.fn(), combos: vi.fn(), rpc: vi.fn() }));
+const mocks = vi.hoisted(() => ({ reference: vi.fn(), reviewReference: vi.fn(), combos: vi.fn(), rpc: vi.fn(), officialPatch: "16.21" }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/lol/mayhemReferenceStore.server", () => ({ getReferenceAdmin: mocks.reference, reviewReference: mocks.reviewReference }));
 vi.mock("@/lib/lol/mayhemChampionDatasetStore.server", () => ({ getChampionDatasetAdmin: vi.fn(), reviewChampionDataset: vi.fn() }));
 vi.mock("@/lib/lol/mayhemDatasetStore.server", () => ({ getMayhemDatasetAdmin: mocks.combos }));
-vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({ createServiceRoleSupabase: () => ({ rpc: mocks.rpc }) }));
+vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({ createServiceRoleSupabase: () => ({ rpc: mocks.rpc, from: () => {
+  const query = { select: () => query, eq: () => query, abortSignal: () => query, maybeSingle: async () => ({ data: { client_patch: mocks.officialPatch }, error: null }) };
+  return query;
+} }) }));
 import { autoPublishPlan, type UpdateGroup, type UpdateRow } from "../lib/lol/mayhemAdminUpdates";
 import { autoPublishMayhem } from "../lib/lol/mayhemAutoPublish.server";
 
@@ -13,7 +16,7 @@ const row = (patch: Partial<UpdateRow>): UpdateRow => ({ id: 2, patch: "16.22", 
 const group = (rows: UpdateRow[], blocked = ""): UpdateGroup => ({ key: "combos", title: "", effect: "", endpoint: "", unit: "", rows, targets: rows, publications: [], blocked, syncError: false });
 const release = (id: number, status: string, combos: number, fetched: string) => ({ id, verified_client_patch: "16.21", upstream_release_id: "r", status, fetched_at: fetched, metadata: { combos, unknown_count: 0 } });
 
-beforeEach(() => { vi.resetAllMocks(); vi.stubEnv("LOL_MAYHEM_AUTO_REVIEWER_ID", reviewer); mocks.rpc.mockReturnValue({ abortSignal: async () => ({ error: null }) }); });
+beforeEach(() => { vi.resetAllMocks(); mocks.officialPatch = "16.21"; vi.stubEnv("LOL_MAYHEM_AUTO_REVIEWER_ID", reviewer); mocks.rpc.mockReturnValue({ abortSignal: async () => ({ error: null }) }); });
 
 describe("자동 공개 판정", () => {
   it("관리자 화면의 차단 사유와 수량 급감은 사람에게 넘긴다", () => {
@@ -42,6 +45,12 @@ describe("자동 공개 실행", () => {
     expect(mocks.rpc.mock.calls[0][1].p_reason).toContain("자동 공개");
     mocks.rpc.mockClear();
     expect(await autoPublishMayhem("combos", { dryRun: true })).toMatchObject({ published: 0, ready: [{ group: "combos", patch: "16.21" }] });
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+  it("현재 공식 패치가 아닌 조합 후보는 공개를 시도하지 않고 보류한다", async () => {
+    mocks.officialPatch = "16.22";
+    mocks.combos.mockResolvedValue({ releases: [release(12, "approved", 424, "2026-11-09T00:00:00Z")], publications: [{ client_patch: "16.21", release_id: 9 }], sync: [] });
+    expect(await autoPublishMayhem("combos")).toMatchObject({ published: 0, failures: 0, held: [{ patch: "16.21", reason: "현재 공식 패치가 아닌 후보입니다." }] });
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
   it("화면 노출 설정과 무관하게 참조 자료를 판정하고, 실패한 대상만 실패로 센다", async () => {
