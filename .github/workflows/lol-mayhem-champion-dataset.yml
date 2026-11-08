@@ -53,3 +53,16 @@ jobs:
             *) exit 1 ;;
           esac
           npx tsx scripts/lol_mayhem_champion_dataset_sync.ts "${args[@]}"
+      - name: 검증 통과 자료 자동 공개
+        if: ${{ !cancelled() && vars.LOL_MAYHEM_AUTO_PUBLISH_ENABLED == 'true' && (github.event_name == 'schedule' || inputs.mode == 'apply') }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LOL_PERSISTENCE_ENABLED: 'true'
+          LOL_MAYHEM_CHAMPION_DATASET_ENABLED: ${{ vars.LOL_MAYHEM_CHAMPION_DATASET_ENABLED }}
+          LOL_MAYHEM_STATS_API_KEY: ${{ secrets.LOL_MAYHEM_STATS_API_KEY }}
+          LOL_MAYHEM_STATS_REUSE_CONFIRMED: ${{ vars.LOL_MAYHEM_STATS_REUSE_CONFIRMED }}
+          LOL_MAYHEM_STATS_REUSE_BASIS: ${{ vars.LOL_MAYHEM_STATS_REUSE_BASIS }}
+          LOL_MAYHEM_STATS_ATTRIBUTION: ${{ vars.LOL_MAYHEM_STATS_ATTRIBUTION }}
+          LOL_MAYHEM_AUTO_REVIEWER_ID: ${{ vars.LOL_MAYHEM_AUTO_REVIEWER_ID }}
+        run: npx tsx scripts/lol_mayhem_auto_publish.ts --kind champions
