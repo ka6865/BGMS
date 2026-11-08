@@ -796,6 +796,69 @@ describe("player route recovery contract", () => {
     expect(calls.some((call) => call.url.includes("/seasons/pc-2025-99"))).toBe(false);
   });
 
+  it("현재 시즌 일반전이 비어도 경쟁전 기록이 있으면 유지하고 경쟁전을 한 번만 조회한다", async () => {
+    const { adminUpsert } = configureSupabase();
+    const calls = installFetch({ player: [jsonResponse(playerPayload())], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse({ data: { attributes: { gameModeStats: {} } } })],
+      ranked: [jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    const body = await (await GET(request())).json();
+    expect(body).toMatchObject({ seasonId: "pc-2026-01", syncStatus: "saved", stats: { ranked: { solo: { roundsPlayed: 12 } } } });
+    expect(calls.filter(({ url }) => classifyFetch(url) === "ranked")).toHaveLength(1);
+    expect(calls.some(({ url }) => url.includes("/seasons/pc-2025-99"))).toBe(false);
+    expect(adminUpsert).toHaveBeenCalledWith(expect.objectContaining({ last_season_id: "pc-2026-01" }), { onConflict: "id" });
+  });
+
+  it.each(["normal", "ranked"])("두 모드가 빈 현재 시즌에서 이전 시즌의 %s 기록을 찾는다", async (mode) => {
+    configureSupabase();
+    const emptyNormal = { data: { attributes: { gameModeStats: { "squad-fpp": statsBucket({ roundsPlayed: 0 }) } } } };
+    const emptyRanked = { data: { attributes: { rankedGameModeStats: {} } } };
+    // 공유 캐시는 현재 시즌이 첫 항목이라는 보장이 없고 미래 시즌도 포함할 수 있다.
+    mockReadSeasonsCache.mockResolvedValue([
+      { id: "pc-2027-01" }, seasonsPayload().data[1], seasonsPayload().data[0], { id: "pc-2024-99" },
+    ]);
+    const calls = installFetch({ player: [jsonResponse(playerPayload())],
+      season: [jsonResponse(emptyNormal), jsonResponse(mode === "normal" ? normalPayload() : emptyNormal)],
+      ranked: [jsonResponse(emptyRanked), jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    const body = await (await GET(request())).json();
+    expect(body).toMatchObject({ seasonId: "pc-2025-99", syncStatus: "saved" });
+    expect(calls.filter(({ url }) => classifyFetch(url) === "ranked")).toHaveLength(2);
+    expect(calls.filter(({ url }) => classifyFetch(url) === "season").map(({ url }) => url.split("/").pop())).toEqual(["pc-2026-01", "pc-2025-99"]);
+  });
+
+  it("이전 후보 세 시즌도 두 모드가 비면 현재 시즌을 유지하고 조회를 재사용한다", async () => {
+    configureSupabase();
+    mockReadSeasonsCache.mockResolvedValue([
+      { id: "pc-2018-44", isCurrentSeason: true },
+      ...[40, 41, 42, 43].map((number) => ({ id: `pc-2018-${number}` })),
+    ]);
+    const calls = installFetch({ player: [jsonResponse(playerPayload())],
+      season: Array.from({ length: 4 }, () => jsonResponse({ data: { attributes: { gameModeStats: {} } } })),
+      ranked: Array.from({ length: 4 }, () => jsonResponse({ data: { attributes: { rankedGameModeStats: {} } } })),
+      mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    const body = await (await GET(request())).json();
+    expect(body).toMatchObject({ seasonId: "pc-2018-44", syncStatus: "saved" });
+    expect(calls.filter(({ url }) => classifyFetch(url) === "ranked")).toHaveLength(4);
+    expect(calls.filter(({ url }) => classifyFetch(url) === "season").map(({ url }) => url.split("/").pop())).toEqual([
+      "pc-2018-44", "pc-2018-43", "pc-2018-42", "pc-2018-41",
+    ]);
+    expect(calls.some(({ url }) => url.includes("/seasons/pc-2018-40"))).toBe(false);
+  });
+
+  it("현재 시즌 경쟁전 조회 실패는 빈 기록으로 취급하거나 다시 요청하지 않는다", async () => {
+    configureSupabase();
+    const calls = installFetch({ player: [jsonResponse(playerPayload())], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse({ data: { attributes: { gameModeStats: {} } } })],
+      ranked: [jsonResponse({}, 429)], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    const body = await (await GET(request())).json();
+    expect(body).toMatchObject({ seasonId: "pc-2026-01", statsAvailability: { ranked: { status: "unavailable" }, normal: { status: "ready" } } });
+    expect(calls.filter(({ url }) => classifyFetch(url) === "ranked")).toHaveLength(1);
+    expect(calls.some(({ url }) => url.includes("/seasons/pc-2025-99"))).toBe(false);
+  });
+
   it("returns 503 for a repeated malformed player payload instead of misclassifying it as not found", async () => {
     const { adminUpsert } = configureSupabase();
     installFetch({
