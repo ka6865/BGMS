@@ -13,7 +13,7 @@ const seasons = [{ id: "division.bro.official.pc-2018-43", name: "Season 43" }];
 
 describe("이번 시즌 전체 카드", () => {
   it("URL 플레이어와 같은 결과일 때만 시즌 이름을 붙여 쓴다", () => {
-    expect(seasonOverviewForResult(stored, { ...result, nickname: "kangheesung_", seasons })).toEqual({ ...stored, seasonName: "Season 43" });
+    expect(seasonOverviewForResult(stored, { ...result, nickname: "kangheesung_", seasons })).toEqual({ ...stored, seasonName: "Season 43", isCurrentSeason: true });
     expect(seasonOverviewForResult(stored, { ...result, nickname: "OtherPlayer", seasons })).toBeNull();
     expect(seasonOverviewForResult(undefined, { ...result, nickname: "KangHeeSung_", seasons })).toBeNull();
     expect(seasonOverviewForResult(stored, { ...result, nickname: "KangHeeSung_", seasons: [] })?.seasonName).toBeNull();
@@ -29,7 +29,7 @@ describe("이번 시즌 전체 카드", () => {
       statsAvailability: { ranked: { status: "ready" }, normal: { status: "ready" } },
     };
     const overview = seasonOverviewForResult(stored, refreshed);
-    expect(overview).toEqual({ nickname: stored.nickname, seasonId, seasonName: "Season 44", rounds: 60, wins: 6, avgDamage: 250, killsPerRound: 1.2 });
+    expect(overview).toEqual({ nickname: stored.nickname, seasonId, seasonName: "Season 44", isCurrentSeason: true, rounds: 60, wins: 6, avgDamage: 250, killsPerRound: 1.2 });
     render(React.createElement(StatsSeasonOverviewCard, { season: overview }));
     expect(screen.getByText(/Season 44의/)).toBeTruthy();
     expect(screen.queryByText(/Season 43의/)).toBeNull();
@@ -46,10 +46,19 @@ describe("이번 시즌 전체 카드", () => {
   });
 
   it("모든 모드 합계임을 밝히고 네 지표를 보여준다", () => {
-    render(React.createElement(StatsSeasonOverviewCard, { season: { ...stored, seasonName: "Season 43" } }));
+    render(React.createElement(StatsSeasonOverviewCard, { season: { ...stored, seasonName: "Season 43", isCurrentSeason: true } }));
     expect(screen.getByRole("region", { name: "이번 시즌 전체" })).toBeTruthy();
     expect(screen.getByText(/Season 43의 경쟁전·일반전, 솔로·듀오·스쿼드를 모두 합친 기록/)).toBeTruthy();
     for (const value of ["126", "236", "1.4", "5"]) expect(screen.getByText(value)).toBeTruthy();
+  });
+
+  it("현재 시즌이 아닌 기록이면 제목을 지난 시즌으로 바꾼다", () => {
+    const withCurrent = [...seasons, { id: "division.bro.official.pc-2018-44", name: "Season 44" }];
+    const overview = seasonOverviewForResult(stored, { ...result, nickname: stored.nickname, seasons: withCurrent });
+    expect(overview?.isCurrentSeason).toBe(false);
+    render(React.createElement(StatsSeasonOverviewCard, { season: overview }));
+    expect(screen.getByRole("region", { name: "지난 시즌 전체" })).toBeTruthy();
+    expect(screen.queryByText("이번 시즌 전체")).toBeNull();
   });
 
   it("시즌 합계가 없으면 그리지 않는다", () => {
