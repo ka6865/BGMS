@@ -47,5 +47,13 @@ describe('실제 이름·등급 예외와 삭제 근거',()=>{
   it('새 패치에서 이름이나 등급이 바뀌면 이어받지 않는다',()=>{for(const change of [{nameEn:'Changed'},{name:'바뀜'},{rarity:'prismatic' as const}]){const p=nextPatch('double_defense');Object.assign(p.officials['16.22'][0],change);const r=prepareReviewedMayhemDataset(p);expect(r.rates).toHaveLength(0);expect(r.carried).toEqual([]);}});
   it('원래 패치의 삭제 판정은 이어받아도 현행 증강으로 바꾸지 않는다',()=>{const r=prepareReviewedMayhemDataset(nextPatch('void_immolation'));expect(r.rates).toHaveLength(0);expect(r.carried).toEqual([]);expect(r.archive.augments.find(a=>a.key==='external:void_immolation')?.status).toBe('removed');});
   it('저장된 이어받은 연결은 원래 패치 기준으로 다시 판정하고 다시 저장하지 않는다',()=>{const p=nextPatch('double_defense');p.mappings.push({external_id:'double_defense',platform_id:2144,client_patch:'16.22',status:'approved',evidence:{note:'이어받음',carriedFrom:'16.21'}});const r=prepareReviewedMayhemDataset(p);expect(r.rates).toHaveLength(1);expect(r.carried).toEqual([]);});
+  it('검수한 삭제·비활성 판정은 다음 패치에서도 유지하고 공식 이름이 바뀐 비활성은 확인 중으로 둔다',()=>{
+    const removed=prepareReviewedMayhemDataset({...nextPatch('void_immolation'),mappings:[]});
+    expect(removed.archive.augments.find(a=>a.key==='external:void_immolation')?.status).toBe('removed');
+    const disabled=nextPatch('vampirism');disabled.mappings=[];
+    expect(prepareReviewedMayhemDataset(disabled).summary.augments).toMatchObject({disabled:1,unverified:0});
+    disabled.officials['16.22'][0].nameEn='Changed';
+    expect(prepareReviewedMayhemDataset(disabled).summary.augments.unverified).toBe(1);
+  });
   it('새 패치에서 사람이 거절한 연결은 이어받지 않는다',()=>{const p=nextPatch('double_defense');p.mappings.push({external_id:'double_defense',platform_id:2144,client_patch:'16.22',status:'rejected'});const r=prepareReviewedMayhemDataset(p);expect(r.rates).toHaveLength(0);expect(r.carried).toEqual([]);});
 });

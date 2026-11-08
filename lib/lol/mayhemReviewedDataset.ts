@@ -39,7 +39,9 @@ export function prepareReviewedMayhemDataset<M extends ReviewedMapping>(input: {
       }
       if (inherited !== prior) return { key: `external:${s.externalId}`, status: "unverified", official: null, source: s, reason: "이어받은 연결의 공식 증강이 바뀌어 확인 필요", removedPatch: null, url: null };
     }
-    const rule = !s.conflict && reviewData.clientPatch === scope ? reviewData.reviews.find(r => r.externalId === s.externalId && normalize(r.sourceName) === normalize(s.name) && normalize(r.sourceNameEn) === normalize(s.nameEn) && r.sourceRarity === s.rarity) : undefined;
+    const found = !s.conflict && patchOrder(reviewData.clientPatch, scope) <= 0 ? reviewData.reviews.find(r => r.externalId === s.externalId && normalize(r.sourceName) === normalize(s.name) && normalize(r.sourceNameEn) === normalize(s.nameEn) && r.sourceRarity === s.rarity) : undefined;
+    // 삭제 판정은 이후 패치에도 유지하고, 비활성 판정은 공식 영문명·등급 대조(reviewed)를 다시 거친다. 사용 중 연결은 패치별 승인 행만 따른다.
+    const rule = found && (reviewData.clientPatch === scope || found.status !== "active") ? found : undefined;
     const mapping = mappings.find(m => m.external_id === s.externalId && m.client_patch === scope && m.status === "approved");
     let official = mapping ? officials[scope].find(a => a.id === mapping.platform_id && !a.internal) ?? null : null;
     if (rule?.status === "disabled" && rule.officialId) official = officials[scope].find(a => a.id === rule.officialId && !a.internal) ?? null;
