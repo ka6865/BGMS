@@ -18,7 +18,7 @@ import { createPlayerApiClient, PlayerApiError } from "@/lib/pubg/playerApiClien
 import {
   isRecord, isPlayerPayload, playerPayloadIssue, isSeasonList, isSeasonsPayload,
   isNormalPayload, isRankedPayload, selectPlayerModeBuckets, validatedCachedBuckets,
-  type PlayerModeBuckets, type PubgNormalPayload, type PubgSeason,
+  type PlayerModeBuckets, type PubgNormalPayload, type PubgRankedPayload, type PubgSeason,
 } from "@/lib/pubg/playerPayload";
 
 import {
@@ -445,18 +445,39 @@ export async function GET(request: Request) {
         return { data: await api.read(seasonUrl(season), { stage: "normal", validate: isNormalPayload }) };
       } catch (error) { return { error }; }
     };
+    type RankedOutcome = { data: PubgRankedPayload; error?: never } | { data?: never; error: unknown };
+    const readRanked = async (season: string): Promise<RankedOutcome> => {
+      try {
+        return { data: await api.read(`${seasonUrl(season)}/ranked`, { stage: "ranked", validate: isRankedPayload }) };
+      } catch (error) { return { error }; }
+    };
+    const hasRounds = (stats: Record<string, { roundsPlayed: number } | null>) => (
+      Object.values(stats).some((mode) => mode && mode.roundsPlayed > 0)
+    );
     let normalOutcome: NormalOutcome | undefined;
+    let rankedOutcome: RankedOutcome | undefined;
     if (!reqSeason && targetSeasonId) {
       normalOutcome = await readNormal(targetSeasonId);
-      // Automatic season discovery only follows successful, genuinely empty
-      // records. A failed lookup must not switch the user's comparison season.
-      if (normalOutcome.data && !Object.values(normalOutcome.data.data.attributes.gameModeStats).some((mode) => mode && mode.roundsPlayed > 0)) {
-        for (const season of availableSeasons.slice(1, 4)) {
-          const candidate = await readNormal(season.id);
-          if (!candidate.data) { recordFailure(candidate.error); break; }
-          if (Object.values(candidate.data.data.attributes.gameModeStats).some((mode) => mode && mode.roundsPlayed > 0)) {
+      // 두 모드가 모두 성공적으로 비어 있을 때만 이전 시즌을 찾는다.
+      if (normalOutcome.data && !hasRounds(normalOutcome.data.data.attributes.gameModeStats)) {
+        rankedOutcome = await readRanked(targetSeasonId);
+        if (rankedOutcome.data && !hasRounds(rankedOutcome.data.data.attributes.rankedGameModeStats)) {
+          const previousSeasons = availableSeasons
+            .filter((season) => season.id.localeCompare(targetSeasonId, undefined, { numeric: true }) < 0)
+            .sort((left, right) => right.id.localeCompare(left.id, undefined, { numeric: true }))
+            .slice(0, 3);
+          for (const season of previousSeasons) {
+            const candidate = await readNormal(season.id);
+            if (!candidate.data) { recordFailure(candidate.error); break; }
+            let candidateRanked: RankedOutcome | undefined;
+            if (!hasRounds(candidate.data.data.attributes.gameModeStats)) {
+              candidateRanked = await readRanked(season.id);
+              if (!candidateRanked.data) { recordFailure(candidateRanked.error); break; }
+              if (!hasRounds(candidateRanked.data.data.attributes.rankedGameModeStats)) continue;
+            }
             targetSeasonId = season.id;
             normalOutcome = candidate;
+            rankedOutcome = candidateRanked;
             break;
           }
         }
@@ -483,8 +504,9 @@ export async function GET(request: Request) {
           if (!result.data) throw result.error;
           buckets = selectPlayerModeBuckets(result.data.data.attributes.gameModeStats);
         } else {
-          const result = await api.read(`${seasonUrl(targetSeasonId)}/ranked`, { stage: "ranked", validate: isRankedPayload });
-          buckets = selectPlayerModeBuckets(result.data.attributes.rankedGameModeStats);
+          const result = rankedOutcome ?? await readRanked(targetSeasonId);
+          if (!result.data) throw result.error;
+          buckets = selectPlayerModeBuckets(result.data.data.attributes.rankedGameModeStats);
         }
         statsAvailability[mode] = { status: "ready", updatedAt: nowIso };
         return buckets;
