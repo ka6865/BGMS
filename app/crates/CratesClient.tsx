@@ -1394,9 +1394,9 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           )}
 
           {/* 상단 텍스트 */}
-          <h1 className="text-3xl sm:text-4xl font-black text-slate-100 tracking-wider mb-12 animate-[fadeIn_0.5s_ease-out] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+          <h2 className="text-3xl sm:text-4xl font-black text-slate-100 tracking-wider mb-12 animate-[fadeIn_0.5s_ease-out] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
             축하합니다!
-          </h1>
+          </h2>
 
           {/* 가로형 황금색 데코 날개 배너 및 카드 영역 */}
           <div className="relative w-full max-w-4xl flex items-center justify-center py-12 animate-[fadeIn_0.6s_ease-out]">

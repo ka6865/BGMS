@@ -14,9 +14,9 @@ export const tabMetadata: Record<string, { title: string; desc: string }> = {
   Miramar: { title: "미라마(Miramar) 고젠 및 비밀방 위치 지도", desc: "미라마 맵의 고정 차량(고젠) 스폰 지역과 황금 미라도, 비밀방 위치 등 핵심 전술 정보를 BGMS에서 확인하세요." },
   Taego: { title: "테이고(태이고) 고젠 및 비밀의 열쇠 위치 지도", desc: "테이고(Taego) 맵의 고정 탈것 장소와 포터, 비밀의 열쇠 및 비밀방 상세 위치를 확인하세요." },
   Rondo: { title: "론도(Rondo) 고젠 및 비밀의 열쇠/비밀방 위치 지도", desc: "론도 맵의 고정 젠 차량 위치와 비밀의 열쇠 및 비밀방 상세 정보를 BGMS에서 확인하세요." },
-  Vikendi: { title: "비켄디(Vikendi) 고젠 위치 및 전술 지도", desc: "비켄디 리본 맵의 고정 차량 스폰(고젠) 위치와 스노우모빌 정보를 제공합니다." },
-  Deston: { title: "데스턴(Deston) 고젠 위치 및 전술 지도", desc: "데스턴의 고정 젠 차량 및 에어보트 위치와 주요 파밍 루트를 확인하세요." },
-  Stats: { title: "배그 전적 검색 및 실시간 딜량 계산기", desc: "배틀그라운드 시즌별 전적과 평균 딜량, 킬뎃 정보를 즉시 조회하세요." },
+  Vikendi: { title: "비켄디(Vikendi) 고젠 위치 및 전술 지도", desc: "비켄디 리본 맵의 고정 차량 스폰(고젠) 위치와 스노우모빌 정보, 주요 파밍 지역과 이동 동선을 BGMS 지도에서 한눈에 확인하세요." },
+  Deston: { title: "데스턴(Deston) 고젠 위치 및 전술 지도", desc: "데스턴 맵의 고정 젠 차량 및 에어보트 위치와 주요 파밍 루트, 핵심 전술 지점을 BGMS 지도에서 확인하세요." },
+  Stats: { title: "배그 전적 검색 및 실시간 딜량 계산기", desc: "배틀그라운드 시즌별 전적과 평균 딜량, 킬뎃 정보를 즉시 조회하고 AI가 분석한 경기별 코칭과 스쿼드 비교를 확인하세요." },
   Board: { title: "생존자 커뮤니티 및 고젠 공략 게시판", desc: "배틀그라운드 최신 업데이트 소식과 유저들의 고젠 공략을 공유하는 공간입니다." }
 };
 
@@ -55,12 +55,15 @@ export async function getPostMetadata(postId: string): Promise<Metadata | null> 
   const post = await getPostData(postId);
   if (!post) return null;
 
-  const plainText = post.content?.replace(/<[^>]*>/g, '').substring(0, 150) || '';
+  const rawText = post.content?.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim() || '';
+  // 본문이 짧은 글은 검색 결과 설명이 비지 않도록 제목과 카테고리로 보충한다
+  const plainText = (rawText.length >= 40 ? rawText : `${rawText} ${post.title} - ${post.category} 게시글입니다. BGMS 커뮤니티에서 확인하세요.`.trim()).substring(0, 150);
+  const shortTitle = post.title.length > 40 ? `${post.title.substring(0, 39)}…` : post.title;
   const canonicalUrl = `${baseUrl}/board/${postId}`;
   const imageUrl = post.image_url ? toBoardImageProxyUrl(post.image_url, baseUrl) : `${baseUrl}/logo.png`;
   
   return {
-    title: `${post.title} | ${post.category}`,
+    title: `${shortTitle} | ${post.category}`,
     description: plainText,
     alternates: { canonical: canonicalUrl },
     openGraph: {

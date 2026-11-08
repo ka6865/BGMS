@@ -413,7 +413,7 @@ export default function BackpackSimulator() {
              <BgmsIcon name="backpack" size={40} className="shrink-0 text-[#F2A900] drop-shadow-[0_0_15px_rgba(242,169,0,0.5)]" />
              <div className="min-w-0">
                {/* 모바일에서 제목이 두 줄로 넘쳐 아이콘과 어긋나지 않도록 단계적으로 키운다 */}
-               <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-[#F2A900] tracking-tighter">배그 인벤토리 시뮬레이터 v2</h1>
+               <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-[#F2A900] tracking-tighter">배그 인벤토리 시뮬레이터 v2</h2>
                <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-2">
                  <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
                  시스템 고도화 완료: 드래그 앤 드롭 이동 및 직접 수량 입력 지원

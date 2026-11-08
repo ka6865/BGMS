@@ -14,7 +14,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const maps = ["erangel", "miramar", "taego", "rondo", "vikendi", "deston"];
   const mapEntries: MetadataRoute.Sitemap = maps.map((map) => ({
     url: `${siteUrl}/maps/${map}`,
-    lastModified: new Date(),
     changeFrequency: 'daily',
     priority: 0.8,
   }));
@@ -22,37 +21,31 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticEntries: MetadataRoute.Sitemap = [
     {
       url: `${siteUrl}/rankings`,
-      lastModified: new Date(),
       changeFrequency: 'daily',
       priority: 0.7,
     },
     {
       url: `${siteUrl}/crates`,
-      lastModified: new Date(),
       changeFrequency: 'monthly',
       priority: 0.4,
     },
     {
       url: `${siteUrl}/board`,
-      lastModified: new Date(),
       changeFrequency: 'daily',
       priority: 0.7,
     },
     {
       url: `${siteUrl}/stats`,
-      lastModified: new Date(),
       changeFrequency: 'daily',
       priority: 0.6,
     },
     {
       url: `${siteUrl}/weapons`,
-      lastModified: new Date(),
       changeFrequency: 'weekly',
       priority: 0.5,
     },
     {
       url: `${siteUrl}/backpack`,
-      lastModified: new Date(),
       changeFrequency: 'weekly',
       priority: 0.5,
     },
