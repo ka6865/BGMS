@@ -74,37 +74,47 @@ it("rejects a raw/normalized mismatch and oversized raw input before any storage
   expect(mocks.upload).not.toHaveBeenCalled(); expect(mocks.rpc).not.toHaveBeenCalled();
 });
 
-it("keeps an existing identical normalized candidate without writing Storage or ingest RPC", async () => {
-  const filters: unknown[][] = [];
+function saveMock(existing: { id: number } | null, deleted: Array<{ raw_path: string; normalized_path: string }> = [], used: Record<string, string[]> = {}) {
+  const calls = { filters: [] as unknown[][], deletes: [] as unknown[][], remove: vi.fn(async () => ({ error: null })) };
   mocks.from.mockImplementation(() => {
-    const query: Record<string, unknown> = { select: () => query, eq: (...args: unknown[]) => { filters.push(args); return query; }, abortSignal: () => query,
-      maybeSingle: async () => ({ data: { id: 17 }, error: null }) };
+    let mode = "select", column = "";
+    const query: Record<string, unknown> = {
+      select: (columns?: string) => { if (mode === "select") column = columns ?? ""; return query; },
+      delete: () => { mode = "delete"; return query; },
+      eq: (...args: unknown[]) => { (mode === "delete" ? calls.deletes : calls.filters).push(args); return query; },
+      neq: (...args: unknown[]) => { (mode === "delete" ? calls.deletes : calls.filters).push(["neq", ...args]); return query; },
+      in: () => query, order: () => query, limit: () => query, abortSignal: () => query,
+      maybeSingle: async () => ({ data: existing, error: null }),
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: mode === "delete" ? deleted : (used[column] ?? []).map(path => ({ [column]: path })), error: null }).then(resolve),
+    };
     return query;
   });
-  await expect(saveReferenceSnapshot(candidateInput())).resolves.toBe(17);
-  expect(filters).toContainEqual(["raw_hash", hash(raw)]);
-  expect(filters).toContainEqual(["normalized_hash", hash(JSON.stringify(normalized))]);
+  mocks.db.mockReturnValue({ from: mocks.from, rpc: mocks.rpc, storage: { from: () => ({ upload: mocks.upload, download: mocks.download, remove: calls.remove }) } });
+  return calls;
+}
+
+it("keeps an existing candidate with the same normalized payload even when only the raw file changed", async () => {
+  const calls = saveMock({ id: 17 });
+  const revisedRaw = JSON.stringify({ ...source, meta: { ...source.meta, publishedAt: "2026-11-05T00:00:00Z" } });
+  await expect(saveReferenceSnapshot({ ...candidateInput(), raw: revisedRaw })).resolves.toBe(17);
+  expect(calls.filters).toContainEqual(["normalized_hash", hash(JSON.stringify(normalized))]);
+  expect(calls.filters).toContainEqual(["neq", "status", "rejected"]);
+  expect(calls.filters.some(([column]) => column === "raw_hash")).toBe(false);
+  expect(calls.deletes).toContainEqual(["neq", "id", 17]);
   expect(mocks.upload).not.toHaveBeenCalled(); expect(mocks.rpc).not.toHaveBeenCalled();
 });
 
-it("stores a new raw revision even when its normalized payload is unchanged", async () => {
-  const revisedRaw = JSON.stringify({ ...source, meta: { ...source.meta, publishedAt: "2026-11-05T00:00:00Z" } });
-  mocks.from.mockImplementation(() => {
-    const query: Record<string, unknown> = { select: () => query, eq: () => query, abortSignal: () => query, maybeSingle: async () => ({ data: null, error: null }) };
-    return query;
-  });
-  await expect(saveReferenceSnapshot({ ...candidateInput(), raw: revisedRaw })).resolves.toBe(41);
-  expect(mocks.upload).toHaveBeenCalledTimes(2);
-  const args = mocks.rpc.mock.calls[0][1] as { p_candidate: Record<string, unknown> };
-  expect(args.p_candidate).toMatchObject({ rawHash: hash(revisedRaw), normalizedHash: hash(JSON.stringify(normalized)) });
-  expect(args.p_candidate.rawHash).not.toBe(hash(raw));
+it("replaces older pending candidates of the same target and removes only files no remaining candidate uses", async () => {
+  const path = (name: string) => `external/mayhem-reference/objects/${hash(name)}.json`;
+  const calls = saveMock(null, [{ raw_path: path("old-raw"), normalized_path: path("shared") }, { raw_path: path("old-raw-2"), normalized_path: path("old-normalized") }],
+    { normalized_path: [path("shared")] });
+  await expect(saveReferenceSnapshot(candidateInput())).resolves.toBe(41);
+  expect(calls.deletes).toEqual(expect.arrayContaining([["kind", "champion_tiers"], ["client_patch", "16.22"], ["champion_id", 0], ["status", "pending"], ["neq", "id", 41]]));
+  expect(calls.remove).toHaveBeenCalledWith([path("old-raw"), path("old-raw-2"), path("old-normalized")]);
 });
 
 it("uploads validated raw and normalized objects then passes their hashes and sizes to the ingest RPC", async () => {
-  mocks.from.mockImplementation(() => {
-    const query: Record<string, unknown> = { select: () => query, eq: () => query, abortSignal: () => query, maybeSingle: async () => ({ data: null, error: null }) };
-    return query;
-  });
+  const calls = saveMock(null);
   await expect(saveReferenceSnapshot(candidateInput())).resolves.toBe(41);
   expect(mocks.upload).toHaveBeenCalledTimes(2);
   const args = mocks.rpc.mock.calls[0][1] as { p_candidate: Record<string, unknown>; p_token: string };
@@ -113,6 +123,7 @@ it("uploads validated raw and normalized objects then passes their hashes and si
   expect(p_candidate).toMatchObject({ kind: "champion_tiers", clientPatch: "16.22", championId: 0,
     rawHash: hash(raw), normalizedHash: hash(JSON.stringify(normalized)), rawBytes: Buffer.byteLength(raw),
     normalizedBytes: Buffer.byteLength(JSON.stringify(normalized)), sourceDataDate: "2026-11-03", upstreamVersion: "16.22.1" });
+  expect(calls.remove).not.toHaveBeenCalled();
 });
 
 it("serves only the approved release selected by the publication pointer and never fetches externally", async () => {

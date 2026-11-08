@@ -82,18 +82,42 @@ export async function saveReferenceSnapshot<K extends ReferenceKind>(input: {
     rawPath: referencePath(sha(input.raw)), normalizedPath: referencePath(sha(body)), rawBytes: Buffer.byteLength(input.raw), normalizedBytes: Buffer.byteLength(body),
     attribution: input.attribution.trim(), rightsBasis: input.rightsBasis.trim() };
   if ([candidate.rawBytes, candidate.normalizedBytes].some(size => size < 1 || size > REFERENCE_MAX_BYTES)) throw failure();
-  // 원본 수정 이력을 보존하고 원본·정규화본이 모두 같을 때만 기존 후보를 유지한다.
+  // 정규화본이 같으면 적용해도 바뀌는 것이 없으므로 원본만 바뀐 수집본은 새로 쌓지 않는다.
   const existing = await db().from("lol_mayhem_reference_releases").select("id").eq("kind", candidate.kind)
-    .eq("client_patch", patch).eq("champion_id", championId).eq("raw_hash", candidate.rawHash).eq("normalized_hash", candidate.normalizedHash).abortSignal(signal()).maybeSingle();
+    .eq("client_patch", patch).eq("champion_id", championId).eq("normalized_hash", candidate.normalizedHash).neq("status", "rejected")
+    .order("id", { ascending: false }).limit(1).abortSignal(signal()).maybeSingle();
   if (existing.error) throw new Error("reference_database_error");
-  if (existing.data) return existing.data.id;
+  if (existing.data) {
+    await prunePendingReferences(candidate, existing.data.id);
+    return existing.data.id;
+  }
   for (const [path, text, hash, bytes] of [[candidate.rawPath, input.raw, candidate.rawHash, candidate.rawBytes], [candidate.normalizedPath, body, candidate.normalizedHash, candidate.normalizedBytes]] as const) {
     const upload = await db().storage.from("lol-augment-snapshots").upload(path, text, { contentType: "application/json", upsert: false });
     if (upload.error && await readObject(path, hash, bytes) !== text) throw new Error("reference_storage_error");
   }
   const result = await db().rpc("ingest_lol_mayhem_reference", { p_candidate: candidate, p_token: input.leaseToken }).abortSignal(signal());
   if (result.error || !Number.isSafeInteger(result.data) || Number(result.data) <= 0) throw new Error("reference_ingest_failed");
+  await prunePendingReferences(candidate, Number(result.data));
   return Number(result.data);
+}
+
+// 같은 대상의 이전 대기 후보는 최신 수집본으로 대체되므로 지우고, 남은 후보가 쓰지 않는 파일만 정리한다.
+async function prunePendingReferences(target: Pick<ReferenceCandidate, "kind" | "clientPatch" | "championId">, keepId: number) {
+  const removed = await db().from("lol_mayhem_reference_releases").delete().eq("kind", target.kind).eq("client_patch", target.clientPatch)
+    .eq("champion_id", target.championId).eq("status", "pending").neq("id", keepId).select("raw_path,normalized_path").abortSignal(signal());
+  if (removed.error) throw new Error("reference_database_error");
+  const paths = [...new Set(removed.data.flatMap(row => [row.raw_path, row.normalized_path]))];
+  if (!paths.length) return;
+  const [raw, normalized] = await Promise.all([
+    db().from("lol_mayhem_reference_releases").select("raw_path").in("raw_path", paths).abortSignal(signal()),
+    db().from("lol_mayhem_reference_releases").select("normalized_path").in("normalized_path", paths).abortSignal(signal()),
+  ]);
+  if (raw.error || normalized.error) throw new Error("reference_database_error");
+  const used = new Set([...raw.data.map(row => row.raw_path), ...normalized.data.map(row => row.normalized_path)]);
+  const orphans = paths.filter(path => !used.has(path));
+  if (!orphans.length) return;
+  const result = await db().storage.from("lol-augment-snapshots").remove(orphans);
+  if (result.error) throw new Error("reference_storage_error");
 }
 
 const publications = unstable_cache(async (kind: ReferenceKind, championId: number): Promise<ReferencePublication[]> => {

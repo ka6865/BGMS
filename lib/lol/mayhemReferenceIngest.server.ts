@@ -88,17 +88,17 @@ export async function ingestMayhemReferences(options: { apply: boolean; kinds?: 
       if (options.apply) await saveReferenceSnapshot({ kind, ...snapshot, upstreamVersion, ...rights, championId, leaseToken: token });
       summary.snapshots++;
     }
-    async function attempt(run: () => Promise<void>) {
+    async function attempt(target: string, run: () => Promise<void>) {
       try { await renew(); await run(); }
       catch (error) {
         const code = safeCode(error);
         if (code === "reference_sync_deadline" || code === "reference_lease_expired" || code === "reference_batch_too_large") throw error;
         if (code === "stats_quota_deferred") summary.quotaDeferred = true;
-        else { summary.failures++; lastError = code; }
+        else { summary.failures++; lastError = code; console.warn("[lol-mayhem-reference]", target, code); }
       }
     }
     try {
-      if (kinds.includes("champion_tiers")) await attempt(async () => {
+      if (kinds.includes("champion_tiers")) await attempt("champion_tiers", async () => {
         const rights = tierRights();
         if (!process.env.LOL_MAYHEM_STATS_API_KEY) throw new Error("stats_api_key_missing");
         if (!rights.attribution || rights.rightsBasis.length < 10) throw new Error("stats_collection_basis_missing");
@@ -113,9 +113,9 @@ export async function ingestMayhemReferences(options: { apply: boolean; kinds?: 
         await store("champion_tiers", snapshot, snapshot.normalized.dataVersion, rights);
       });
       if (kinds.includes("augment_rankings")) {
-        await attempt(async () => {
+        await attempt("augment_rankings:index", async () => {
           const patches = await fetchRankingIndex();
-          for (const patch of patches) await attempt(async () => {
+          for (const patch of patches) await attempt(`augment_rankings:${patch}`, async () => {
             const snapshot = await fetchRankingSnapshot(patch);
             const releaseId = (JSON.parse(snapshot.raw) as { meta?: { releaseId?: unknown } }).meta?.releaseId;
             if (typeof releaseId !== "string" || !releaseId.trim() || releaseId.length > 128) throw new Error("reference_version_invalid");
@@ -123,9 +123,9 @@ export async function ingestMayhemReferences(options: { apply: boolean; kinds?: 
           });
         });
       }
-      if (kinds.includes("item_ratings")) await attempt(async () => {
+      if (kinds.includes("item_ratings")) await attempt("item_ratings:champions", async () => {
         const ids = await registeredChampions();
-        for (const championId of ids) await attempt(async () => {
+        for (const championId of ids) await attempt(`item_ratings:${championId}`, async () => {
           const snapshot = await fetchItemRatingSnapshot(championId);
           if (!snapshot) { summary.skipped++; return; }
           await store("item_ratings", snapshot, `${snapshot.normalized.patch}:${snapshot.normalized.date}`, {

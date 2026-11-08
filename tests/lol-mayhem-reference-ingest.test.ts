@@ -52,8 +52,10 @@ it("keeps the last published data untouched when one upstream patch fails", asyn
     if (patch === "26.19") throw new Error("source_unavailable");
     return rankingSnapshot(patch);
   });
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const summary = await ingestMayhemReferences({ apply: true, kinds: ["augment_rankings"] });
   expect(summary).toMatchObject({ status: "partial", snapshots: 1, failures: 1 });
+  expect(warn).toHaveBeenCalledWith("[lol-mayhem-reference]", "augment_rankings:26.19", "source_unavailable");
   expect(mocks.save).toHaveBeenCalledTimes(1);
   expect(mocks.rpc.mock.calls.some(([name]) => String(name).startsWith("review_lol_mayhem_reference"))).toBe(false);
   expect(mocks.upsert).toHaveBeenCalledWith(expect.objectContaining({ last_error_code: "source_unavailable", consecutive_failures: 3 }));
