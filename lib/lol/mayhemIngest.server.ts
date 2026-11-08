@@ -2,7 +2,7 @@ import "server-only";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import { createSourceDownloader, sha256, validClientPatch } from "./augments/ingest";
 import { downloadMayhemDataset } from "./mayhemDataset";
-import { prepareReviewedMayhemDataset, type MayhemOfficialAugment } from "./mayhemReviewedDataset";
+import { mappingOriginPatch, prepareReviewedMayhemDataset, type MayhemOfficialAugment } from "./mayhemReviewedDataset";
 
 const SOURCE = "arammayhem";
 const JOB = "mayhem-external:arammayhem";
@@ -51,13 +51,15 @@ export async function ingestMayhemDataset(options: { apply: boolean; patch?: str
     if (publication.error) throw new Error("dataset_database_error");
     const patch = options.patch ?? publication.data?.client_patch;
     if (!patch || !validClientPatch(patch)) throw new Error("official_patch_missing");
+    const loadMappings = () => db.from("lol_mayhem_augment_mappings").select("external_id,client_patch,platform_id,status,evidence,reviewed_by,reviewed_at").eq("source", SOURCE).order("external_id").order("client_patch").limit(1000).abortSignal(signal());
     const [patches, mappings, latest] = await Promise.all([
       db.from("lol_game_patches").select("client_patch,display_patch,ddragon_version").in("display_patch", [...new Set([dataset.metadata.sourcePatch])]).abortSignal(signal()),
-      db.from("lol_mayhem_augment_mappings").select("external_id,client_patch,platform_id,status,evidence,reviewed_at").eq("source", SOURCE).order("external_id").order("client_patch").limit(1000).abortSignal(signal()),
+      loadMappings(),
       db.from("lol_mayhem_dataset_releases").select("mapping_revision,metadata").eq("source", SOURCE).eq("verified_client_patch", patch).order("id", { ascending: false }).limit(1).abortSignal(signal()),
     ]);
     if (patches.error || mappings.error || latest.error) throw new Error("dataset_database_error");
     if (mappings.data.length >= 1000) throw new Error("mapping_catalog_too_large");
+    let mappingRows = mappings.data;
     const sourcePatch = patches.data.find(row => row.display_patch === dataset.metadata.sourcePatch)?.client_patch;
     if (!sourcePatch) throw new Error("source_patch_unregistered");
     const target = await db.from("lol_game_patches").select("ddragon_version").eq("client_patch", patch).abortSignal(signal()).single();
@@ -74,25 +76,46 @@ export async function ingestMayhemDataset(options: { apply: boolean; patch?: str
       if (championId === undefined || !Number.isSafeInteger(championId) || championId <= 0) throw new Error("unknown_champion");
       return { ...combo, championId };
     });
-    const scopes = [...new Set([patch, sourcePatch])];
-    const [states, texts] = await Promise.all([
-      db.from("lol_augment_patch_states").select("platform_id,client_patch,rarity,enabled,in_pool,is_internal,state").in("client_patch", scopes).eq("mode_name", "KIWI").limit(1000).abortSignal(signal()),
-      db.from("lol_augment_localizations").select("platform_id,client_patch,locale,name,display_text").in("client_patch", scopes).in("locale", ["ko_kr", "en_us"]).limit(1000).abortSignal(signal()),
-    ]);
-    if (states.error || texts.error || states.data.length >= 1000 || texts.data.length >= 1000) throw new Error("official_archive_catalog_missing");
+    // 이전 패치 연결을 이어받으려면 검수한 원래 패치의 공식 목록도 필요하다.
+    const scopes = [...new Set([patch, sourcePatch, ...mappingRows.filter(m => m.status === "approved").map(mappingOriginPatch)])];
+    if (scopes.length > 8) throw new Error("mapping_catalog_too_large");
+    const catalogs = await Promise.all(scopes.map(scope => Promise.all([
+      db.from("lol_augment_patch_states").select("platform_id,client_patch,rarity,enabled,in_pool,is_internal,state").eq("client_patch", scope).eq("mode_name", "KIWI").limit(1000).abortSignal(signal()),
+      db.from("lol_augment_localizations").select("platform_id,client_patch,locale,name,display_text").eq("client_patch", scope).in("locale", ["ko_kr", "en_us"]).limit(1000).abortSignal(signal()),
+    ])));
     const officials: Record<string, MayhemOfficialAugment[]> = {};
-    for (const scope of scopes) officials[scope] = states.data.filter(row => row.client_patch === scope && !row.is_internal).map(row => {
-      const ko = texts.data.find(text => text.client_patch === scope && text.platform_id === row.platform_id && text.locale === "ko_kr");
-      const en = texts.data.find(text => text.client_patch === scope && text.platform_id === row.platform_id && text.locale === "en_us");
-      if (!ko?.name || !en?.name || !ko.display_text) throw new Error("official_archive_catalog_missing");
-      return { id: row.platform_id, name: ko.name, nameEn: en.name, text: ko.display_text, rarity: row.rarity, enabled: row.enabled, inPool: row.in_pool, internal: row.is_internal, state: row.state, icon: null, notice: null, isNew: false };
-    });
-    const reviewed = prepareReviewedMayhemDataset({ dataset, patch, sourcePatch, combos, officials, mappings: mappings.data });
+    for (const [index, scope] of scopes.entries()) {
+      const [states, texts] = catalogs[index];
+      if (states.error || texts.error || states.data.length >= 1000 || texts.data.length >= 1000) throw new Error("official_archive_catalog_missing");
+      officials[scope] = states.data.filter(row => row.client_patch === scope && !row.is_internal).map(row => {
+        const ko = texts.data.find(text => text.client_patch === scope && text.platform_id === row.platform_id && text.locale === "ko_kr");
+        const en = texts.data.find(text => text.client_patch === scope && text.platform_id === row.platform_id && text.locale === "en_us");
+        if (!ko?.name || !en?.name || !ko.display_text) throw new Error("official_archive_catalog_missing");
+        return { id: row.platform_id, name: ko.name, nameEn: en.name, text: ko.display_text, rarity: row.rarity, enabled: row.enabled, inPool: row.in_pool, internal: row.is_internal, state: row.state, icon: null, notice: null, isNew: false };
+      });
+    }
+    let reviewed = prepareReviewedMayhemDataset({ dataset, patch, sourcePatch, combos, officials, mappings: mappingRows });
+    if (reviewed.carried.length) {
+      // 저장 RPC가 DB의 승인 연결만 인정하므로 이어받은 연결을 새 패치 행으로 남긴다. 그 사이 사람이 검수한 행은 덮어쓰지 않는다.
+      const reviewedAt = new Date().toISOString();
+      const saved = await db.from("lol_mayhem_augment_mappings").upsert(reviewed.carried.map(({ from, client_patch }) => ({
+        source: SOURCE, external_id: from.external_id, client_patch, platform_id: from.platform_id, status: "approved",
+        evidence: { note: `${mappingOriginPatch(from)} 검수 연결을 같은 ID·이름·등급으로 이어받음`, carriedFrom: mappingOriginPatch(from) },
+        reviewed_by: from.reviewed_by, reviewed_at: reviewedAt,
+      })), { onConflict: "source,external_id,client_patch", ignoreDuplicates: true }).abortSignal(signal());
+      if (saved.error) throw new Error("dataset_database_error");
+      const reloaded = await loadMappings();
+      if (reloaded.error || reloaded.data.length >= 1000) throw new Error("dataset_database_error");
+      mappingRows = reloaded.data;
+      reviewed = prepareReviewedMayhemDataset({ dataset, patch, sourcePatch, combos, officials, mappings: mappingRows });
+    }
     if (!reviewed.rates.length || !reviewed.combos.length) throw new Error("reviewed_dataset_empty");
     const archiveBody = JSON.stringify(reviewed.archive), archiveHash = sha256(archiveBody);
     if (Buffer.byteLength(archiveBody) > 4 * 1024 * 1024) throw new Error("reviewed_archive_too_large");
     counts = { augments: reviewed.rates.length, combos: reviewed.combos.length };
-    const mappingHash = sha256(JSON.stringify(mappings.data));
+    // 검수자 ID는 이어받기에만 쓰고 해시와 보관 파일에는 기존 필드만 남긴다.
+    const mappingRecords = mappingRows.map(({ external_id, client_patch, platform_id, status, evidence, reviewed_at }) => ({ external_id, client_patch, platform_id, status, evidence, reviewed_at }));
+    const mappingHash = sha256(JSON.stringify(mappingRecords));
     const prior = latest.data[0];
     const mappingRevision = prior?.metadata?.mappingHash === mappingHash && prior?.metadata?.archiveHash === archiveHash ? prior.mapping_revision : (prior?.mapping_revision ?? 0) + 1;
     const rates = reviewed.rates.map(rate => ({ externalId: rate.externalId, pickRate: rate.pickRate, pickRateRank: rate.pickRateRank, sourceClientPatch: sourcePatch }));
@@ -106,10 +129,10 @@ export async function ingestMayhemDataset(options: { apply: boolean; patch?: str
     const captureHash = sha256(rawManifest);
     const rawManifestPath = `${prefix}/captures/${captureHash}/manifest.json`;
     const manifestPath = `${prefix}/captures/${captureHash}/normalized/${patch}/v2-m${mappingRevision}.json`;
-    const mappingSnapshot = mappings.data.map(({ external_id, client_patch, platform_id, status, reviewed_at }) => ({ external_id, client_patch, platform_id, status, reviewed_at }));
+    const mappingSnapshot = mappingRows.map(({ external_id, client_patch, platform_id, status, reviewed_at }) => ({ external_id, client_patch, platform_id, status, reviewed_at }));
     const metadata = { ...dataset.metadata, sourceClientPatch: sourcePatch, ...counts, counts, captureHash, mappingSnapshot, rawManifestPath, normalizerVersion: 2, mappingRevision, mappingHash, archiveHash, archiveBytes: Buffer.byteLength(archiveBody), archiveSummary: reviewed.summary, sourceCounts,
       championVersion: version, championCatalogHash: sha256(rawChampions), leaseToken: token };
-    const normalized = JSON.stringify({ ...metadata, leaseToken: undefined, mappings: mappings.data, rates, combos: reviewed.combos, archive: reviewed.archive });
+    const normalized = JSON.stringify({ ...metadata, leaseToken: undefined, mappings: mappingRecords, rates, combos: reviewed.combos, archive: reviewed.archive });
     const storage = db.storage.from("lol-augment-snapshots");
     for (const [path, body] of [...Object.entries(dataset.raw).map(([kind, file]) => [files[kind].path, file.body]), [files.champions.path, rawChampions], [rawManifestPath, rawManifest], [manifestPath, normalized]]) {
       await rpc("renew_lol_mayhem_dataset_lease", { p_token: token });

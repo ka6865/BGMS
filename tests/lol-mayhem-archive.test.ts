@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('server-only',()=>({}));
 import { availabilityCounts, archivePage, comboAvailability, parseMayhemArchive, type MayhemArchive } from '../lib/lol/mayhemArchive';
-import { prepareReviewedMayhemDataset, type MayhemOfficialAugment } from '../lib/lol/mayhemReviewedDataset';
+import { prepareReviewedMayhemDataset, type MayhemOfficialAugment, type ReviewedMapping } from '../lib/lol/mayhemReviewedDataset';
 import type { MayhemDataset } from '../lib/lol/mayhemDataset';
 const official = (id: number, name: string, enabled = true): MayhemOfficialAugment => ({ id, name, nameEn: name, rarity: 'gold', text: '효과', enabled, inPool: true, internal: false, state: enabled ? 'official_active' : 'official_disabled', icon: null, notice: null, isNew: false });
 const file = (rows: unknown[]) => ({ url: '', body: JSON.stringify({ schemaVersion: 1, licenseUrl: 'https://creativecommons.org/licenses/by/4.0/', meta: { releaseId: 'source:1' }, rows }), hash: '', etag: null, lastModified: null });
@@ -37,4 +37,15 @@ describe('실제 이름·등급 예외와 삭제 근거',()=>{
   it('공식 비활성은 보존하며 현재 조합에서 제외한다',()=>{const p=fromReview('vampirism');p.mappings=[];const r=prepareReviewedMayhemDataset(p);expect(r.summary.augments.disabled).toBe(1);expect(r.summary.combos.disabled).toBe(1);expect(r.rates).toHaveLength(0);});
   it('기존 삭제 메타데이터만으로 현행 공식 증강을 삭제 처리하지 않는다',()=>{const p=fromReview('clown_college');const raw=JSON.parse(p.dataset.raw.augments.body);raw.rows[0].retiredPatch='26.17';p.dataset.raw.augments.body=JSON.stringify(raw);expect(prepareReviewedMayhemDataset(p).summary.augments.active).toBe(1);});
   it('공식 영문명이나 등급이 바뀌면 검토 예외를 자동 재사용하지 않는다',()=>{const p=fromReview('double_defense');p.officials['16.21'][0].nameEn='Changed';expect(prepareReviewedMayhemDataset(p).archive.combos[0].status).toBe('unverified');});
+  function nextPatch(id: string) {
+    const p=fromReview(id);
+    const officials:Record<string,MayhemOfficialAugment[]>={...p.officials,'16.22':p.officials['16.21'].map(a=>({...a}))};
+    const mappings:ReviewedMapping[]=p.mappings.length?p.mappings:[{external_id:id,platform_id:1361,client_patch:'16.21',status:'approved'}];
+    return {...p,patch:'16.22',sourcePatch:'16.22',officials,mappings};
+  }
+  it('같은 ID·이름·등급이면 설명으로 검수한 연결도 새 패치에서 쓰고 저장 대상으로 돌려준다',()=>{const r=prepareReviewedMayhemDataset(nextPatch('double_defense'));expect(r.rates).toHaveLength(1);expect(r.combos).toHaveLength(1);expect(r.carried).toEqual([expect.objectContaining({client_patch:'16.22',from:expect.objectContaining({client_patch:'16.21'})})]);expect(r.archive.augments.find(a=>a.officialId===2144)?.reason).toContain('16.21');});
+  it('새 패치에서 이름이나 등급이 바뀌면 이어받지 않는다',()=>{for(const change of [{nameEn:'Changed'},{name:'바뀜'},{rarity:'prismatic' as const}]){const p=nextPatch('double_defense');Object.assign(p.officials['16.22'][0],change);const r=prepareReviewedMayhemDataset(p);expect(r.rates).toHaveLength(0);expect(r.carried).toEqual([]);}});
+  it('원래 패치의 삭제 판정은 이어받아도 현행 증강으로 바꾸지 않는다',()=>{const r=prepareReviewedMayhemDataset(nextPatch('void_immolation'));expect(r.rates).toHaveLength(0);expect(r.carried).toEqual([]);expect(r.archive.augments.find(a=>a.key==='external:void_immolation')?.status).toBe('removed');});
+  it('저장된 이어받은 연결은 원래 패치 기준으로 다시 판정하고 다시 저장하지 않는다',()=>{const p=nextPatch('double_defense');p.mappings.push({external_id:'double_defense',platform_id:2144,client_patch:'16.22',status:'approved',evidence:{note:'이어받음',carriedFrom:'16.21'}});const r=prepareReviewedMayhemDataset(p);expect(r.rates).toHaveLength(1);expect(r.carried).toEqual([]);});
+  it('새 패치에서 사람이 거절한 연결은 이어받지 않는다',()=>{const p=nextPatch('double_defense');p.mappings.push({external_id:'double_defense',platform_id:2144,client_patch:'16.22',status:'rejected'});const r=prepareReviewedMayhemDataset(p);expect(r.rates).toHaveLength(0);expect(r.carried).toEqual([]);});
 });
