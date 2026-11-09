@@ -27,6 +27,8 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   const isThrowUsageDirective = (sentence: string): boolean => (
     /(?:늘리|늘려|늘릴|높이|높여|높일|올리|올려|올릴|끌어올리|끌어올려|끌어올릴|향상|키우|키워|키울)/u.test(sentence) && /사용|빈도|횟수|명중|적중|정확|정밀|활용/u.test(sentence)
     || /(?:더\s*)?(?:많이|자주)\s*(?:던지|던져|쓰|써|사용|활용)/u.test(sentence)
+    // "더 적극적으로 사용", "조금 더 시도", "활용 범위를 넓히" 같은 완곡한 증가 권고도 같은 지시로 본다.
+    || /(?:적극적으로|적극|더)\s*(?:던지|던져|쓰|써|사용|활용|시도)|(?:범위|빈도|비중)[^.!?\n]{0,8}(?:넓히|넓혀|넓힐)/u.test(sentence)
   ) && !/필요(?:는|가|도)?\s*없|필요하지\s*않|말고|마세요|마십시오|않아도|않도록|(?:던지|쓰|사용하|활용하|늘리|높이|올리)지\s*(?:않|마|말)/u.test(sentence);
   const comparison = /(?:상위권|동일\s*티어|비교\s*평균|엘리트)[^.!?。！？]{0,40}(?:비해|보다|기준|수준|평균|부족|낮|높|느|뒤처)/u;
   const stats = match?.stats || {}, trade = match?.tradeStats || {};
@@ -42,6 +44,8 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   const contributionFacts = contributionParts.length ? `이번 경기에서 ${contributionParts.join(', ')}를 기록했습니다.` : null;
   const earlyElimination = isEarlyElimination({ survivalTime: finite(stats.timeSurvived), deathPhase: finite(match?.deathPhase), myDeathCount: typeof stats.deathType === 'string' ? (stats.deathType === 'alive' ? 0 : 1) : null });
   const negativeJudgment = /부족|미흡|저조|아쉽|아쉬|약점|한계|무너|형편없|느리|느린|개선이 필요|보완이 필요|개선의 여지|높여야|끌어올려야|채워야/u;
+  // 투척 사용량이 적다는 판단. 표본이 작을 때만 쓰므로 다른 지표 규칙과 분리한다.
+  const throwScarcityJudgment = /(?:빈도|사용량|횟수|활용)[^.!?\n]{0,12}(?:낮았|낮습|낮은|적었|적습|제한적)|그쳐|그쳤|그친/u;
   const negatedJudgment = /(?:부족|아쉬)(?:함|움)?(?:이|은|도)?\s*없|부족하지\s*않|아쉽지\s*않|느리지\s*않/u;
   const metricBenchmarks: Array<[RegExp, keyof NormalizedBenchmark]> = [
     [/(?:(?:대응|반응)\s*(?:사격)?\s*속도|반격\s*소요\s*시간)/u, 'avgFirstReplyLatency'],
@@ -134,7 +138,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
         if (!referenced.length || referenced.some(([, metric]) => !hasComparableBenchmarkMetric(match?.eliteBenchmark, metric))) return null;
       }
       if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && total !== null && total > 0 && total < 3 && (lethal === null || lethal < 3)
-        && /유틸리티|투척/u.test(sentence) && negativeJudgment.test(sentence) && !negatedJudgment.test(sentence)) {
+        && /유틸리티|투척/u.test(sentence) && (negativeJudgment.test(sentence) || throwScarcityJudgment.test(sentence)) && !negatedJudgment.test(sentence)) {
         return `${factPrefix(sentence)}투척은 총 ${total}회라 활용 능력을 평가하기에는 표본이 적습니다.`;
       }
       if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && lethal !== null && lethal > 0 && lethal < 3

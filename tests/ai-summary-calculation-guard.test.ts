@@ -347,12 +347,12 @@ describe("계산 5 비교 지표의 이전 계산 경기 가드", () => {
     });
 
     const mixedMatches = () => [
-      createSummaryMatch("mixed-v4", { calculationVersion: ANALYSIS_CALCULATION_VERSION - 1, initiative_rate: 34.5, initiativeSampleCount: 2 }),
-      createSummaryMatch("mixed-v5", { initiative_rate: 100, initiativeSampleCount: 2 }),
+      createSummaryMatch("mixed-v4", { calculationVersion: ANALYSIS_CALCULATION_VERSION - 1, initiative_rate: 34.5, initiativeSampleCount: 3 }),
+      createSummaryMatch("mixed-v5", { initiative_rate: 100, initiativeSampleCount: 3 }),
     ];
     const v5Matches = () => [
-      createSummaryMatch("v5-a", { initiative_rate: 100, initiativeSampleCount: 2 }),
-      createSummaryMatch("v5-b", { initiative_rate: 100, initiativeSampleCount: 2 }),
+      createSummaryMatch("v5-a", { initiative_rate: 100, initiativeSampleCount: 3 }),
+      createSummaryMatch("v5-b", { initiative_rate: 100, initiativeSampleCount: 3 }),
     ];
 
     it("이전 계산 경기가 섞이면 프롬프트에서 계산 5 비교 평균을 붙이지 않고 개인 값과 안내만 남긴다", async () => {

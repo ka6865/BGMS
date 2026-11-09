@@ -3,14 +3,17 @@ import { buildSummaryCardEvidence } from '../lib/pubg-analysis/aiSummaryCardEvid
 
 describe('server summary card evidence', () => {
   it('keeps utility composition, rescue attempts, and rescue success separate', () => {
-    const rows = buildSummaryCardEvidence({ totalUtilityThrows: 17, totalObservedSmokes: 8, totalLethalThrows: 8, totalObservedRescueSmokes: 1, totalTeammateKnocks: 3, totalSmokeRescues: 0 }, {
+    const rows = buildSummaryCardEvidence({ totalUtilityThrows: 17, totalObservedSmokes: 8, totalLethalThrows: 8, totalObservedRescueSmokes: 1, totalTeammateKnocks: 5, totalSmokeRescues: 0 }, {
       sampleCount: 42, avgSmokeRate: 5.55555555555556, metricSampleCounts: { avgSmokeRate: 36 },
     });
     expect(rows.find(row => row.metricId === 'utility_throws')).toMatchObject({ userValue: '17회', benchmarkValue: null });
     expect(rows.find(row => row.metricId === 'utility_smokes')?.userValue).toBe('8회');
     expect(rows.find(row => row.metricId === 'utility_lethal_throws')?.userValue).toBe('8회');
     expect(rows.find(row => row.metricId === 'smoke_rescue_attempts')?.userValue).toBe('1회');
-    expect(rows.find(row => row.metricId === 'smoke_opportunity_rate')).toMatchObject({ userValue: '0.0%', benchmarkValue: '5.6%', numerator: 0, denominator: 3, sampleCount: 36 });
+    expect(rows.find(row => row.metricId === 'smoke_opportunity_rate')).toMatchObject({ userValue: '0.0%', benchmarkValue: '5.6%', numerator: 0, denominator: 5, sampleCount: 36 });
+    // 내 관측이 5건 미만인 비율은 비교 평균과 견주지 않는다.
+    expect(buildSummaryCardEvidence({ totalTeammateKnocks: 4, totalSmokeRescues: 0 }, { sampleCount: 42, avgSmokeRate: 5.5, metricSampleCounts: { avgSmokeRate: 36 } })
+      .find(row => row.metricId === 'smoke_opportunity_rate')).toMatchObject({ userValue: '0%', benchmarkValue: null, sampleCount: null, unavailableReason: '내 관측이 4건이라 비교 평균과 견주지 않습니다.' });
     expect(buildSummaryCardEvidence({}, null).find(row => row.metricId === 'utility_smokes')?.userValue).toBeNull();
   });
   it('distinguishes missing, partial, and observed zero opportunity records', () => {
@@ -34,7 +37,7 @@ describe('server summary card evidence', () => {
     expect(rows.find(row => row.metricId === 'backup_latency')).toMatchObject({ userValue: null, unavailableReason: '복수 처치 성공 사례가 없어 시간을 계산할 수 없습니다.' });
     expect(rows.find(row => row.metricId === 'solo_kill_share')).toMatchObject({ userValue: null, denominator: 0, unavailableReason: '해당 지표를 계산할 기회가 관측되지 않았습니다.' });
   });
-  const stats = { avgDamage: 320, userInitiativeRate: 0, totalInitiativeSuccess: 0, totalInitiativeAttempts: 2, totalTradeKills: 0, totalTeammateKnocks: 0, totalSmokeRescues: 0, avgDuelWinRate: null, totalDuelWins: 0, totalDuelLosses: 0, totalUtilityThrows: 0, avgIsolationStr: '측정 불가', avgDeathPhase: null };
+  const stats = { avgDamage: 320, userInitiativeRate: 0, totalInitiativeSuccess: 0, totalInitiativeAttempts: 5, totalTradeKills: 0, totalTeammateKnocks: 0, totalSmokeRescues: 0, avgDuelWinRate: null, totalDuelWins: 0, totalDuelLosses: 0, totalUtilityThrows: 0, avgIsolationStr: '측정 불가', avgDeathPhase: null };
   it('keeps observed zero and unknown user values distinct without a benchmark', () => {
     const rows = buildSummaryCardEvidence(stats, null);
     expect(rows.find(row => row.metricId === 'initiative_rate')?.userValue).toBe('0%');
@@ -70,11 +73,11 @@ describe('server summary card evidence', () => {
       { sampleCount: 94, avgIsolationIndex: 1.0967741935483886, metricSampleCounts: { avgIsolationIndex: 93 } })
       .find(row => row.metricId === 'isolation_average');
     expect(isolation).toMatchObject({ userValue: '0.28', benchmarkValue: '1.10' });
-    const trade = buildSummaryCardEvidence({ ...stats, totalTradeKills: 1, totalTeammateKnocks: 4 },
+    const trade = buildSummaryCardEvidence({ ...stats, totalTradeKills: 2, totalTeammateKnocks: 8 },
       { sampleCount: 40, avgTradeRate: 14.3, metricSampleCounts: { avgTradeRate: 30 } })
       .find(row => row.metricId === 'trade_success_rate');
     expect(trade).toMatchObject({ userValue: '25.0%', benchmarkValue: '14.3%' });
-    const userOnly = buildSummaryCardEvidence({ ...stats, totalTradeKills: 1, totalTeammateKnocks: 4 }, null)
+    const userOnly = buildSummaryCardEvidence({ ...stats, totalTradeKills: 2, totalTeammateKnocks: 8 }, null)
       .find(row => row.metricId === 'trade_success_rate');
     expect(userOnly?.userValue).toBe('25%');
   });

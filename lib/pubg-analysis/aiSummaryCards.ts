@@ -1291,13 +1291,17 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     const kindUsable = providerKind && !isNeutralText(providerKind) && !sanitized[0].changed && !/\d|평균|비교/u.test(providerKind)
       && !(hasUnfavorable && STRONG_PRAISE.test(providerKind))
       && !hasUnsupportedSummaryInference(kindOpinion) && !hasUnsupportedSummaryAdvice(kindOpinion);
+    // 두 코치의 역할을 나눈다. 다정한 코치는 비교 평균 이상인 지표를, 매운맛은 비교 평균에 못 미친 지표와 점검을 말한다.
+    const sideComparison = (unfavorable: boolean) => buildSummaryCardComparisonText({
+      ...serverCard, evidence: serverCard.evidence.filter(row => (isUnfavorable(row) === true) === unfavorable),
+    });
+    const kindComparison = sideComparison(false), spicyComparison = sideComparison(true);
     // 비교가 없으면 수치는 reason에 두고, 의견에는 관측 한계만 쓴다(같은 수치 반복 방지).
-    sanitizedTexts[0] = comparison
-      ? [comparison, kindUsable ? providerKind : ""].filter(Boolean).join(" ")
-      : kindUsable ? providerKind : "비교 자료가 없어 관측 기록만 확인했습니다.";
-    sanitizedTexts[1] = conditionalCheckText(sanitizedTexts[1]);
+    sanitizedTexts[0] = [kindComparison, kindUsable ? providerKind : ""].filter(Boolean).join(" ")
+      || (comparison ? "보완할 지표가 있는 주제입니다. 점검 과제를 한 가지씩 차근차근 확인해 보세요." : "비교 자료가 없어 관측 기록만 확인했습니다.");
     // 모델 점검 문장이 형식을 지키지 않으면 가장 불리한 지표에 맞춘 점검을 제공한다.
-    if (!sanitizedTexts[1]) sanitizedTexts[1] = metricCheck(serverCard);
+    const spicyCheck = conditionalCheckText(sanitizedTexts[1]) || metricCheck(serverCard);
+    sanitizedTexts[1] = [spicyComparison, spicyCheck].filter(Boolean).join(" ");
     sanitizedTexts[2] = buildSummaryCardFactText(serverCard) || comparison || sanitizedTexts[2];
     sanitizedTexts[3] = cardEvaluation(serverCard);
     const readyCard: SummaryCard = {

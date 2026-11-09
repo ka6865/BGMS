@@ -56,7 +56,9 @@ describe('summary quality: precision and grounded conclusions', () => {
     expect(card.analysisStatus).toBe('ready');
     expect(card.kindOpinion).not.toContain('고루');
     // 비교만 반복한 매운맛은 가장 불리한 지표(연막 구출률)에 맞춘 점검으로 바꾸고, 승자는 비교 방향으로 정한다.
-    expect(card.spicyOpinion).toBe('아군이 기절했을 때 연막으로 가릴 수 있는 구간이 있었는지 확인해 보세요.');
+    // 불리한 비교는 매운맛이 말하고, 다정한 코치는 반복하지 않는다.
+    expect(card.spicyOpinion).toBe('아군 기절 대비 연막 구출률은 비교 평균보다 낮습니다. 아군이 기절했을 때 연막으로 가릴 수 있는 구간이 있었는지 확인해 보세요.');
+    expect(card.kindOpinion).not.toContain('낮습니다');
     expect(card.winner).toBe('spicy');
   });
 

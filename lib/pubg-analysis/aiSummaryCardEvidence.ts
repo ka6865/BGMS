@@ -13,6 +13,9 @@ function rate(numerator: unknown, denominator: unknown): number | null {
   return n !== null && d !== null && d > 0 ? Math.min(100, n / d * 100) : null;
 }
 
+// 비율 지표는 내 관측 건수가 이보다 적으면 비교 평균과 견주지 않는다(단판의 소표본 보류와 같은 취지).
+export const MIN_USER_RATE_EVENTS = 5;
+
 /** Assemble only observed user values and independently sampled benchmark values. */
 export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchmark: ObservedBenchmark | null): SummaryEvidenceInput[] {
   const entries: SummaryEvidenceInput[] = [];
@@ -25,12 +28,13 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
       : numberOrNull(rawValues && Object.hasOwn(rawValues, metricId) ? rawValues[metricId] : user);
     const benchmarkObserved = benchmarkKey !== undefined && hasComparableBenchmarkMetric(benchmark, benchmarkKey);
     const smallBenchmark = benchmarkKey !== undefined && !benchmarkObserved && hasObservedBenchmarkMetric(benchmark, benchmarkKey);
-    const comparison = benchmarkObserved && benchmark ? numberOrNull(benchmark.rawMetricValues?.[benchmarkKey!] ?? benchmark[benchmarkKey!]) : null;
+    const denominatorValue = numberOrNull(denominator);
+    const smallUserSample = unit === '%' && denominatorValue !== null && denominatorValue > 0 && denominatorValue < MIN_USER_RATE_EVENTS;
+    const comparison = benchmarkObserved && benchmark && !smallUserSample ? numberOrNull(benchmark.rawMetricValues?.[benchmarkKey!] ?? benchmark[benchmarkKey!]) : null;
     const maxDecimals = unit === '%' ? 1 : 2;
     // 표시 정밀도까지만 자르고 끝의 0은 지운다(25 → "25", 1.1 → "1.1").
     const trimmed = (n: number) => String(Number(n.toFixed(maxDecimals)));
     const places = (text: string) => (text.split('.')[1] ?? '').length;
-    const denominatorValue = numberOrNull(denominator);
     const userShown = denominator !== undefined && (denominatorValue === null || denominatorValue <= 0) ? null : value;
     // 내 값과 비교 평균은 같은 자릿수로 보여 준다(0.28 vs 1.10). 한쪽만 끝의 0이 빠져 정밀도가 달라 보이지 않게 한다.
     const sharedPlaces = userShown !== null && comparison !== null ? Math.max(places(trimmed(userShown)), places(trimmed(comparison))) : null;
@@ -44,10 +48,10 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
       benchmarkLabel: `동일 티어 평균 ${label.replace(/^평균 /, '')}`,
       benchmarkValue: comparison === null ? null : format(comparison),
       unit,
-      sampleCount: benchmarkObserved && benchmarkKey ? benchmark?.metricSampleCounts?.[benchmarkKey] ?? null : null,
+      sampleCount: comparison !== null && benchmarkKey ? benchmark?.metricSampleCounts?.[benchmarkKey] ?? null : null,
       ...(numerator !== undefined ? { numerator: numberOrNull(numerator) } : {}),
       ...(denominator !== undefined ? { denominator: denominatorValue } : {}),
-      ...(userValue === null ? { unavailableReason: denominator !== undefined && denominatorValue === 0 ? '해당 지표를 계산할 기회가 관측되지 않았습니다.' : '이 지표를 측정할 수 있는 기록이 없습니다.' } : comparison === null ? { unavailableReason: smallBenchmark ? `비교 표본이 ${MIN_COMPARISON_SAMPLE_COUNT}경기 미만이라 비교하지 않습니다.` : '같은 조건의 비교 자료가 없습니다.' } : {}),
+      ...(userValue === null ? { unavailableReason: denominator !== undefined && denominatorValue === 0 ? '해당 지표를 계산할 기회가 관측되지 않았습니다.' : '이 지표를 측정할 수 있는 기록이 없습니다.' } : comparison === null ? { unavailableReason: smallUserSample ? `내 관측이 ${denominatorValue}건이라 비교 평균과 견주지 않습니다.` : smallBenchmark ? `비교 표본이 ${MIN_COMPARISON_SAMPLE_COUNT}경기 미만이라 비교하지 않습니다.` : '같은 조건의 비교 자료가 없습니다.' } : {}),
     });
     const entry = entries[entries.length - 1];
     if (userMatchCount === 0) {

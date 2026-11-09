@@ -417,7 +417,10 @@ describe("ai summary v2 card catalog", () => {
     });
     const result = normalizeSummaryCardFinal(provider, cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => false });
     expect(result?.final.cards[0]).toMatchObject({ winner: expected, analysisStatus: "ready", evidence: cards[0].evidence });
-    expect(result?.final.cards[0].spicyOpinion).toBe("다음 경기에서 교전 연계를 점검하세요.");
+    // 매운맛은 불리한 비교와 점검을, 다정한 코치는 유리한 비교만 말한다.
+    expect(result?.final.cards[0].spicyOpinion).toMatch(/다음 경기에서 교전 연계를 점검하세요\.$/u);
+    if (expected === "kind") expect(result?.final.cards[0].spicyOpinion).toBe("다음 경기에서 교전 연계를 점검하세요.");
+    expect(result?.final.cards[0].kindOpinion).not.toMatch(/낮습니다|느립니다/u);
     expect(parseSummaryCards(result?.final)).not.toBeNull();
     expect(result?.final.finalVerdict).not.toContain("조율이 필요");
     if (expected === "kind") {
