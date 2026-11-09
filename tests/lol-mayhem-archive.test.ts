@@ -55,5 +55,11 @@ describe('실제 이름·등급 예외와 삭제 근거',()=>{
     disabled.officials['16.22'][0].nameEn='Changed';
     expect(prepareReviewedMayhemDataset(disabled).summary.augments.unverified).toBe(1);
   });
+  it('비활성으로 검수한 증강이 새 패치 공식 자료에서 빠지면 삭제로 판정한다',()=>{
+    const p=nextPatch('vampirism');p.mappings=[];p.officials['16.22']=[official(9999,'Other')];
+    const r=prepareReviewedMayhemDataset(p);
+    expect(r.archive.augments.find(a=>a.key==='external:vampirism')).toMatchObject({status:'removed',removedPatch:'26.22'});
+    expect(r.summary.combos).toMatchObject({removed:1,unverified:0});
+  });
   it('새 패치에서 사람이 거절한 연결은 이어받지 않는다',()=>{const p=nextPatch('double_defense');p.mappings.push({external_id:'double_defense',platform_id:2144,client_patch:'16.22',status:'rejected'});const r=prepareReviewedMayhemDataset(p);expect(r.rates).toHaveLength(0);expect(r.carried).toEqual([]);});
 });

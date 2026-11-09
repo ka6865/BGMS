@@ -44,7 +44,14 @@ export function prepareReviewedMayhemDataset<M extends ReviewedMapping>(input: {
     const rule = found && (reviewData.clientPatch === scope || found.status !== "active") ? found : undefined;
     const mapping = mappings.find(m => m.external_id === s.externalId && m.client_patch === scope && m.status === "approved");
     let official = mapping ? officials[scope].find(a => a.id === mapping.platform_id && !a.internal) ?? null : null;
-    if (rule?.status === "disabled" && rule.officialId) official = officials[scope].find(a => a.id === rule.officialId && !a.internal) ?? null;
+    if (rule?.status === "disabled" && rule.officialId) {
+      official = officials[scope].find(a => a.id === rule.officialId && !a.internal) ?? null;
+      // 비활성으로 검수한 증강이 이후 패치 공식 자료에서 아예 빠지면 삭제로 본다.
+      if (!officials[scope].some(a => a.id === rule.officialId)) {
+        const removedPatch = `${Number(scope.split(".")[0]) + 10}.${scope.split(".")[1]}`;
+        return { key: `external:${s.externalId}`, status: "removed", official: null, source: s, reason: `공식 ${scope} 자료에서 빠짐(이전 비활성 검수)`, removedPatch, url: rule.sourceUrl };
+      }
+    }
     // 예전 명칭이 현행 한국어 이름과 같더라도 검토된 삭제 기록을 임의 연결하지 않는다.
     if (rule?.status === "removed") return { key: `external:${s.externalId}`, status: "removed", official: null, source: s, reason: `원본 ${rule.retiredPatch} 삭제 기록`, removedPatch: rule.retiredPatch, url: rule.sourceUrl };
     if (official && !s.conflict) {

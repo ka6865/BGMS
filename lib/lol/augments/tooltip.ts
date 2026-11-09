@@ -153,19 +153,21 @@ function safeTokens(source: string, formulas: readonly string[], iconLabel: (nam
     || (token.icon === "scaleAPen" && plainText.includes("방어구 관통력"))) ? { ...token, text: "" } : token);
 }
 
+// BIN 이름은 소문자 FNV-1a 32비트 해시로 통일해 평문과 해시를 함께 조회한다.
+export function binHash(name: string) {
+  if (/^\{[0-9a-f]{8}\}$/i.test(name)) return name.toLowerCase();
+  let value = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(name.toLowerCase())) value = Math.imul(value ^ byte, 0x01000193);
+  return `{${(value >>> 0).toString(16).padStart(8, "0")}}`;
+}
+
 export function renderTooltip(source: string | null, context: {
   dataValues?: readonly DataValue[];
   calculations?: Calculations;
   stringTable?: StringTable;
   spellSlot?: string;
 } = {}): TooltipResult {
-  // BIN 이름은 소문자 FNV-1a 32비트 해시로 통일해 평문과 해시를 함께 조회한다.
-  const hash = (name: string) => {
-    if (/^\{[0-9a-f]{8}\}$/i.test(name)) return name.toLowerCase();
-    let value = 0x811c9dc5;
-    for (const byte of new TextEncoder().encode(name.toLowerCase())) value = Math.imul(value ^ byte, 0x01000193);
-    return `{${(value >>> 0).toString(16).padStart(8, "0")}}`;
-  };
+  const hash = binHash;
   const values = new Map((context.dataValues ?? []).map(value => [hash(value.name), value.values]));
   const calculations = new Map(Object.entries(context.calculations ?? {}).map(([key, value]) => [hash(key), value]));
   const unsupported = new Set<string>();
