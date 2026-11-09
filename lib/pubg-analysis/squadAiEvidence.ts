@@ -118,7 +118,9 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   const splitFalseContrast = (text: unknown) => typeof text === "string"
     ? text.replace(/우승\s*([1-9]\d*)\s*회를?\s*(?:기록했|거두었|거뒀|달성했)지만\s*/gu, "우승 $1회를 기록했습니다. ")
     : text;
-  for (const field of ["summary", "strength", "overallOpinion"]) output[field] = splitFalseContrast(output[field]);
+  // 수치 뒤에 바로 "~면서"를 붙인 어색한 연결("기록이 5회면서")은 "~이고"로 고친다.
+  const fixNumericMyeonseo = (text: unknown) => typeof text === "string" ? text.replace(/(\d+(?:\.\d+)?\s*(?:회|%|초|경기))면서\s/gu, "$1이고 ") : text;
+  for (const field of ["summary", "strength", "overallOpinion"]) output[field] = fixNumericMyeonseo(splitFalseContrast(output[field]));
   // 총평이 다른 칸 문장을 그대로 반복하면 그 문장을 빼고, 남는 게 없으면 맛에 맞는 마무리 한마디를 쓴다.
   if (typeof output.overallOpinion === "string" && output.overallOpinion.trim()) {
     const used = new Set(["summary", "strength", "weakness", "coaching"].flatMap(field => typeof output[field] === "string"
@@ -136,8 +138,9 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   if (coachingStyle === "spicy" && typeof output.overallOpinion === "string") {
     const closer = squadSpicyCloser(selectSquadPunchlines({ stats, scores, squadGrade: grade, benchmarkStats: options.benchmarkStats, roleProfiles }),
       roleProfiles.map(profile => profile.name).sort().join(","));
-    if (closer && !output.overallOpinion.includes(closer)) output.overallOpinion = `${output.overallOpinion.trim()} ${closer}`.trim();
-    if (!output.overallOpinion.trim()) output.overallOpinion = "기록부는 여기까지입니다.";
+    const opinion = output.overallOpinion.trim();
+    const closed = closer && !opinion.includes(closer) ? `${opinion} ${closer}`.trim() : opinion;
+    output.overallOpinion = closed || "기록부는 여기까지입니다.";
   }
   if (Array.isArray(data.memberFeedbacks)) {
     const cleanMember = (text: unknown) => {

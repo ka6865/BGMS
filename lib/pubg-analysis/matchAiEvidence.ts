@@ -128,7 +128,11 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
         && !isNegatedCoachingDirectiveTail(sentence.slice(sentence.search(/줄여|단축|개선|보완/u) + 2))) {
         return '다음 교전에서는 아군의 상태를 확인하고 지원 가능한 상황인지 점검하세요.';
       }
-      if (/선제[^.!?\n]{0,30}성공률/u.test(sentence) && /(?:첫|최초)[^.!?\n]{0,15}(?:명중률|정확도)/u.test(sentence)) {
+      // 에임·조준·반동·집중도는 측정하지 않으므로 행동 제안에 쓰지 않고 관측 가능한 점검으로 바꾼다.
+      if (key === 'desc' && /에임|조준|반동|집중도/u.test(sentence)) return '다음 교전에서는 교전이 시작된 위치와 결과를 확인해 보세요.';
+      // "첫 타격 적중률"처럼 첫 발 명중을 따로 재는 지표는 없다. 선제 타격 성공률을 그렇게 바꿔 말한 문장도 같은 점검으로 바꾼다.
+      if (/(?:첫|최초)\s*(?:타격|발|사격|공격)?\s*(?:적중률|명중률|정확도)/u.test(sentence)
+        || (/선제[^.!?\n]{0,30}성공률/u.test(sentence) && /(?:첫|최초)[^.!?\n]{0,15}(?:명중률|정확도)/u.test(sentence))) {
         return '다음 교전에서는 선제 타격 이후 교전 결과를 확인해 보세요.';
       }
       if (/(?:(?:대응|반응)\s*(?:사격)?\s*속도|반격\s*소요\s*시간)/u.test(sentence) && /상위\s*(?:권|수준|\d+\s*%)/u.test(sentence)) {

@@ -108,3 +108,20 @@ describe("스쿼드 매운맛 마무리", () => {
     expect(squadSpicyCloser([], "a,b")).toBeNull();
   });
 });
+
+describe("남은 문장 보정", () => {
+  it("첫 타격 적중률처럼 측정하지 않는 지표 조언을 점검 문장으로 바꾼다", () => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ actionItems: [{ icon: "🎯", title: "교전 집중", desc: "다음 경기에서는 교전 상황에서 조금 더 여유를 가지고 첫 타격 적중률을 높이는 데 집중해 보세요." }] }), {}));
+    expect(result.actionItems[0].desc).toBe("다음 교전에서는 선제 타격 이후 교전 결과를 확인해 보세요.");
+  });
+
+  it("에임·집중도처럼 측정하지 않는 능력 점검 제안을 바꾼다", () => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ actionItems: [{ icon: "🎯", title: "교전 점검", desc: "교전 상황에서 생존율을 높이기 위해 첫 반격 타이밍과 에임 집중도를 점검하십시오." }] }), {}));
+    expect(result.actionItems[0].desc).toBe("다음 교전에서는 교전이 시작된 위치와 결과를 확인해 보세요.");
+  });
+
+  it("수치 뒤 어색한 '~면서' 연결을 '~이고'로 고친다", () => {
+    const mild = applySquadEvidencePolicy({ overallOpinion: "최근 10경기 우승 기록이 2회면서 다음 경기도 기대됩니다." }, {}, null, undefined, [], { coachingStyle: "mild" }) as any;
+    expect(mild.overallOpinion).toBe("최근 10경기 우승 기록이 2회이고 다음 경기도 기대됩니다.");
+  });
+});
