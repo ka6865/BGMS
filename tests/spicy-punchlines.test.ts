@@ -85,12 +85,26 @@ describe("스쿼드 총평 보정", () => {
       strength: "연막 구출 성공 기록이 5회입니다.",
       overallOpinion: "최근 10경기에서 우승 2회를 기록했습니다. 치킨 기록이 있다는 건 부인할 수 없는 사실입니다. 연막 구출 성공 기록이 5회입니다.",
     }, {}, null, undefined, [], { coachingStyle: "spicy" }) as any;
-    expect(spicy.overallOpinion).toBe("기록부는 여기까지입니다. 다음 판에는 더 두꺼운 기록을 들고 오십시오.");
+    // 반복만 있던 총평은 서버 마무리 한마디만 남고, 다시 적용해도 한 번만 붙는다.
+    // 이 입력은 팀 재료가 없어 마무리 한마디 없이 짧은 마감 문장만 남는다.
+    expect(spicy.overallOpinion).toBe("기록부는 여기까지입니다.");
+    expect(applySquadEvidencePolicy(spicy, {}, null, undefined, [], { coachingStyle: "spicy" })).toEqual(spicy);
     const mild = applySquadEvidencePolicy({ overallOpinion: "최근 10경기에서 우승 2회를 거두었지만 다음 경기도 기대됩니다." }, {}, null, undefined, [], { coachingStyle: "mild" }) as any;
     expect(mild.overallOpinion).toBe("최근 10경기에서 우승 2회를 기록했습니다. 다음 경기도 기대됩니다.");
     const zero = applySquadEvidencePolicy({ overallOpinion: "최근 10경기에서 우승 0회를 기록했지만 다음 경기도 기대됩니다." }, {}, null, undefined, [], { coachingStyle: "mild" }) as any;
     expect(zero.overallOpinion).toContain("기록했지만");
+    const conjunction = applySquadEvidencePolicy({ strength: "최근 10경기에서 우승 2회를 기록했습니다.", overallOpinion: "하지만 최근 10경기에서 우승 2회를 기록했습니다. 다음 경기도 기대됩니다." }, {}, null, undefined, [], { coachingStyle: "mild" }) as any;
+    expect(conjunction.overallOpinion).toBe("다음 경기도 기대됩니다.");
     const withheld = applySquadEvidencePolicy({ overallOpinion: "해당 평가는 행동 근거가 부족해 보류합니다." }, {}, null, undefined, [], { coachingStyle: "mild" }) as any;
     expect(withheld.overallOpinion).toBe("다음 경기에서도 지금의 호흡을 이어가 보세요.");
+  });
+});
+
+describe("스쿼드 매운맛 마무리", () => {
+  it("놀림 재료가 있으면 비꼬고, 칭찬 재료만 있으면 머쓱해한다", async () => {
+    const { squadSpicyCloser } = await import("@/lib/pubg-analysis/squadPunchlines");
+    expect(squadSpicyCloser([{ kind: "hype" }, { kind: "roast" }], "a,b")).toMatch(/^(?:기록부가 할 말이 많은|매운맛이 할 일이 많았던)/u);
+    expect(squadSpicyCloser([{ kind: "hype" }], "a,b")).toMatch(/^(?:트집 잡을 데가 없어|칭찬만 하다 끝나는)/u);
+    expect(squadSpicyCloser([], "a,b")).toBeNull();
   });
 });

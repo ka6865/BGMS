@@ -307,6 +307,25 @@ function squadPunchlineJab(id: string, seed: string): string | null {
   return pickVariant(SQUAD_PUNCHLINE_JABS[id], seed);
 }
 
+// 매운맛 총평의 마무리 한마디. 놀릴 재료가 있으면 비꼬고, 칭찬 재료만 있으면 머쓱해한다. 숫자·능력·의도는 쓰지 않는다.
+const SQUAD_SPICY_CLOSERS: Readonly<Record<SquadPunchlineKind, readonly string[]>> = {
+  roast: [
+    "기록부가 할 말이 많은 스쿼드입니다. 다음 판에는 핑계 말고 숫자로 반박하십시오.",
+    "매운맛이 할 일이 많았던 기록입니다. 다음 리포트는 좀 심심해지길 바랍니다.",
+  ],
+  hype: [
+    "트집 잡을 데가 없어 매운맛이 체면을 구겼습니다. 다음 판에도 이 기록 그대로 들고 오십시오.",
+    "칭찬만 하다 끝나는 매운맛은 처음입니다. 다음 판엔 꼬투리 하나쯤은 남겨 주십시오.",
+  ],
+};
+
+/** 매운맛 총평 마무리. 팀 재료에 놀림이 하나라도 있으면 놀림 쪽, 아니면 띄움 쪽 문장을 고른다. 재료가 없으면 null. */
+export function squadSpicyCloser(team: readonly Pick<SquadPunchline, "kind">[], seed: string): string | null {
+  if (team.length === 0) return null;
+  const kind: SquadPunchlineKind = team.some(punchline => punchline.kind === "roast") ? "roast" : "hype";
+  return pickVariant(SQUAD_SPICY_CLOSERS[kind], seed) ?? SQUAD_SPICY_CLOSERS[kind][0];
+}
+
 /**
  * 매운맛 개인 칭찬 문장. 개인 딜·킬 비중이 높거나 꾸준한 팀원에게만 만든다. 낮은 딜 비중과 킬로그 배달부에는 만들지 않는다.
  * 사실 문장의 끝맺음을 떼어 칭찬과 한 문장으로 잇는다.
