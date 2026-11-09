@@ -139,7 +139,9 @@ it.each(['LogPlayerRedeployBRStart','LogPlayerRedeployBrStart'])('resets kill de
 
 it('repairs unsupported rear-position titles and smoke-only utility dismissal',()=>{
   const final=JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({signature:'든든한 후방 화력 지원자',briefFeedback:['피해형 투척물이 없어 유틸리티 교전 보조 능력을 발휘하지 못했습니다.']}),{combatPressure:{utilityStats:{throwCount:2,lethalThrowCount:0,hitCount:0}}}));
-  expect(final.signature).not.toContain('후방');expect(final.briefFeedback[0]).toContain('총 투척 2회');
+  expect(final.signature).not.toContain('후방');
+  // 투척 2회는 표본이 적어 능력 단정 대신 투척 횟수와 보류를 말한다.
+  expect(final.briefFeedback[0]).not.toContain('발휘하지 못');expect(final.briefFeedback[0]).toContain('총 2회');
 });
 
 it('binds squad member contribution numbers to their own metric, including cache responses',()=>{

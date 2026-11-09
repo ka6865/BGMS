@@ -1,4 +1,4 @@
-import { requiresRescueOpportunityEvidence } from './aiCoachingQuality';
+import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from './aiCoachingQuality';
 import { isSquadWithheldCopy, squadMetricWithheldCopy, squadWithheldCopy } from './squadAiPolicy';
 import { isSquadReviveRateEvaluable, isSquadTradeLatencyEvaluable } from './squadEvidenceSamples';
 import { squadMemberFaultFeedback, type SquadMemberRecords } from './squadMemberRecords';
@@ -113,6 +113,20 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   const output: Record<string, unknown> = { ...data, squadGrade: grade };
   for (const field of ["summary", "strength", "weakness", "coaching", "overallOpinion"]) {
     output[field] = clean(data[field]);
+  }
+  // 우승이 1회 이상이면 뒤 사실과 대조가 아니므로 "기록했지만"으로 잇지 않고 문장을 나눈다. 0회 뒤의 대조는 그대로 둔다.
+  const splitFalseContrast = (text: unknown) => typeof text === "string"
+    ? text.replace(/우승\s*([1-9]\d*)\s*회를?\s*(?:기록했|거두었|거뒀|달성했)지만\s*/gu, "우승 $1회를 기록했습니다. ")
+    : text;
+  for (const field of ["summary", "strength", "overallOpinion"]) output[field] = splitFalseContrast(output[field]);
+  // 총평이 다른 칸 문장을 그대로 반복하면 그 문장을 빼고, 남는 게 없으면 맛에 맞는 마무리 한마디를 쓴다.
+  if (typeof output.overallOpinion === "string" && output.overallOpinion.trim()) {
+    const used = new Set(["summary", "strength", "weakness", "coaching"].flatMap(field => typeof output[field] === "string"
+      ? (output[field] as string).split(/(?<=[.!?。！？])\s+/u).map(sentence => sentence.trim()).filter(Boolean) : []));
+    // 보류 문구만 남은 총평도 마무리 한마디로 바꾼다. 총평 자리의 보류 문구는 읽는 사람에게 의미가 없다.
+    const kept = output.overallOpinion.split(/(?<=[.!?。！？])\s+/u).map(sentence => sentence.trim()).filter(sentence => sentence && !used.has(sentence) && sentence !== COACHING_JUDGMENT_WITHHELD);
+    output.overallOpinion = kept.length ? kept.join(" ")
+      : coachingStyle === "spicy" ? "기록부는 여기까지입니다. 다음 판에는 더 두꺼운 기록을 들고 오십시오." : "다음 경기에서도 지금의 호흡을 이어가 보세요.";
   }
   if (Array.isArray(data.memberFeedbacks)) {
     const cleanMember = (text: unknown) => {
