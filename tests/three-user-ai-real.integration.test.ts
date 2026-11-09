@@ -11,12 +11,12 @@ import { parseSummaryCards } from '@/lib/pubg-analysis/aiSummaryCards';
 import { collectAiCoachingQualitySignals } from '@/lib/pubg-analysis/aiCoachingQuality';
 import { hasUnsupportedSummaryAdvice, hasUnsupportedSummaryInference } from '@/lib/pubg-analysis/aiSummaryJudgment';
 
-const audit = vi.hoisted(() => ({ rows: [] as any[], benchmarks: [] as any[], calls: [] as any[], cases: [] as any[], writes: [] as any[], cache: new Map<string, any[]>(), cachePhase: false, replay: [] as any[] }));
+const audit = vi.hoisted(() => ({ rows: [] as any[], benchmarks: [] as any[], teamBenchmarks: [] as any[], calls: [] as any[], cases: [] as any[], writes: [] as any[], cache: new Map<string, any[]>(), cachePhase: false, replay: [] as any[] }));
 const db = vi.hoisted(() => ({ from(table: string) {
-  if (!['processed_match_telemetry','global_benchmarks','benchmark_stats_by_tier_v2','match_ai_coaching_cache','player_ai_summary_cache','squad_ai_coaching_cache'].includes(table)) throw new Error(`Unexpected DB table: ${table}`);
+  // 목록 밖 테이블(설정·비공개 플레이어 등)은 빈 결과로 읽힌다. 쓰기는 모두 메모리에만 남는다.
   const predicates: Array<(row: any) => boolean> = [];
   let single = false, limit = Infinity;
-  const source = () => table === 'processed_match_telemetry' ? audit.rows : table === 'benchmark_stats_by_tier_v2' ? audit.benchmarks : audit.cache.get(table) ?? [];
+  const source = () => table === 'processed_match_telemetry' ? audit.rows : table === 'benchmark_stats_by_tier_v2' ? audit.benchmarks : table === 'pubg_team_benchmarks' ? audit.teamBenchmarks : audit.cache.get(table) ?? [];
   const result = () => { const rows = source().filter(row => predicates.every(test => test(row))).slice(0, limit); return { data: single ? rows.at(-1) ?? null : rows, error: null }; };
   const chain: any = {
     select: () => chain, order: () => chain, abortSignal: () => chain,
@@ -30,6 +30,10 @@ const db = vi.hoisted(() => ({ from(table: string) {
 } }));
 vi.mock('@/utils/supabase/guard', () => ({ withAuthGuard: async () => ({ user: { id: 'local-three-user-evaluation' }, supabaseAdmin: db }) }));
 vi.mock('@/utils/supabase/server', () => ({ createClient: async () => db }));
+// 모듈 최상위에서 service role 클라이언트를 직접 만드는 경로(스쿼드 원본 조회 등)도 격리 DB로 보낸다.
+vi.mock('@supabase/supabase-js', async importOriginal => ({ ...(await importOriginal<any>()), createClient: () => db }));
+// 비공개 플레이어 검사는 PUBG API를 부르므로 평가에서는 공개 플레이어로 본다.
+vi.mock('@/lib/pubg/privatePlayerGuard', () => ({ blockPrivatePlayer: async () => null }));
 vi.mock('@/lib/pubg-analysis/aiUsageTracker', () => ({ trackAiUsage: vi.fn(), trackAiFailure: vi.fn() }));
 vi.mock('@google/generative-ai', async importOriginal => {
  const sdk = await importOriginal<any>();
@@ -94,7 +98,7 @@ beforeAll(() => {
  if (!enabled) return;
  config({ path: '.env.local', quiet: true });
  if (!process.env.GOOGLE_GEMINI_API_KEY) throw new Error('Missing Gemini key');
- audit.rows = fixture.rows; audit.benchmarks = fixture.benchmarkRows;
+ audit.rows = fixture.rows; audit.benchmarks = fixture.benchmarkRows; audit.teamBenchmarks = fixture.teamBenchmarks ?? [];
  if (process.env.THREE_USER_AI_REPLAY) audit.replay = JSON.parse(readFileSync(process.env.THREE_USER_AI_REPLAY, 'utf8')).calls;
  const nativeFetch = globalThis.fetch;
  vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {

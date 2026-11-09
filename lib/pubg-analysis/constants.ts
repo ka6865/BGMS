@@ -29,7 +29,7 @@ export const AI_CACHE_VERSION = "2026-10-28.first-reply-evidence-v6"; // 적격 
 // 단일 경기 코칭만의 프롬프트 버전. 가장 가까운 아군 거리 표기를 바꿨으므로 단일 경기 캐시만 새로 만든다(스쿼드는 유지).
 export const AI_MATCH_PROMPT_VERSION = `${AI_CACHE_VERSION}.nearest-teammate-v1`;
 export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v14`; // 잘린 응답이 저장된 v13 캐시를 쓰지 않는다(저장 전 필수 칸 검사 추가)
-export const AI_SUMMARY_CACHE_VERSION = "2026-11-09.small-rate-sample-v34"; // 내 관측 5건 미만 비율 지표는 비교 평균과 견주지 않아 강점·보완 판정에서 뺀다
+export const AI_SUMMARY_CACHE_VERSION = "2026-11-09.spicy-punchline-v35"; // 매운맛 의견에 서버가 고른 비꼬는 한마디를 붙인다(v34: 내 관측 5건 미만 비율 지표는 비교하지 않음)
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
 // versions so old v73/R2 rows can fail closed without a broad cache bump.

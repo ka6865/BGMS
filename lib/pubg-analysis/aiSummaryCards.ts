@@ -1,3 +1,4 @@
+import { summaryCardSpicyJab } from "./spicyPunchlines";
 import { AI_SUMMARY_HIGHER_IS_BETTER } from "./aiSummaryDebate";
 import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText, summaryAdviceRuleId, summaryInferenceRuleId } from "./aiSummaryJudgment";
 import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
@@ -1301,7 +1302,14 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       || (comparison ? "보완할 지표가 있는 주제입니다. 점검 과제를 한 가지씩 차근차근 확인해 보세요." : "비교 자료가 없어 관측 기록만 확인했습니다.");
     // 모델 점검 문장이 형식을 지키지 않으면 가장 불리한 지표에 맞춘 점검을 제공한다.
     const spicyCheck = conditionalCheckText(sanitizedTexts[1]) || metricCheck(serverCard);
-    sanitizedTexts[1] = [spicyComparison, spicyCheck].filter(Boolean).join(" ");
+    // 매운맛 한마디는 서버가 측정 방향으로 고른다. 못 미친 지표는 비꼬고, 모두 평균 이상이면 인정한다.
+    const comparableRows = serverCard.evidence.filter(row => row.status === "comparable");
+    const spicyJab = summaryCardSpicyJab(
+      comparableRows.filter(row => isUnfavorable(row) === true).map(row => row.metricId),
+      comparableRows.length > 0 && comparableRows.every(row => isUnfavorable(row) === false),
+      `${serverCard.context.contextId}:${serverCard.topicId}`,
+    );
+    sanitizedTexts[1] = [spicyComparison, spicyJab, spicyCheck].filter(Boolean).join(" ");
     sanitizedTexts[2] = buildSummaryCardFactText(serverCard) || comparison || sanitizedTexts[2];
     sanitizedTexts[3] = cardEvaluation(serverCard);
     const readyCard: SummaryCard = {
