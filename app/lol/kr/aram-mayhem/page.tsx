@@ -8,6 +8,7 @@ import tierSnapshot from "@/lib/lol/data/mayhem-champion-tiers.json";
 import { parseMayhemChampionTiers } from "@/lib/lol/mayhemChampionTiers";
 import { getLolChampions } from "@/lib/lol/champions.server";
 import { getPublicReference, referencePublicEnabled } from "@/lib/lol/mayhemReferenceStore.server";
+import { getMayhemPatchNotes } from "@/lib/lol/augments/patchNotes.server";
 
 export const metadata: Metadata = { title: { absolute: "BGMS | LoL 증바람 증강" } };
 
@@ -22,5 +23,7 @@ export default async function LolAramMayhemPage() {
   const championTiers = referencePublicEnabled()
     ? await getPublicReference("champion_tiers").catch(() => null)
     : parseMayhemChampionTiers(tierSnapshot);
-  return <LolMayhemView catalog={catalog?.view ?? null} error={catalog === undefined} dataset={dataset} champions={champions?.champions} championStatsEnabled={championStatsEnabled} championVersion={champions?.version} itemsEnabled={itemsEnabled} championTiers={championTiers} patchRankingsEnabled />;
+  // 패치노트는 부가 정보라 실패해도 나머지 화면은 그대로 보여준다.
+  const patchNotes = catalog ? await getMayhemPatchNotes(catalog.view.clientPatch).catch(() => []) : [];
+  return <LolMayhemView catalog={catalog?.view ?? null} error={catalog === undefined} dataset={dataset} champions={champions?.champions} championStatsEnabled={championStatsEnabled} championVersion={champions?.version} itemsEnabled={itemsEnabled} championTiers={championTiers} patchRankingsEnabled patchNotes={patchNotes} />;
 }

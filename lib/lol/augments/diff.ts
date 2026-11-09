@@ -1,9 +1,17 @@
 import type { Augment, AugmentPoolEntry } from "./extract";
+import { binHash } from "./tooltip";
 
 type Snapshot = AugmentPoolEntry & Partial<Pick<Augment, "ko" | "en" | "enabled" | "rootSpell">>;
 export type ChangedField = "name" | "description" | "values" | "rarity" | "enabled";
 type Change<T> = { before: T; after: T; fields: ChangedField[] };
 type Bucket<T> = { added: T[]; removed: T[]; changed: Change<T>[] };
+
+// 클라이언트 자료가 해시로만 남긴 이름을 다음 패치에서 평문으로 풀어도 같은 값으로 본다.
+function hashed(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(hashed);
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [binHash(key), hashed(item)]));
+  return typeof value === "string" ? binHash(value) : value;
+}
 
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
@@ -31,9 +39,9 @@ export function diffAugments<T extends Snapshot>(previous: readonly T[], current
     if (old.ko?.name !== entry.ko?.name || old.en?.name !== entry.en?.name) fields.push("name");
     if (old.ko?.description !== entry.ko?.description || old.en?.description !== entry.en?.description
       || old.ko?.tooltip !== entry.ko?.tooltip || old.en?.tooltip !== entry.en?.tooltip) fields.push("description");
-    const orderedValues = (augment: T) => augment.rootSpell?.dataValues.slice().sort((a, b) => a.name.localeCompare(b.name));
+    const orderedValues = (augment: T) => augment.rootSpell?.dataValues.map(value => ({ ...value, name: binHash(value.name) })).sort((a, b) => a.name.localeCompare(b.name));
     if (stable(orderedValues(old)) !== stable(orderedValues(entry))
-      || stable(old.rootSpell?.calculations) !== stable(entry.rootSpell?.calculations)
+      || stable(hashed(old.rootSpell?.calculations)) !== stable(hashed(entry.rootSpell?.calculations))
       || old.rootSpell?.spellSlot !== entry.rootSpell?.spellSlot) fields.push("values");
     if (old.rarity !== entry.rarity) fields.push("rarity");
     if (old.enabled !== entry.enabled) fields.push("enabled");
