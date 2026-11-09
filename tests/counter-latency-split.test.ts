@@ -41,11 +41,11 @@ describe('summary card counter evidence', () => {
   it('compares measured latency and failure rate against matching benchmarks', () => {
     const rows = buildSummaryCardEvidence({
       avgReactionLatency: '1.80s', avgMeasuredReactionLatency: '0.60s',
-      counterFailureRate: 50, counterFailureMatches: 1, counterObservedMatches: 2,
+      counterFailureRate: 50, counterFailureMatches: 3, counterObservedMatches: 6,
       metricMatchCounts: { reaction_latency: 1, counter_failure_rate: 2 }, rawMetricValues: { reaction_latency: 0.6 },
     }, benchmark);
     expect(rows.find(r => r.metricId === 'reaction_latency')).toMatchObject({ userValue: '0.6s', benchmarkValue: '0.6s' });
-    expect(rows.find(r => r.metricId === 'counter_failure_rate')).toMatchObject({ userValue: '50%', benchmarkValue: '60%', numerator: 1, denominator: 2 });
+    expect(rows.find(r => r.metricId === 'counter_failure_rate')).toMatchObject({ userValue: '50%', benchmarkValue: '60%', numerator: 3, denominator: 6 });
   });
 
   it('explains a missing reaction time when every observed match was a penalty', () => {

@@ -199,7 +199,7 @@ describe("RecentAISummary callback bridge", () => {
       evidence: buildSummaryCardEvidence({
         avgDamage: 228, totalUtilityThrows: 17, totalObservedSmokes: 8, totalLethalThrows: 8,
         metricMatchCounts: { damage_average: 2, utility_throws: 4, smoke_opportunity_rate: 4 },
-        totalObservedRescueSmokes: 1, totalTeammateKnocks: 3, totalSmokeRescues: 0, avgIsolationStr: "1.4",
+        totalObservedRescueSmokes: 1, totalTeammateKnocks: 5, totalSmokeRescues: 0, avgIsolationStr: "1.4",
       }, { sampleCount: 42, avgDamage: 203, avgSmokeRate: 5.55555555555556, metricSampleCounts: { avgDamage: 42, avgSmokeRate: 36 } }),
     }).map((card): SummaryCard => ({ ...card, analysisStatus: "ready", winner: card.dataStatus === "comparable" ? "kind" : null,
       kindOpinion: "관측된 사용 기록을 확인했습니다.", spicyOpinion: "다음 경기에서 구출 연계를 점검하세요.", reason: "근거를 확인했습니다.", evaluation: "기록을 바탕으로 평가했습니다." }));
@@ -219,7 +219,7 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.getByText("선택된 4경기 중 4경기 기록 확인 · 비교 표본 36건")).toBeInTheDocument();
     expect(screen.getByText("17회")).toBeInTheDocument();
     expect(screen.getByText("연막 사용 8회 · 피해형 투척 8회")).toBeInTheDocument();
-    expect(screen.getByText("아군 기절 3회 · 연막 구출 성공 0회 · 구출 연막 시도 1회")).toBeInTheDocument();
+    expect(screen.getByText("아군 기절 5회 · 연막 구출 성공 0회 · 구출 연막 시도 1회")).toBeInTheDocument();
     expect(screen.getByText("5.6%")).toBeInTheDocument();
     expect(screen.queryByText("비교 자료 없음")).not.toBeInTheDocument();
   });

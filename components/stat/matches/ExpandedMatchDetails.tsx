@@ -1186,13 +1186,15 @@ export const ExpandedMatchDetails = ({
                 <div className="flex items-center gap-2">
                   <div className="flex gap-2 bg-black/40 p-1 rounded-2xl border border-white/10">
                   <button
+                    // 분석 중 스타일을 바꾸면 이전 스타일 응답이 새 스타일 화면에 표시되므로 막는다.
+                    disabled={isAnalyzing}
                     onClick={(e) => {
                       e.stopPropagation();
                       setCoachingStyle("mild");
                       setAnalysis(null);
                       setAnalysisError(null);
                     }}
-                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50 ${
                       coachingStyle === 'mild'
                         ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
                         : 'text-gray-500 hover:text-gray-300'
@@ -1201,13 +1203,15 @@ export const ExpandedMatchDetails = ({
                     <BgmsIcon name="shield" size={14} /> 다정한 맛
                   </button>
                   <button
+                    // 분석 중 스타일을 바꾸면 이전 스타일 응답이 새 스타일 화면에 표시되므로 막는다.
+                    disabled={isAnalyzing}
                     onClick={(e) => {
                       e.stopPropagation();
                       setCoachingStyle("spicy");
                       setAnalysis(null);
                       setAnalysisError(null);
                     }}
-                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50 ${
                       coachingStyle === 'spicy'
                         ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
                         : 'text-gray-500 hover:text-gray-300'

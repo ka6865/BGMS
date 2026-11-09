@@ -52,7 +52,7 @@ import {
   normalizeSummaryCardFinal,
   type SummaryCard,
 } from "@/lib/pubg-analysis/aiSummaryCards";
-import { buildSummaryCardEvidence } from "@/lib/pubg-analysis/aiSummaryCardEvidence";
+import { buildSummaryCardEvidence, MIN_USER_RATE_EVENTS } from "@/lib/pubg-analysis/aiSummaryCardEvidence";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { createAiRouteTimer, formatAiRouteReasons } from "@/lib/pubg-analysis/aiRouteTiming";
 import { AI_GENERATION_DISABLED_ERROR_CODE, AI_GENERATION_DISABLED_MESSAGE, isAiGenerationDisabled } from "@/lib/pubg-analysis/aiGenerationSwitch";
@@ -1431,6 +1431,8 @@ export async function POST(request: Request) {
       // overall best-five aggregate is used for the shared potential summary,
       // not for per-mode user metrics or coaching topics.
       const gStats = aggregateMatches(gMatches);
+      // 카드 근거와 같이, 내 관측이 적은 비율 지표에는 비교 평균을 붙이지 않는다.
+      const enoughRateSample = (events: unknown) => Number(events) >= MIN_USER_RATE_EVENTS;
       userPrompt += `### [${mode.toUpperCase()} 모드 분석] (최근 유효 ${selectedMatches.length}판 중 상위 ${bestMatches.length}판 분석; 상위 ${bestMatches.length}판 중 ${gMatches.length}판)\n`;
       userPrompt += `- 유저 티어: ${userTier}\n`;
       userPrompt += `- 비교 표본 출처: ${benchmarkProvenance}\n`;
@@ -1438,8 +1440,8 @@ export async function POST(request: Request) {
         userPrompt += `- [계산 기록] 이전 계산 경기 ${groupPriorCount}판 포함: 계산 5에서 의미가 바뀐 지표(선제 타격, 압박, 1:1 승률, 복수·백업, 반격, 연막 구출, 솔로 킬 비중)는 비교 평균을 붙이지 않았습니다. 해당 지표는 개인 값만 설명하고 비교하지 마세요.\n`;
       }
       userPrompt += `- 평균 화력: ${gStats.avgDamage}${bench?.avgDamage !== undefined ? ` (${metricBenchmarkProvenance("avgDamage")}: 평균 화력 ${bench.avgDamage})` : ""}, 평균 ${gStats.avgKills}킬\n`;
-      userPrompt += `- [선제 공격] 선제 타격 성공률: ${formatObservedPercent(gStats.userInitiativeRate)}${bench?.avgInitiativeRate !== undefined ? ` (${metricBenchmarkProvenance("avgInitiativeRate")}: 선제 타격 성공률 ${bench.avgInitiativeRate}%)` : ""}\n`;
-      userPrompt += `- [교전 결정력] 1:1 교전 승률: ${formatObservedPercent(gStats.avgDuelWinRate)}${bench?.avgDuelWinRate !== undefined ? ` (${metricBenchmarkProvenance("avgDuelWinRate")}: 1:1 교전 승률 ${bench.avgDuelWinRate}%)` : ""}, 승리: ${gStats.totalDuelWins}회, 패배: ${gStats.totalDuelLosses}회, 역전승: ${gStats.totalReversalWins}회\n`;
+      userPrompt += `- [선제 공격] 선제 타격 성공률: ${formatObservedPercent(gStats.userInitiativeRate)}${bench?.avgInitiativeRate !== undefined && enoughRateSample(gStats.totalInitiativeAttempts) ? ` (${metricBenchmarkProvenance("avgInitiativeRate")}: 선제 타격 성공률 ${bench.avgInitiativeRate}%)` : ""}\n`;
+      userPrompt += `- [교전 결정력] 1:1 교전 승률: ${formatObservedPercent(gStats.avgDuelWinRate)}${bench?.avgDuelWinRate !== undefined && enoughRateSample(gStats.totalDuelWins + gStats.totalDuelLosses) ? ` (${metricBenchmarkProvenance("avgDuelWinRate")}: 1:1 교전 승률 ${bench.avgDuelWinRate}%)` : ""}, 승리: ${gStats.totalDuelWins}회, 패배: ${gStats.totalDuelLosses}회, 역전승: ${gStats.totalReversalWins}회\n`;
       userPrompt += `- [교전 압박] 평균 압박 지수: ${formatObservedMetric(gStats.avgPressureIndex)}${bench?.avgPressureIndex !== undefined ? ` (${metricBenchmarkProvenance("avgPressureIndex")}: 압박 지수 ${bench.avgPressureIndex})` : ""}, 최대 교전 거리: ${formatObservedMetric(gStats.totalMaxHitDist, "m")}\n`;
       if (mode !== 'solo') {
         const smokeRescueSuccessRate = formatBoundedRate(gStats.totalSmokeRescues, gStats.totalSmokeCount);
@@ -1447,11 +1449,11 @@ export async function POST(request: Request) {
         const tradeRate = formatBoundedRate(gStats.totalTradeKills, gStats.totalTeammateKnocks);
         const suppRate = formatBoundedRate(gStats.totalObservedSupportKills, gStats.totalObservedTeammateKills);
         userPrompt += `- [팀 내 영향력(딜량/킬 비중)] 적 팀 전멸 기여: ${gStats.totalTeamWipes}회, 화력 집중(점사): ${formatObservedCount(gStats.totalFocusFireCount)}\n`;
-        userPrompt += `- [개인 팀플레이 기여] 아군 기절 ${gStats.totalTeammateKnocks}회 → 내가 한 소생: ${gStats.totalRevCount}회, 내가 만든 복수(Trade): ${gStats.totalTradeKills}회 (복수 성공률: ${tradeRate}${bench?.avgTradeRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgTradeRate")}: 복수 성공률 ${bench.avgTradeRate}%` : ""})\n`;
-        userPrompt += `- [개인 전술 기여] 아군 처치 지원 비율: ${suppRate}, 미끼: ${gStats.totalBaitCount}회, 내 연막 구출 시도/성공: ${gStats.totalSmokeCount}/${gStats.totalSmokeRescues}회, 내 연막 구출 성공률: ${smokeRescueSuccessRate}, 아군 기절 대비 연막 구출률: ${smokeRescueOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}, 내 총 연막 사용: ${gStats.totalSmokes}회\n`;
+        userPrompt += `- [개인 팀플레이 기여] 아군 기절 ${gStats.totalTeammateKnocks}회 → 내가 한 소생: ${gStats.totalRevCount}회, 내가 만든 복수(Trade): ${gStats.totalTradeKills}회 (복수 성공률: ${tradeRate}${bench?.avgTradeRate !== undefined && enoughRateSample(gStats.totalTeammateKnocks) ? ` vs ${metricBenchmarkProvenance("avgTradeRate")}: 복수 성공률 ${bench.avgTradeRate}%` : ""})\n`;
+        userPrompt += `- [개인 전술 기여] 아군 처치 지원 비율: ${suppRate}, 미끼: ${gStats.totalBaitCount}회, 내 연막 구출 시도/성공: ${gStats.totalSmokeCount}/${gStats.totalSmokeRescues}회, 내 연막 구출 성공률: ${smokeRescueSuccessRate}, 아군 기절 대비 연막 구출률: ${smokeRescueOpportunityRate}${bench?.avgSmokeRate !== undefined && enoughRateSample(gStats.totalTeammateKnocks) ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}, 내 총 연막 사용: ${gStats.totalSmokes}회\n`;
       }
       const counterFailureStr = gStats.counterObservedMatches > 0
-        ? `3초 내 대응 실패 ${gStats.counterFailureMatches}/${gStats.counterObservedMatches}경기(${gStats.counterFailureRate}%)${bench?.avgCounterFailureRate !== undefined ? ` (${metricBenchmarkProvenance("avgCounterFailureRate")}: 3초 내 대응 실패율 ${bench.avgCounterFailureRate}%)` : ""}`
+        ? `3초 내 대응 실패 ${gStats.counterFailureMatches}/${gStats.counterObservedMatches}경기(${gStats.counterFailureRate}%)${bench?.avgCounterFailureRate !== undefined && enoughRateSample(gStats.counterObservedMatches) ? ` (${metricBenchmarkProvenance("avgCounterFailureRate")}: 3초 내 대응 실패율 ${bench.avgCounterFailureRate}%)` : ""}`
         : "";
       const reactionStr = gStats.counterObservedMatches === 0
         ? "측정 불가 (적격 반격 관측이 없음 — 플레이 성향이나 능력을 추론하지 말 것)"
@@ -1474,7 +1476,7 @@ export async function POST(request: Request) {
         : String(gStats.avgUtilityEfficiency);
       const utilityLine = `- [유틸리티] 총 투척 ${formatObservedCount(gStats.totalUtilityThrows)}, 피해형 투척 ${formatObservedCount(gStats.totalLethalThrows)}, 피해 적중 ${formatObservedCount(gStats.totalUtilityHits)}, 피해형 투척 딜량 ${utilityDamageAverage} (평균), 연막 ${gStats.totalSmokes}회`;
       userPrompt += `- [반격 기록] 반격 소요 시간: ${reactionStr}, 반격 성공률: ${formatBoundedRate(gStats.totalReversalWins, gStats.totalReversalAttempts)}\n- [백업 속도] 아군 백업 속도: ${backupStr}\n- [백업 결과 해석] ${backupContext.promptLine}\n- [생존 환경] 고립 지수(운영/교전/사망): ${gStats.avgIsolationStr}/${gStats.avgCombatIsolationStr}/${gStats.avgDeathIsolationStr}, 양각 노출 상황: ${formatObservedCount(gStats.totalCrossfireExposureCount)}\n- [거리 관리] 팀원과의 평균 거리: ${gStats.avgMinDistStr}, 평균 고도차: ${gStats.avgHeightDiffStr}, 경기당 평균 거리별 데미지(근/중/원): ${gStats.avgDistanceDamage.short}/${gStats.avgDistanceDamage.mid}/${gStats.avgDistanceDamage.long}\n- [킬 분류] 솔로 킬: ${gStats.killContribFinal.solo}회, 클린업 킬: ${gStats.killContribFinal.cleanup}회 (솔로 비중: ${formatObservedPercent(gStats.soloKillRate)}${bench?.avgSoloKillRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgSoloKillRate")}: 솔로 킬 비중 ${bench.avgSoloKillRate}%` : ""})\n${utilityLine}\n- [운영 패턴] 평균 사망 페이즈: ${formatObservedMetric(gStats.avgDeathPhase)}${bench?.avgDeathPhase !== undefined ? ` (${metricBenchmarkProvenance("avgDeathPhase")}: 사망 페이즈 ${bench.avgDeathPhase})` : ""}, 자기장 누적 피해: ${formatObservedMetric(gStats.avgBluezoneWaste, " HP")}, 엣지(Edge) 플레이: ${formatObservedCount(gStats.totalEdgePlay)}, 진입 지연: ${formatObservedCount(gStats.totalFatalDelay)}\n\n`;
-      userPrompt = userPrompt.replace(utilityLine, `- [유틸리티] 총 투척 ${formatObservedCount(gStats.totalUtilityThrows)} (연막 ${gStats.totalSmokes}회, 피해형 ${formatObservedCount(gStats.totalLethalThrows)}, 피해 적중 ${formatObservedCount(gStats.totalUtilityHits)}), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}`);
+      userPrompt = userPrompt.replace(utilityLine, `- [유틸리티] 총 투척 ${formatObservedCount(gStats.totalUtilityThrows)} (연막 ${gStats.totalSmokes}회, 피해형 ${formatObservedCount(gStats.totalLethalThrows)}, 피해 적중 ${formatObservedCount(gStats.totalUtilityHits)}), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}${bench?.avgSmokeRate !== undefined && enoughRateSample(gStats.totalTeammateKnocks) ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}`);
     }
 
     timing.stage("benchmark", benchmarkMs);

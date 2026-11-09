@@ -1273,6 +1273,19 @@ describe("AI cache route stabilization", () => {
     expect(matchCache.upsert).not.toHaveBeenCalled();
   });
 
+  it.each(["wild", "SPICY", null])("ai-squad는 지원하지 않는 coachingStyle(%s)을 lookup 전에 거부한다", async (coachingStyle) => {
+    const squadCache = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({ squad_ai_coaching_cache: squadCache });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSquadPOST(createRequest({ groupKey: "group-1", nickname: "Player", platform: "steam", coachingStyle }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_INVALID_COACHING_STYLE" });
+    expect(squadCache.select).not.toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+
   it("ai-analyze는 지원하지 않는 coachingStyle을 lookup 전에 fail-closed한다", async () => {
     const matchCache = createQueryChain({ data: { ai_result: { text: "cached" } }, error: null });
     const telemetry = createQueryChain({ data: null, error: null });
@@ -6761,6 +6774,22 @@ describe("AI cache route stabilization", () => {
     expect(hashes).toHaveLength(2);
     expect(hashes[0]).toMatch(/^[a-f0-9]{64}$/);
     expect(hashes[1]).not.toBe(hashes[0]);
+  });
+
+  it("ai-squad는 중간에 잘린 응답을 jsonrepair로 닫아도 캐시에 저장하지 않고 사실 응답을 반환한다", async () => {
+    mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
+    // 운영에서 저장됐던 잘린 응답 형태: summary 중간에서 끊기고 나머지 칸이 없다.
+    mockSquadStreamText('{"squadGrade": "A", "summary": "상세 분석 가능한 10경기 기준 아군 기절 4');
+    const squadCache = createQueryChain({ data: null, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: squadCache }) });
+
+    const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "steam" }));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json).toMatchObject({ mode: "facts_only", aiInterpretation: false, reason: "provider" });
+    expect(squadCache.upsert).not.toHaveBeenCalled();
+    expect(mockTrackAiFailure).toHaveBeenCalledWith("user-1", "squad", "Squad AI response JSON invalid", expect.objectContaining({ errorCode: "parse" }));
   });
 
   it("ai-squad는 Gemini 실패 시 AI 해석 없이 계산된 사실 응답을 반환하고 캐시에 저장하지 않는다", async () => {

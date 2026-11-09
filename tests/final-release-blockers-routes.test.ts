@@ -167,7 +167,9 @@ describe("AI squad release blockers", () => {
     let firstPrompt = "";
     mockGenerateContent.mockImplementation(async (payload: any) => {
       firstPrompt = JSON.stringify(payload);
-      return { response: { text: () => JSON.stringify({ squadGrade: "A" }), usageMetadata: {} } };
+      // 저장 전 완결성 검사를 통과하는 최소 응답
+      const complete = { squadGrade: "A", summary: "요약", strength: "", weakness: "", coaching: "", overallOpinion: "총평", memberFeedbacks: [{ name: "Player_A", praise: "기여", fault: "", advice: "" }] };
+      return { response: { text: () => JSON.stringify(complete), usageMetadata: {} } };
     });
     const forged = {
       groupKey: "Beta",

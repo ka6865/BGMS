@@ -13,7 +13,7 @@ import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
 import { sanitizeAiCoachingLanguage } from "@/lib/pubg-analysis/aiCoachingQuality";
 import { sanitizeSquadAbilityClaims } from "@/lib/pubg-analysis/squadAiPolicy";
-import { buildSquadOutputSchema, type SquadAiRawOutput } from "@/lib/pubg-analysis/squadAiSchema";
+import { buildSquadOutputSchema, isCompleteSquadOutput, type SquadAiRawOutput } from "@/lib/pubg-analysis/squadAiSchema";
 import {
   SQUAD_AI_FACTS_ONLY_ERROR_CODE,
   SQUAD_AI_MIN_MATCH_COUNT,
@@ -380,6 +380,11 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     const playerId = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
 
+    // 단일 경기 분석과 같이 허용 스타일만 받는다. 다른 값이 캐시 키와 프롬프트에 섞이지 않게 한다.
+    if (coachingStyle !== "mild" && coachingStyle !== "spicy") {
+      return NextResponse.json({ error: "invalid coaching style", errorCode: "PUBG_AI_INVALID_COACHING_STYLE" }, { status: 400 });
+    }
+
     if (typeof groupKey !== "string" || !groupKey.trim() || !nickname || !playerId) {
       trackAiFailure(authenticatedUserId, "squad", "Missing required squad parameters", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing required squad parameters" }, { status: 400 });
@@ -451,8 +456,8 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     const canonicalMatchesSummary = recordedPlacements.length >= SQUAD_AI_MIN_MATCH_COUNT
       ? recordedPlacements.map((match: { matchId: string; winPlace: number }) => ({ matchId: match.matchId, winPlace: match.winPlace }))
       : squadData.matchesSummary;
-    // 보류 문구 치환 스타일. 프롬프트와 같이 "mild"만 다정한맛으로 보고 나머지는 매운맛으로 본다.
-    const policyCoachingStyle = coachingStyle === "mild" ? "mild" : "spicy";
+    // 보류 문구 치환 스타일. 입력은 위에서 mild/spicy로 검증했다.
+    const policyCoachingStyle: "mild" | "spicy" = coachingStyle;
 
     // 계산된 팀 지표만 담은 사실 응답. AI 해석이 없음을 명시하고 캐시에는 저장하지 않는다.
     const factsOnlyResponse = (reason: "timeout" | "provider" | "disabled") => {
@@ -592,6 +597,7 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     try {
       const validJsonString = extractValidJson(generation.text);
       const rawResult = JSON.parse(validJsonString);
+      if (!isCompleteSquadOutput(rawResult)) throw new Error("incomplete squad output");
       resultJson = applySquadEvidencePolicy(
         sanitizeSquadAbilityClaims(sanitizeAiCoachingLanguage(structuredClone(rawResult)), policyCoachingStyle),
         canonicalStats,

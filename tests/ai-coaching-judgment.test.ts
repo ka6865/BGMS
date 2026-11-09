@@ -320,10 +320,22 @@ describe('small-sample throw action items and idempotent policy passes', () => {
   it.each([
     '투척물 명중률을 높이세요.',
     '투척을 더 많이 던지세요.',
+    // 운영 저장 응답에서 통과했던 완곡한 증가 권고
+    '다음 경기에는 수류탄이나 연막탄을 조금 더 적극적으로 사용해 보세요.',
+    '이번 경기에 1회 그쳤던 피해형 투척물 사용을 다음 판에는 조금 더 시도해 보세요.',
+    '다음 경기에서는 교전 전 유틸리티 활용 범위를 넓히십시오.',
   ])('withholds throw-increase advice from a small sample without deleting the item: %s', desc => {
     const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ actionItems: [{ title: '투척 연습', desc }] }), oneThrow));
     expect(result.actionItems).toHaveLength(1);
     expect(result.actionItems[0].desc).toBe(checkPoint);
+  });
+
+  it('withholds a small-sample throw scarcity judgment in the verdict', () => {
+    const input = { finalVerdict: '교전 화력은 챙겼으나 유틸리티 투척 빈도가 낮았습니다.', briefFeedback: ['고립 지수 1.39로 대열을 유지했고, 총 투척 1회에 그쳐 유틸리티 활용은 제한적이었습니다.'] };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), oneThrow));
+    expect(result.finalVerdict).toBe('투척은 총 1회라 활용 능력을 평가하기에는 표본이 적습니다.');
+    expect(result.briefFeedback[0]).toBe('투척은 총 1회라 활용 능력을 평가하기에는 표본이 적습니다.');
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), oneThrow))).toEqual(result);
   });
 
   it('keeps the throw-increase advice when at least three throws were observed', () => {
