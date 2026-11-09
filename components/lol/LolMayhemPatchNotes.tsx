@@ -11,6 +11,8 @@ const chip = (active: boolean) => `min-h-11 rounded-lg border px-3 text-sm font-
 // 클라이언트 자료의 부동소수점 오차(0.15000000596…)를 사람이 읽는 값으로 줄인다.
 const num = (value: number | null, percent = false) => value === null ? "없음" : percent ? `${Number((value * 100).toPrecision(4))}%` : String(Number(value.toPrecision(4)));
 
+const TREND = { up: ["상향", "bg-emerald-400/15 text-emerald-300"], down: ["하향", "bg-rose-400/15 text-rose-300"], mixed: ["조정", "bg-zinc-700/60 text-zinc-300"] } as const;
+
 function Name({ entry }: { entry: MayhemPatchNoteEntry }) {
   return <span className="flex min-w-0 flex-wrap items-center gap-x-2">
     <span className="min-w-0 break-words font-semibold">{entry.name}</span>
@@ -41,7 +43,7 @@ export default function LolMayhemPatchNotes({ notes }: { notes: MayhemPatchNote[
     {note.changed.length > 0 && <div className="mt-5">
       <h2 className="text-sm font-bold text-sky-300">변경된 증강</h2>
       <ul className="mt-2 grid grid-cols-1 gap-2">{note.changed.map(e => <li key={e.name} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2"><Name entry={e} /><span className="text-xs text-zinc-500">{e.fields.length ? e.fields.join("·") : "변경"}</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><Name entry={e} /><span className="flex items-center gap-2 text-xs text-zinc-500">{e.trend && <span className={`rounded px-1.5 py-0.5 font-bold ${TREND[e.trend][1]}`}>{TREND[e.trend][0]}</span>}{e.fields.length ? e.fields.join("·") : "변경"}</span></div>
         {e.lines.length > 0 && <dl className="mt-2 grid gap-2 text-sm leading-6">{e.lines.map(line => <div key={line.after}>
           {line.before && <><dt className="sr-only">이전</dt><dd className="whitespace-pre-wrap break-words text-zinc-500 line-through decoration-zinc-600">{line.before}</dd></>}
           <dt className="sr-only">현재</dt><dd className="whitespace-pre-wrap break-words text-zinc-200">{line.after}</dd>
@@ -56,6 +58,6 @@ export default function LolMayhemPatchNotes({ notes }: { notes: MayhemPatchNote[
       <h2 className="text-sm font-bold text-rose-300">삭제·제외된 증강</h2>
       <p className="mt-2 break-words text-sm leading-6 text-zinc-400">{note.removed.map(e => e.name).join(", ")}</p>
     </div>}
-    <p className="mt-6 text-xs leading-5 text-zinc-500">게임 클라이언트 자료를 패치별로 비교하고 공식 패치 노트와 대조해 정리했습니다.</p>
+    <p className="mt-6 text-xs leading-5 text-zinc-500">게임 클라이언트 자료를 패치별로 비교하고 공식 패치 노트와 대조해 정리했습니다. 상향·하향은 바뀐 수치의 방향으로 자동 판정하며, 오르고 내린 값이 섞이면 조정으로 표시합니다.</p>
   </section>;
 }

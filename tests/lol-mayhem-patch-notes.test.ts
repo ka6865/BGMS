@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMayhemPatchNotes, valueLabel } from '@/lib/lol/augments/patchNotes';
+import { buildMayhemPatchNotes, patchTrend, valueLabel } from '@/lib/lol/augments/patchNotes';
 
 const texts = [
   { platform_id: 1, client_patch: '16.21', name: '거인의 결의', display_text: '10중첩마다' },
@@ -47,7 +47,7 @@ describe('증바람 패치노트', () => {
     const [note] = buildMayhemPatchNotes({ changes: rows, notes: [], texts: t, states: [], upTo: '16.22', snapshots });
     expect(note.changed.map(e => e.name)).toEqual(['증강1', '증강5']);
     expect(note.changed[0].lines).toEqual([{ before: '보호막을 50 얻습니다.', after: '보호막을 100 얻습니다.' }]);
-    expect(note.changed[1]).toMatchObject({ lines: [], values: [{ name: 'Hidden', label: null, percent: false, before: 10, after: 12 }] });
+    expect(note.changed[1]).toMatchObject({ lines: [], values: [{ name: 'Hidden', label: null, percent: false, before: 10, after: 12 }], trend: 'up' });
   });
 
   it('내부 값 이름은 아는 단어로만 옮기고 비율은 퍼센트로 표시한다', () => {
@@ -55,5 +55,17 @@ describe('증바람 패치노트', () => {
     expect(valueLabel('UpgradeMagicPenPercent')).toEqual({ label: '업그레이드당 마법 관통력', percent: true });
     expect(valueLabel('QuestRequirement')).toEqual({ label: '퀘스트 목표', percent: false });
     expect(valueLabel('Calc_Mystery')).toEqual({ label: null, percent: false });
+  });
+
+  it('수치 방향으로 상향·하향을 판정하고 작을수록 좋은 값과 섞인 변경을 구분한다', () => {
+    const line = (before: string, after: string) => [{ before, after }];
+    expect(patchTrend(line('75~200의 마법 피해', '75~140의 마법 피해'), [])).toBe('down');
+    expect(patchTrend(line('10중첩마다 능력치를 얻습니다', '7중첩마다 능력치를 얻습니다'), [])).toBe('up');
+    expect(patchTrend(line('재사용 대기시간 30초, 피해 100', '재사용 대기시간 30초, 피해 120'), [])).toBe('up');
+    expect(patchTrend(line('7.5% (+계수 1%) 피해', '8.5% 피해'), [])).toBe('mixed');
+    expect(patchTrend(line('피해 100, 보호막 50', '피해 120, 보호막 40'), [])).toBe('mixed');
+    expect(patchTrend([], [{ name: 'UpgradeArmorPenFlat', label: '업그레이드당 물리 관통력', percent: false, before: 35, after: 20 }])).toBe('down');
+    expect(patchTrend([], [{ name: 'QuestRequirement', label: '퀘스트 목표', percent: false, before: 10, after: null }])).toBe('mixed');
+    expect(patchTrend([], [])).toBeNull();
   });
 });

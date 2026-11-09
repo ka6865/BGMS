@@ -5,7 +5,8 @@ import { binHash, renderTooltip } from "./tooltip";
 
 export type MayhemPatchNoteLine = { before: string | null; after: string };
 export type MayhemPatchNoteValue = { name: string; label: string | null; percent: boolean; before: number | null; after: number | null };
-export type MayhemPatchNoteEntry = { platformId: number | null; name: string; rarity: LolAugmentRarity | null; fields: string[]; lines: MayhemPatchNoteLine[]; values: MayhemPatchNoteValue[] };
+export type MayhemPatchTrend = "up" | "down" | "mixed";
+export type MayhemPatchNoteEntry = { platformId: number | null; name: string; rarity: LolAugmentRarity | null; fields: string[]; lines: MayhemPatchNoteLine[]; values: MayhemPatchNoteValue[]; trend: MayhemPatchTrend | null };
 export type MayhemPatchNote = { patch: string; displayPatch: string; notesUrl: string | null; publishedAt: string | null; added: MayhemPatchNoteEntry[]; changed: MayhemPatchNoteEntry[]; removed: MayhemPatchNoteEntry[] };
 export type PatchChangeRow = { client_patch: string; platform_id: number | null; change_type: string; summary_ko: string };
 export type PatchNoteSourceRow = { client_patch: string; url: string | null; published_at: string | null; removed_names: string[] | null };
@@ -41,6 +42,33 @@ export function valueLabel(name: string): { label: string | null; percent: boole
   return { label: label || null, percent };
 }
 
+// 작을수록 좋은 값(주기·재사용 대기시간·비용·목표)은 숫자 뒤에 붙은 말로 구분한다.
+const LOWER_IS_BETTER = /^[^\d]{0,6}?(마다|대기시간|재사용|소모|비용|목표|필요)/;
+const NUMBER = /\d+(?:\.\d+)?/g;
+
+// 숫자가 오른 쪽이 상향이다. 오르고 내린 값이 섞이거나 값이 생기거나 사라지면 조정으로 본다.
+export function patchTrend(lines: MayhemPatchNoteLine[], values: MayhemPatchNoteValue[]): MayhemPatchTrend | null {
+  const signs = new Set<number>();
+  for (const { before, after } of lines) {
+    if (before === null) continue;
+    const [old, now] = [[...before.matchAll(NUMBER)], [...after.matchAll(NUMBER)]];
+    if (old.length !== now.length) return "mixed";
+    now.forEach((match, i) => {
+      const delta = Number(match[0]) - Number(old[i][0]);
+      if (!delta) return;
+      const inverse = LOWER_IS_BETTER.test(after.slice(match.index! + match[0].length).split(NUMBER)[0]);
+      signs.add(Math.sign(delta) * (inverse ? -1 : 1));
+    });
+  }
+  for (const value of values) {
+    if (value.before === null || value.after === null) return "mixed";
+    const inverse = /목표|대기시간|비용/.test(value.label ?? "") || /cooldown|cost|requirement/i.test(value.name);
+    signs.add(Math.sign(value.after - value.before) * (inverse ? -1 : 1));
+  }
+  signs.delete(0);
+  return signs.size === 0 ? null : signs.size > 1 ? "mixed" : signs.has(1) ? "up" : "down";
+}
+
 function valueDiffs(before: PatchSnapshotAugment, after: PatchSnapshotAugment): MayhemPatchNoteValue[] {
   const first = (values: number[] | undefined) => values?.find(Number.isFinite) ?? null;
   const old = new Map(before.rootSpell.dataValues.map(v => [binHash(v.name), first(v.values)]));
@@ -60,7 +88,7 @@ export function buildMayhemPatchNotes({ changes, notes, texts, states, upTo, sna
   const entry = (row: PatchChangeRow): MayhemPatchNoteEntry | null => {
     const id = row.platform_id!, prev = patchesOf(id).filter(p => order(p, row.client_patch) < 0).at(-1);
     const now = text.get(`${row.client_patch}:${id}`), old = prev ? text.get(`${prev}:${id}`) : undefined;
-    const base = { platformId: id, name: now?.name ?? old?.name ?? label(row.summary_ko), rarity: rarity.get(`${row.client_patch}:${id}`) ?? (prev ? rarity.get(`${prev}:${id}`) ?? null : null), fields: [] as string[], lines: [] as MayhemPatchNoteLine[], values: [] as MayhemPatchNoteValue[] };
+    const base = { platformId: id, name: now?.name ?? old?.name ?? label(row.summary_ko), rarity: rarity.get(`${row.client_patch}:${id}`) ?? (prev ? rarity.get(`${prev}:${id}`) ?? null : null), fields: [] as string[], lines: [] as MayhemPatchNoteLine[], values: [] as MayhemPatchNoteValue[], trend: null };
     const after = snapshot(row.client_patch, id), before = snapshot(prev, id);
     if (row.change_type === "added") {
       const lines = tooltipLines(after);
@@ -74,11 +102,13 @@ export function buildMayhemPatchNotes({ changes, notes, texts, states, upTo, sna
       const lines = oldLines && newLines && oldLines.length === newLines.length
         ? newLines.flatMap((line, i) => line === oldLines[i] ? [] : [{ before: oldLines[i], after: line }])
         : oldLines && newLines && oldLines.join("\n") !== newLines.join("\n") ? [{ before: oldLines.join("\n"), after: newLines.join("\n") }] : [];
-      return { ...base, fields: fields.map(f => FIELD_LABELS[f] ?? f), lines, values: lines.length ? [] : valueDiffs(before, after) };
+      const values = lines.length ? [] : valueDiffs(before, after);
+      return { ...base, fields: fields.map(f => FIELD_LABELS[f] ?? f), lines, values, trend: fields.includes("values") ? patchTrend(lines, values) : null };
     }
     const fields = [...new Set(row.summary_ko.slice(row.summary_ko.lastIndexOf(":") + 1).split(",").map(f => FIELD_LABELS[f.trim()]).filter(Boolean))];
     const changedText = now?.display_text && old?.display_text && now.display_text !== old.display_text;
-    return { ...base, fields, lines: changedText ? [{ before: old!.display_text, after: now!.display_text! }] : [] };
+    const lines = changedText ? [{ before: old!.display_text, after: now!.display_text! }] : [];
+    return { ...base, fields, lines, trend: patchTrend(lines, []) };
   };
   const byName = (a: MayhemPatchNoteEntry, b: MayhemPatchNoteEntry) => a.name.localeCompare(b.name, "ko");
   const entries = (rows: PatchChangeRow[]) => rows.map(entry).filter((e): e is MayhemPatchNoteEntry => e !== null).sort(byName);
@@ -89,7 +119,7 @@ export function buildMayhemPatchNotes({ changes, notes, texts, states, upTo, sna
     const removed = entries(rows.filter(r => r.change_type === "removed" || r.change_type === "unannounced_absent"));
     // 공식 노트의 삭제 목록은 증강 ID 없이 이름만 기록된다.
     for (const name of changes.some(c => c.client_patch === patch && c.platform_id === null && c.change_type === "removed") ? note?.removed_names ?? [] : [])
-      if (!removed.some(r => r.name === name)) removed.push({ platformId: null, name, rarity: null, fields: [], lines: [], values: [] });
+      if (!removed.some(r => r.name === name)) removed.push({ platformId: null, name, rarity: null, fields: [], lines: [], values: [], trend: null });
     return { patch, displayPatch: displayPatchOf(patch), notesUrl: note?.url ?? null, publishedAt: note?.published_at ?? null,
       added: entries(rows.filter(r => r.change_type === "added")), changed: entries(rows.filter(r => r.change_type === "changed")), removed: removed.sort(byName) };
   }).filter(n => n.added.length || n.changed.length || n.removed.length);
