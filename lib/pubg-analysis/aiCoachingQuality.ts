@@ -124,6 +124,13 @@ const NON_PROSE_KEYS = new Set([
   "contextId", "evidenceIds", "evidence", "context", "userStats", "benchmarkStats",
 ]);
 
+// 운영 응답에서 확인된 모델 오타. 게임 코칭 문맥에 나올 수 없는 단어만 고친다.
+// shortcut: 확인된 오타만 고정 목록으로 고친다. 같은 유형이 늘면 형태소 기반 검사로 바꾼다.
+const KNOWN_TYPOS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/아들(?=과|와|의|이|을|에게|들)/gu, "아군"],
+  [/다음\s*경지(?=에서|에는|에)/gu, "다음 경기"],
+];
+
 export function sanitizeAiCoachingLanguageText(text: string): string {
   // Some callers pass the entire JSON response, others a single prose field.
   // Never sentence-split serialized JSON: it can erase fields or corrupt IDs.
@@ -137,8 +144,9 @@ export function sanitizeAiCoachingLanguageText(text: string): string {
       return text;
     }
   }
-  const sentences = text.split(/(?<=[.!?。！？])\s+|\n+/u);
-  let changed = false;
+  const typoFixed = KNOWN_TYPOS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text);
+  const sentences = typoFixed.split(/(?<=[.!?。！？])\s+|\n+/u);
+  let changed = typoFixed !== text;
   const cleaned = sentences.map((sentence) => {
     if (UNSUPPORTED_JUDGMENT_SIGNALS.some((signal) => testQualityRule(sentence, signal))) {
       changed = true;
@@ -146,8 +154,11 @@ export function sanitizeAiCoachingLanguageText(text: string): string {
     }
     return sentence;
   });
-  return changed ? cleaned.filter((sentence, index) => sentence !== COACHING_JUDGMENT_WITHHELD
-    || cleaned[index - 1] !== sentence).join(" ") : text;
+  if (!changed) return text;
+  // 오타만 고친 경우는 원래 줄바꿈을 유지한다.
+  if (cleaned.every((sentence, index) => sentence === sentences[index])) return typoFixed;
+  return cleaned.filter((sentence, index) => sentence !== COACHING_JUDGMENT_WITHHELD
+    || cleaned[index - 1] !== sentence).join(" ");
 }
 
 export function sanitizeAiCoachingLanguage<T>(value: T): T {

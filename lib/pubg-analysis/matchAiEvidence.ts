@@ -21,6 +21,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   // 소표본일 때 행동 제안을 바꾸는 점검 문장과, 그 문장에 맞춘 중립 title.
   const throwUsageCheck = '다음 경기에서는 투척을 쓸 수 있었던 교전이 있었는지 확인해 보세요.';
   const throwUsageTitle = '투척 기회 확인';
+  const duelCheck = '다음 교전에서는 1:1 상황이 어떻게 시작되고 끝났는지 확인해 보세요.';
   const lethalAccuracyCheck = /피해형 투척은 \d+회라 명중률을 판단하기 어렵습니다\./u;
   // 사용량·명중률을 늘리라는 권고인지. 부정된 지시("던지지 마세요", "사용하지 않아도")와 필요 없음은 권고가 아니다.
   // "무리하지 않으세요"처럼 사용 동작과 무관한 부정은 권고를 바꾸지 않는다.
@@ -43,7 +44,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   if (duelWins !== null && duelWins > 0) contributionParts.push(`1:1 교전 승리 ${duelWins}회`);
   const contributionFacts = contributionParts.length ? `이번 경기에서 ${contributionParts.join(', ')}를 기록했습니다.` : null;
   const earlyElimination = isEarlyElimination({ survivalTime: finite(stats.timeSurvived), deathPhase: finite(match?.deathPhase), myDeathCount: typeof stats.deathType === 'string' ? (stats.deathType === 'alive' ? 0 : 1) : null });
-  const negativeJudgment = /부족|미흡|저조|아쉽|아쉬|약점|한계|무너|형편없|느리|느린|개선이 필요|보완이 필요|개선의 여지|높여야|끌어올려야|채워야/u;
+  const negativeJudgment = /부족|미흡|저조|아쉽|아쉬|약점|한계|무너|형편없|느리|느린|개선이 필요|보완이 필요|개선의 여지|높여야|끌어올려야|채워야|보완해야|내지\s*못|못했|그쳤|그쳐|그친/u;
   // 투척 사용량이 적다는 판단. 표본이 작을 때만 쓰므로 다른 지표 규칙과 분리한다.
   const throwScarcityJudgment = /(?:빈도|사용량|횟수|활용)[^.!?\n]{0,12}(?:낮았|낮습|낮은|적었|적습|제한적)|그쳐|그쳤|그친/u;
   const negatedJudgment = /(?:부족|아쉬)(?:함|움)?(?:이|은|도)?\s*없|부족하지\s*않|아쉽지\s*않|느리지\s*않/u;
@@ -98,7 +99,9 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       if (/무리한\s*(?:진입|돌격|돌진)|성급한\s*진입/u.test(sentence)) {
         return key === 'desc' ? '다음 교전 전에는 엄폐물과 아군 위치를 먼저 확인해 보세요.' : null;
       }
-      if (duels !== null && duels < 3 && /1\s*(?::|대)\s*1/u.test(sentence) && negativeJudgment.test(sentence) && !negatedJudgment.test(sentence)) {
+      // 1:1 표본이 적으면 승률을 올리라는 행동 제안도 점검 질문으로 바꾼다.
+      if (key === 'desc' && duels !== null && duels < 3 && /1\s*(?::|대)\s*1|승률/u.test(sentence) && /높이|높여|올리|올려|끌어올|개선|보완/u.test(sentence)) return duelCheck;
+      if (duels !== null && duels < 3 && /1\s*(?::|대)\s*1|교전\s*승률/u.test(sentence) && negativeJudgment.test(sentence) && !negatedJudgment.test(sentence)) {
         return key === 'desc' || key === 'title' ? null : `1:1 교전은 ${duels}회라 결정력을 평가하기에는 표본이 적습니다.`;
       }
       if (initiativeSamples !== null && initiativeSamples < 3 && /선제/u.test(sentence) && negativeJudgment.test(sentence) && !negatedJudgment.test(sentence)) {
@@ -125,7 +128,11 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
         && !isNegatedCoachingDirectiveTail(sentence.slice(sentence.search(/줄여|단축|개선|보완/u) + 2))) {
         return '다음 교전에서는 아군의 상태를 확인하고 지원 가능한 상황인지 점검하세요.';
       }
-      if (/선제[^.!?\n]{0,30}성공률/u.test(sentence) && /(?:첫|최초)[^.!?\n]{0,15}(?:명중률|정확도)/u.test(sentence)) {
+      // 에임·조준·반동·집중도는 측정하지 않으므로 행동 제안에 쓰지 않고 관측 가능한 점검으로 바꾼다.
+      if (key === 'desc' && /에임|조준|반동|집중도/u.test(sentence)) return '다음 교전에서는 교전이 시작된 위치와 결과를 확인해 보세요.';
+      // "첫 타격 적중률"처럼 첫 발 명중을 따로 재는 지표는 없다. 선제 타격 성공률을 그렇게 바꿔 말한 문장도 같은 점검으로 바꾼다.
+      if (/(?:첫|최초)\s*(?:타격|발|사격|공격)?\s*(?:적중률|명중률|정확도)/u.test(sentence)
+        || (/선제[^.!?\n]{0,30}성공률/u.test(sentence) && /(?:첫|최초)[^.!?\n]{0,15}(?:명중률|정확도)/u.test(sentence))) {
         return '다음 교전에서는 선제 타격 이후 교전 결과를 확인해 보세요.';
       }
       if (/(?:(?:대응|반응)\s*(?:사격)?\s*속도|반격\s*소요\s*시간)/u.test(sentence) && /상위\s*(?:권|수준|\d+\s*%)/u.test(sentence)) {
@@ -219,6 +226,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   const syncSmallSampleTitle = (item: Record<string, unknown>): Record<string, unknown> => {
     if (typeof item.title !== 'string' || typeof item.desc !== 'string') return item;
     if (smallThrowSample && item.desc.includes(throwUsageCheck)) return { ...item, title: throwUsageTitle };
+    if (item.desc === duelCheck) return { ...item, title: '1:1 교전 기록 확인' };
     if (lethal !== null && lethal > 0 && lethal < 3 && lethalAccuracyCheck.test(item.desc)) return { ...item, title: '투척 결과 확인' };
     return item;
   };

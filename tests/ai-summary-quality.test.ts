@@ -57,7 +57,7 @@ describe('summary quality: precision and grounded conclusions', () => {
     expect(card.kindOpinion).not.toContain('고루');
     // 비교만 반복한 매운맛은 가장 불리한 지표(연막 구출률)에 맞춘 점검으로 바꾸고, 승자는 비교 방향으로 정한다.
     // 불리한 비교는 매운맛이 말하고, 다정한 코치는 반복하지 않는다.
-    expect(card.spicyOpinion).toBe('아군 기절 대비 연막 구출률은 비교 평균보다 낮습니다. 아군이 기절했을 때 연막으로 가릴 수 있는 구간이 있었는지 확인해 보세요.');
+    expect(card.spicyOpinion).toBe('아군 기절 대비 연막 구출률은 비교 평균보다 낮습니다. 아군이 쓰러져도 연막 구출 기록은 조용했습니다. 아군이 기절했을 때 연막으로 가릴 수 있는 구간이 있었는지 확인해 보세요.');
     expect(card.kindOpinion).not.toContain('낮습니다');
     expect(card.winner).toBe('spicy');
   });
@@ -67,7 +67,9 @@ describe('summary quality: precision and grounded conclusions', () => {
     raw.debateIssues[0].spicyOpinion = '반응이 늦어 주도권을 빼앗기고 있습니다. 다음 교전 전에 상대 위치를 확인하세요.';
     raw.actionItems[0].desc = '아군이 기절하는 즉시 연막을 투척하여 안전한 구출 환경을 조성하십시오.';
     const result = normalizeSummaryCardFinal(raw, cards, options)!;
-    expect(result.final.cards[0].spicyOpinion).toBe('다음 교전 전에 상대 위치를 확인하세요.');
+    // 추정 원인 문장은 빠지고, 서버 비교·한마디 뒤에 상황 점검만 남는다.
+    expect(result.final.cards[0].spicyOpinion).toMatch(/다음 교전 전에 상대 위치를 확인하세요\.$/u);
+    expect(result.final.cards[0].spicyOpinion).not.toContain('늦어');
     // 무조건 투척 지시는 항목만 빠지고, 가장 불리한 지표에 맞춘 서버 점검으로 채운다.
     expect(JSON.stringify(result.final.actionItems)).not.toContain('즉시');
     expect((result.final.actionItems as Array<{ title: string }>).map(item => item.title)).toEqual(['아군 기절 대비 연막 구출률 점검', '백업 속도 점검']);

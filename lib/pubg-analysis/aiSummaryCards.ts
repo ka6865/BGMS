@@ -1,3 +1,4 @@
+import { summaryCardSpicyJab } from "./spicyPunchlines";
 import { AI_SUMMARY_HIGHER_IS_BETTER } from "./aiSummaryDebate";
 import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText, summaryAdviceRuleId, summaryInferenceRuleId } from "./aiSummaryJudgment";
 import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
@@ -1083,7 +1084,7 @@ const UNSUPPORTED_SIGNATURE = /\d|무책임|무능|민폐|한심|이기적|집�
 function conditionalCheckText(text: string): string {
   // 관측 결과나 원인 단정을 섞지 않고, 다음 상황에서 확인할 행동만 채택한다.
   return text.split(/(?<=[.!?。！？])\s+|\n+/u).filter(sentence =>
-    !/비교\s*평균|(?:늦어|느려|낮아|높아|부족해|때문에)|(?:확보|조성|보장)하여/u.test(sentence)
+    !/비교\s*평균|(?:늦어|느려|낮아|높아|부족해|때문에)|(?:확보|조성|보장)하여|가능성이\s*있|역량|실력|능력/u.test(sentence)
     && !/(?:즉시|바로|무조건|반드시)[^.!?\n]{0,25}(?:던|투척|사격|진입|돌진|합류|구출)/u.test(sentence)
     && !/(?:던|투척|사격|진입|돌진|합류|구출)[^.!?\n]{0,20}(?:한\s*뒤|한\s*후|하고\s*나서|하여|해서)/u.test(sentence)
     && /다음|팀\s*모드라면|(?:교전|경기|진입|사격).{0,12}(?:전|후|때|상황)|(?:아군|팀원).{0,25}(?:때|경우|하면|상황)/u.test(sentence)
@@ -1301,7 +1302,14 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       || (comparison ? "보완할 지표가 있는 주제입니다. 점검 과제를 한 가지씩 차근차근 확인해 보세요." : "비교 자료가 없어 관측 기록만 확인했습니다.");
     // 모델 점검 문장이 형식을 지키지 않으면 가장 불리한 지표에 맞춘 점검을 제공한다.
     const spicyCheck = conditionalCheckText(sanitizedTexts[1]) || metricCheck(serverCard);
-    sanitizedTexts[1] = [spicyComparison, spicyCheck].filter(Boolean).join(" ");
+    // 매운맛 한마디는 서버가 측정 방향으로 고른다. 못 미친 지표는 비꼬고, 모두 평균 이상이면 인정한다.
+    const comparableRows = serverCard.evidence.filter(row => row.status === "comparable");
+    const spicyJab = summaryCardSpicyJab(
+      comparableRows.filter(row => isUnfavorable(row) === true).map(row => row.metricId),
+      comparableRows.length > 0 && comparableRows.every(row => isUnfavorable(row) === false),
+      `${serverCard.context.contextId}:${serverCard.topicId}`,
+    );
+    sanitizedTexts[1] = [spicyComparison, spicyJab, spicyCheck].filter(Boolean).join(" ");
     sanitizedTexts[2] = buildSummaryCardFactText(serverCard) || comparison || sanitizedTexts[2];
     sanitizedTexts[3] = cardEvaluation(serverCard);
     const readyCard: SummaryCard = {

@@ -1,8 +1,8 @@
-import { requiresRescueOpportunityEvidence } from './aiCoachingQuality';
+import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from './aiCoachingQuality';
 import { isSquadWithheldCopy, squadMetricWithheldCopy, squadWithheldCopy } from './squadAiPolicy';
 import { isSquadReviveRateEvaluable, isSquadTradeLatencyEvaluable } from './squadEvidenceSamples';
 import { squadMemberFaultFeedback, type SquadMemberRecords } from './squadMemberRecords';
-import { selectSquadMemberPunchlines, squadMemberPraise } from './squadPunchlines';
+import { selectSquadMemberPunchlines, selectSquadPunchlines, squadMemberPraise, squadSpicyCloser } from './squadPunchlines';
 
 // Keep absent observations out of coaching, including results read from cache.
 const metrics = [
@@ -113,6 +113,34 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   const output: Record<string, unknown> = { ...data, squadGrade: grade };
   for (const field of ["summary", "strength", "weakness", "coaching", "overallOpinion"]) {
     output[field] = clean(data[field]);
+  }
+  // 우승이 1회 이상이면 뒤 사실과 대조가 아니므로 "기록했지만"으로 잇지 않고 문장을 나눈다. 0회 뒤의 대조는 그대로 둔다.
+  const splitFalseContrast = (text: unknown) => typeof text === "string"
+    ? text.replace(/우승\s*([1-9]\d*)\s*회를?\s*(?:기록했|거두었|거뒀|달성했)지만\s*/gu, "우승 $1회를 기록했습니다. ")
+    : text;
+  // 수치 뒤에 바로 "~면서"를 붙인 어색한 연결("기록이 5회면서")은 "~이고"로 고친다.
+  const fixNumericMyeonseo = (text: unknown) => typeof text === "string" ? text.replace(/(\d+(?:\.\d+)?\s*(?:회|%|초|경기))면서\s/gu, "$1이고 ") : text;
+  for (const field of ["summary", "strength", "overallOpinion"]) output[field] = fixNumericMyeonseo(splitFalseContrast(output[field]));
+  // 총평이 다른 칸 문장을 그대로 반복하면 그 문장을 빼고, 남는 게 없으면 맛에 맞는 마무리 한마디를 쓴다.
+  if (typeof output.overallOpinion === "string" && output.overallOpinion.trim()) {
+    const used = new Set(["summary", "strength", "weakness", "coaching"].flatMap(field => typeof output[field] === "string"
+      ? (output[field] as string).split(/(?<=[.!?。！？])\s+/u).map(sentence => sentence.trim()).filter(Boolean) : []));
+    // 보류 문구만 남은 총평도 마무리 한마디로 바꾼다. 총평 자리의 보류 문구는 읽는 사람에게 의미가 없다.
+    // 첫머리 접속사("하지만 …")를 떼고 비교해야 같은 문장 반복을 놓치지 않고, 앞 문장이 빠져도 접속사만 남지 않는다.
+    const kept = output.overallOpinion.split(/(?<=[.!?。！？])\s+/u)
+      .map(sentence => sentence.trim().replace(/^(?:하지만|그러나|그리고|또한|그래도)\s*,?\s*/u, ""))
+      .filter(sentence => sentence && !used.has(sentence) && sentence !== COACHING_JUDGMENT_WITHHELD);
+    output.overallOpinion = kept.length ? kept.join(" ")
+      // 매운맛은 아래 마무리 한마디가 채우고, 재료가 없을 때만 짧은 마감 문장을 쓴다.
+      : coachingStyle === "spicy" ? "" : "다음 경기에서도 지금의 호흡을 이어가 보세요.";
+  }
+  // 매운맛 총평은 서버가 고른 마무리 한마디로 끝낸다. 모델 마무리는 밋밋해지기 쉽다. 이미 붙어 있으면 다시 붙이지 않는다(캐시 재적용).
+  if (coachingStyle === "spicy" && typeof output.overallOpinion === "string") {
+    const closer = squadSpicyCloser(selectSquadPunchlines({ stats, scores, squadGrade: grade, benchmarkStats: options.benchmarkStats, roleProfiles }),
+      roleProfiles.map(profile => profile.name).sort().join(","));
+    const opinion = output.overallOpinion.trim();
+    const closed = closer && !opinion.includes(closer) ? `${opinion} ${closer}`.trim() : opinion;
+    output.overallOpinion = closed || "기록부는 여기까지입니다.";
   }
   if (Array.isArray(data.memberFeedbacks)) {
     const cleanMember = (text: unknown) => {
