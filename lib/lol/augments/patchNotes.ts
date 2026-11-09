@@ -23,7 +23,7 @@ function tooltipLines(augment: PatchSnapshotAugment | undefined): string[] | nul
   const result = renderTooltip(augment.ko.tooltip, { dataValues: augment.rootSpell.dataValues, calculations: augment.rootSpell.calculations, spellSlot: augment.rootSpell.spellSlot });
   if (result.status === "failed") return null;
   return result.tokens.map(token => token.text).join("").split(/\n+|(?<=다\.)\s+/).map(line => line.trim())
-    .filter(line => line && !/^[^:]{1,20}:\s*@[^@\s]+@$/.test(line)).map(line => line.replace(/@[^@\s]+@/g, "…"));
+    .filter(line => line && !/^[^:]{1,20}:\s*@[^@\s]+@\S{0,3}$/.test(line)).map(line => line.replace(/@[^@\s]+@/g, "…"));
 }
 
 // 클라이언트 내부 값 이름을 단어 단위로 옮긴다. 모르는 단어가 있으면 추측하지 않고 원래 이름을 쓴다.

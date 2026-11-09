@@ -20,7 +20,7 @@ export const getMayhemPatchNotes = unstable_cache(async (upTo: string) => {
   if (texts.error || states.error || texts.data.length >= 5000 || states.data.length >= 5000) throw new Error("patch_notes_unavailable");
   return buildMayhemPatchNotes({ changes: changes.data, notes: notes.data, texts: texts.data as PatchTextRow[], states: states.data as PatchStateRow[], upTo,
     snapshots: await loadSnapshots(db, [...new Set(changes.data.map(c => c.client_patch))]) });
-}, ["lol-mayhem-patch-notes-v3"], { revalidate: 3600, tags: [LOL_AUGMENT_CATALOG_TAG] });
+}, ["lol-mayhem-patch-notes-v4"], { revalidate: 3600, tags: [LOL_AUGMENT_CATALOG_TAG] });
 
 const patchOrder = (a: string, b: string) => { const [x, y] = [a, b].map(p => p.split(".").map(Number)); return x[0] - y[0] || x[1] - y[1]; };
 
