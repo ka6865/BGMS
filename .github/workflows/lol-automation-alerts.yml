@@ -1,0 +1,64 @@
+name: LoL 자동화 알림
+# 증바람·롤 정기 수집이 새로 실패하거나 실패에서 회복하면 Discord로 알린다.
+# 같은 실패가 이어지는 동안에는 다시 알리지 않는다(챔피언 통계는 3시간마다 돌아 반복 알림이 많아진다).
+on:
+  workflow_run:
+    workflows:
+      - LoL Augments Sync
+      - LoL 증바람 해외 데이터 수집
+      - LoL 증바람 챔피언 통계 수집
+      - LoL 증바람 티어·아이템·과거 순위 수집
+      - LoL 챔피언 통계 수집
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  notify:
+    if: >-
+      github.event.workflow_run.head_branch == 'main' &&
+      contains(fromJSON('["success","failure","timed_out"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Notify Discord On Change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          TRIGGER: ${{ github.event.workflow_run.event }}
+        shell: bash
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL is missing; skipping notification."
+            exit 0
+          fi
+          failed() { [ "$1" = failure ] || [ "$1" = timed_out ]; }
+          # 이번 실행 직전에 끝난 main 실행의 결과와 비교한다. 취소된 실행은 건너뛴다.
+          previous=$(gh api "repos/$REPO/actions/workflows/$WORKFLOW_ID/runs?branch=main&status=completed&per_page=10" \
+            --jq "[.workflow_runs[] | select(.id < $RUN_ID and .conclusion != \"cancelled\" and .conclusion != \"skipped\")][0].conclusion // \"none\"")
+          echo "current=$CONCLUSION previous=$previous"
+          if failed "$CONCLUSION" && ! failed "$previous"; then
+            title="🚨 **$WORKFLOW_NAME 실패**"
+            hint="아래 실행 로그에서 실패 단계를 확인해 주세요. 같은 실패가 이어지는 동안에는 다시 알리지 않습니다."
+            log=$(gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>/dev/null | tail -200 || true)
+            if grep -qE 'key_or_permission|http_401|http_403' <<<"$log"; then
+              hint="Riot 키가 만료됐거나 권한이 없습니다. 새 키를 Vercel 운영 env와 GitHub secret RIOT_API_KEY 두 곳에 모두 넣어 주세요."
+            elif grep -qiE 'network|timeout|ETIMEDOUT|ECONNRESET' <<<"$log"; then
+              hint="외부 자료 서버 연결 오류로 보입니다. 다음 정기 실행에서 저절로 회복되는지 지켜봐 주세요."
+            fi
+          elif ! failed "$CONCLUSION" && failed "$previous"; then
+            title="✅ **$WORKFLOW_NAME 회복**"
+            hint="직전 실패 이후 다시 정상으로 끝났습니다."
+          else
+            exit 0
+          fi
+          case "$TRIGGER" in schedule) trigger_label="예약 실행" ;; workflow_dispatch) trigger_label="수동 실행" ;; *) trigger_label="$TRIGGER" ;; esac
+          MESSAGE=$(printf '%s\n실행 방식: %s\n%s\n\n실행 로그: %s' "$title" "$trigger_label" "$hint" "$RUN_URL")
+          jq -n --arg content "$MESSAGE" '{content: (if ($content | length) > 1900 then ($content[0:1899] + "…") else $content end), allowed_mentions: {parse: []}}' \
+            | curl --connect-timeout 10 --max-time 30 -fsS -X POST "$DISCORD_WEBHOOK_URL" -H "Content-Type: application/json" --data @-
