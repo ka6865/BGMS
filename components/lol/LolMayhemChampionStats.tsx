@@ -14,7 +14,7 @@ const control = "min-h-11 w-full rounded-lg border border-zinc-700 bg-zinc-900 p
 const chip = (active: boolean) => `min-h-11 rounded-lg border px-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 ${active ? "border-amber-400 bg-amber-400/10 text-amber-300" : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"}`;
 const rarityColor: Record<LolAugmentRarity, string> = { prismatic: "text-fuchsia-300", gold: "text-amber-300", silver: "text-zinc-300" };
 
-function ChampionPortrait({ champion, version, size }: { champion: LolChampion; version: string | null; size: number }) {
+export function ChampionPortrait({ champion, version, size }: { champion: LolChampion; version: string | null; size: number }) {
   return version ? <img src={`https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${champion.imageId}.png`} alt="" width={size} height={size} loading="lazy" decoding="async" className="shrink-0 rounded-lg bg-zinc-800 object-cover" style={{ width: size, height: size }} />
     : <span aria-hidden="true" className="shrink-0 rounded-lg bg-zinc-800" style={{ width: size, height: size }} />;
 }

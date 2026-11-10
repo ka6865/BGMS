@@ -11,7 +11,7 @@ export { lolRiotDataPublic } from "./previewAccess";
 
 const buckets = new Map<string, { count: number; expiresAt: number }>();
 const salt = randomBytes(32);
-const limits = { search: 10, read: 30, preview: 5 };
+const limits = { search: 10, read: 30, preview: 5, tip: 3, vote: 30, comment: 6 };
 
 export function requireLolPublicPage(): void {
   if (process.env.LOL_PUBLIC_ENABLED !== "true") notFound();

@@ -8,6 +8,8 @@ import type { MayhemPatchNote } from "@/lib/lol/augments/patchNotes";
 import type { LolChampion } from "@/lib/lol/champions";
 import type { PublicMayhemDataset } from "@/lib/lol/mayhemDatasetView";
 import LolMayhemDatasetView from "./LolMayhemDatasetView";
+import LolMayhemTips from "./LolMayhemTips";
+import type { MayhemTipItem } from "@/lib/lol/mayhemTips";
 import LolMayhemChampionStats from "./LolMayhemChampionStats";
 import {
   LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments,
@@ -18,7 +20,7 @@ const rarityColors: Record<LolAugmentRarity, string> = { prismatic: "text-fuchsi
 const chip = (active: boolean) => `min-h-11 rounded-lg border px-3 text-sm font-semibold transition ${active
   ? "border-amber-400 bg-amber-400/10 text-amber-300" : "border-zinc-700 text-zinc-400 hover:text-zinc-100"}`;
 
-export default function LolMayhemView({ catalog, error = false, dataset, champions = [], championStatsEnabled = false, championVersion = null, itemsEnabled = false, championTiers = null, patchRankingsEnabled = false, patchNotes = [] }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[]; championStatsEnabled?: boolean; championVersion?: string | null; itemsEnabled?: boolean; championTiers?: MayhemChampionTiers|null; patchRankingsEnabled?: boolean; patchNotes?: MayhemPatchNote[] }) {
+export default function LolMayhemView({ catalog, error = false, dataset, champions = [], championStatsEnabled = false, championVersion = null, itemsEnabled = false, championTiers = null, patchRankingsEnabled = false, patchNotes = [], tipItems = null }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[]; championStatsEnabled?: boolean; championVersion?: string | null; itemsEnabled?: boolean; championTiers?: MayhemChampionTiers|null; patchRankingsEnabled?: boolean; patchNotes?: MayhemPatchNote[]; tipItems?: MayhemTipItem[] | null }) {
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [newOnly, setNewOnly] = useState(false);
@@ -30,10 +32,11 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
   return <main className={`mx-auto w-full px-4 py-6 text-zinc-100 sm:px-6 ${view === "champions" ? "max-w-7xl" : "max-w-5xl"}`}>
     <h1 className="text-xl font-bold">증바람 증강</h1>
     <p className="mt-1 text-sm text-zinc-400">무작위 총력전: 아수라장의 챔피언별 선택 통계와 증강 도감입니다.</p>
-    {(championStatsEnabled || itemsEnabled || patchRankingsEnabled || dataset?.archiveAvailable || patchNotes.length > 0) && <div role="group" aria-label="증바람 보기" className="mt-5 flex flex-wrap gap-2">
+    {(championStatsEnabled || itemsEnabled || patchRankingsEnabled || dataset?.archiveAvailable || patchNotes.length > 0 || tipItems) && <div role="group" aria-label="증바람 보기" className="mt-5 flex flex-wrap gap-2">
       {(championStatsEnabled || itemsEnabled) && <button aria-pressed={view === "champions"} className={chip(view === "champions")} onClick={() => setView("champions")}>챔피언별 정보</button>}
       {patchRankingsEnabled && <button aria-pressed={view === "rankings"} className={chip(view === "rankings")} onClick={() => setView("rankings")}>패치별 증강 순위</button>}
       {dataset?.archiveAvailable && <button aria-pressed={view === "archive"} className={chip(view === "archive")} onClick={() => setView("archive")}>조합·증강 상태</button>}
+      {tipItems && catalog && <button aria-pressed={view === "tips"} className={chip(view === "tips")} onClick={() => setView("tips")}>유저 조합 제보</button>}
       {patchNotes.length > 0 && <button aria-pressed={view === "notes"} className={chip(view === "notes")} onClick={() => setView("notes")}>패치노트</button>}
       <button aria-pressed={view === "catalog"} className={chip(view === "catalog")} onClick={() => setView("catalog")}>전체 증강 도감</button>
     </div>}
@@ -41,7 +44,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
       <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-amber-300">챔피언별 해외 조합·전체 선택률</summary>
       <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog} />
     </details>}
-    {view === "archive" && catalog && dataset?.archiveAvailable ? <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog}/> : view === "rankings" && patchRankingsEnabled ? <LolMayhemPatchRankings/> : view === "notes" && patchNotes.length > 0 ? <LolMayhemPatchNotes notes={patchNotes}/> : !catalog ? <p role={error ? "alert" : undefined} className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">
+    {view === "tips" && catalog && tipItems ? <LolMayhemTips champions={champions} championVersion={championVersion} catalog={catalog} items={tipItems}/> : view === "archive" && catalog && dataset?.archiveAvailable ? <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog} championVersion={championVersion}/> : view === "rankings" && patchRankingsEnabled ? <LolMayhemPatchRankings/> : view === "notes" && patchNotes.length > 0 ? <LolMayhemPatchNotes notes={patchNotes}/> : !catalog ? <p role={error ? "alert" : undefined} className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">
       {error ? "증강 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." : "아직 게시된 증강 정보가 없습니다."}
     </p> : <>
       <p className="mt-3 text-sm text-zinc-300">

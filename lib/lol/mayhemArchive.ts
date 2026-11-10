@@ -8,7 +8,7 @@ export type MayhemArchive = { schemaVersion: 1; patch: string; augments: Archive
 export type AvailabilityCounts = Record<MayhemAvailability, number>;
 export type ArchiveSummary = { augments: AvailabilityCounts; combos: AvailabilityCounts; sourceRates: number; sourceCombos: number };
 export type ArchiveComboRow = Omit<ArchiveCombo, "augments"> & { augments: Pick<ArchiveAugment, "key" | "officialId" | "name" | "nameEn" | "status">[] };
-export type MayhemArchivePage = { patch: string; publishedAt: string; counts: AvailabilityCounts; total: number; offset: number; pageSize: number } & ({ kind: "augments"; rows: ArchiveAugment[] } | { kind: "combos"; rows: ArchiveComboRow[] });
+export type MayhemArchivePage = { patch: string; publishedAt: string; counts: AvailabilityCounts; total: number; offset: number; pageSize: number } & ({ kind: "augments"; rows: ArchiveAugment[] } | { kind: "combos"; rows: ArchiveComboRow[]; typeCounts: Record<string, number> });
 export const availabilityCounts = (rows: { status: MayhemAvailability }[]): AvailabilityCounts => Object.fromEntries(MAYHEM_AVAILABILITY.map(status => [status, rows.filter(row => row.status === status).length])) as AvailabilityCounts;
 export const comboAvailability = (statuses: MayhemAvailability[]): MayhemAvailability => (["removed", "disabled", "unverified"] as const).find(status => statuses.includes(status)) ?? "active";
 export const isMayhemAvailability = (value: unknown): value is MayhemAvailability => typeof value === "string" && MAYHEM_AVAILABILITY.includes(value as MayhemAvailability);
@@ -45,7 +45,7 @@ export function parseMayhemArchive(value: unknown, patch: string): MayhemArchive
   return root as unknown as MayhemArchive;
 }
 
-export function archivePage(archive: MayhemArchive, options: { kind: "augments" | "combos"; status: MayhemAvailability | "all"; query: string; championId: number | null; offset: number }, publishedAt: string): MayhemArchivePage {
+export function archivePage(archive: MayhemArchive, options: { kind: "augments" | "combos"; status: MayhemAvailability | "all"; query: string; championId: number | null; offset: number; type?: string | null }, publishedAt: string): MayhemArchivePage {
   const names = new Map(archive.augments.map(a => [a.key, a]));
   const q = options.query.normalize("NFKC").trim().toLocaleLowerCase("ko");
   const matches = (a: ArchiveAugment) => [a.name, a.nameEn, a.sourceName, a.text].some(t => t?.normalize("NFKC").toLocaleLowerCase("ko").includes(q));
@@ -57,7 +57,10 @@ export function archivePage(archive: MayhemArchive, options: { kind: "augments" 
     return { ...base, kind: "augments", counts: availabilityCounts(all), total: filtered.length, rows: filtered.slice(options.offset, options.offset + pageSize) };
   }
   const all = archive.combos.filter(c => (!options.championId || c.championId === options.championId) && (!q || c.augments.some(key => matches(names.get(key)!))));
-  const filtered = all.filter(c => options.status === "all" || c.status === options.status);
-  return { ...base, kind: "combos", counts: availabilityCounts(all), total: filtered.length,
+  const inStatus = all.filter(c => options.status === "all" || c.status === options.status);
+  const typeCounts: Record<string, number> = {};
+  for (const c of inStatus) for (const t of c.types) typeCounts[t] = (typeCounts[t] ?? 0) + 1;
+  const filtered = options.type ? inStatus.filter(c => c.types.includes(options.type!)) : inStatus;
+  return { ...base, kind: "combos", counts: availabilityCounts(all), typeCounts, total: filtered.length,
     rows: filtered.slice(options.offset, options.offset + pageSize).map(c => ({ ...c, augments: c.augments.map(key => { const { officialId, name, nameEn, status } = names.get(key)!; return { key, officialId, name, nameEn, status }; }) })) };
 }

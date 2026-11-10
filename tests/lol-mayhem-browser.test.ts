@@ -73,6 +73,41 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       if (req.url === "/archive-error") archiveError = true;
       if (req.url === "/archive-race") archiveRace = true;
       if (req.url === "/archive") { archiveError = false; archiveRace = false; }
+      if (req.url?.startsWith("/api/lol/mayhem/tips/comments")) {
+        res.setHeader("Content-Type", "application/json");
+        const thread = [{ id: 1, parentId: null, body: "AP면 라이덴, AD면 도미닉 가세요", author: "고수", anonymous: false, deleted: false, mine: false, byTipAuthor: false, createdAt: "2026-11-10T00:00:00Z" },
+          { id: 2, parentId: 1, body: "감사합니다!", author: null, anonymous: true, deleted: false, mine: false, byTipAuthor: true, createdAt: "2026-11-10T01:00:00Z" }];
+        if (req.method === "POST") {
+          let raw = ""; req.on("data", chunk => { raw += chunk; }); req.on("end", () => {
+            const body = JSON.parse(raw);
+            res.statusCode = 201;
+            res.end(JSON.stringify({ comments: [...thread, { id: 3, parentId: body.parentId, body: body.body, author: body.anonymous ? null : "내닉네임", anonymous: body.anonymous, deleted: false, mine: true, byTipAuthor: false, createdAt: "2026-11-11T00:00:00Z" }] }));
+          });
+          return;
+        }
+        res.end(JSON.stringify({ comments: thread }));
+        return;
+      }
+      if (req.url?.startsWith("/api/lol/mayhem/tips")) {
+        res.setHeader("Content-Type", "application/json");
+        if (req.method === "DELETE") { res.end(JSON.stringify({ deleted: 99 })); return; }
+        if (req.method === "POST" || req.method === "PATCH") {
+          let raw = ""; req.on("data", chunk => { raw += chunk; }); req.on("end", () => {
+            const body = JSON.parse(raw);
+            if (req.url === "/api/lol/mayhem/tips/vote") { res.end(JSON.stringify({ up: body.value === 1 ? 6 : 5, down: body.value === -1 ? 1 : 0, myVote: body.value })); return; }
+            res.statusCode = req.method === "POST" ? 201 : 200;
+            res.end(JSON.stringify({ tip: { id: 99, createdAt: "2026-11-11T00:00:00Z", updatedAt: req.method === "PATCH" ? "2026-11-11T01:00:00Z" : null, author: body.anonymous ? null : "내닉네임", up: 0, down: 0, myVote: 0, mine: true, comments: 0, ...body } }));
+          });
+          return;
+        }
+        const common = new URL(req.url, "http://x").searchParams.get("champion") === "common";
+        const base = { kind: "tip", anonymous: false, up: 5, down: 0, myVote: 0, mine: false, comments: 0, updatedAt: null, author: "칼바람장인" };
+        const rows = [{ ...base, id: 1, championId: null, augmentIds: [1, 3], itemIds: [3020], summary: "누구나 쓰기 좋은 공용 조합", usage: "초반 실버에서 먼저 고르세요.\n두 번째 줄 설명", createdAt: "2026-11-10T00:00:00Z" },
+          { ...base, anonymous: true, author: null, up: 2, id: 2, championId: 63, augmentIds: [1, 2, 3, 4], itemIds: [3020, 6655, 3089], summary: "브랜드 도트 피해 조합", usage: "", createdAt: "2026-11-09T00:00:00Z" }  , { ...base, kind: "question", id: 3, championId: null, augmentIds: [], itemIds: [3089, 6655], summary: "운명의 무기 뜨면 AP는 뭐 가요?", usage: "상대에 탱커가 없는데 도미닉이 좋을까요 오만이 좋을까요?", comments: 2, createdAt: "2026-11-08T00:00:00Z" }]
+          .filter(row => !common || row.championId === null).filter(row => !new URL(req.url!, "http://x").searchParams.get("kind") || row.kind === new URL(req.url!, "http://x").searchParams.get("kind"));
+        res.end(JSON.stringify({ patch: "16.21", offset: 0, signedIn: true, rows, total: rows.length }));
+        return;
+      }
       if (req.url?.startsWith("/api/lol/mayhem/archive?")) {
         res.setHeader("Content-Type","application/json");
         if (archiveError) { archiveError = false; res.statusCode=503;res.end(JSON.stringify({error:"failed"}));return; }
@@ -188,7 +223,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       }
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
       const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items") || req.url?.startsWith("/history") || req.url?.startsWith("/rankings");
-      const props = req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championStatsEnabled:false} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/fallback"
+      const tipItems = [{ id: 3020, name: "마법사의 신발", image: "3020.png", boots: true }, { id: 6655, name: "루덴의 동반자", image: "6655.png", boots: false }, { id: 3089, name: "라바돈의 죽음모자", image: "3089.png", boots: false }];
+      const props = req.url === "/tips" ? { catalog, champions: champs, championVersion: "16.21.1", tipItems } : req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championStatsEnabled:false} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/fallback"
         ? { catalog, dataset: { ...dataset, patch: "16.20", archiveAvailable: true }, champions: champs, championStatsEnabled: true, championVersion: "16.21.1", itemsEnabled: true, championTiers: { patch: "16.20", dataVersion: "16.20.3", date: "2026-10-16", tiers: { "63": 3, "64": 1 } } }
         : req.url === "/dataset"
         ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: req.url !== "/items-only", championVersion: "16.21.1", itemsEnabled: true, championTiers: req.url?.startsWith("/rankings") ? {patch:"16.21",dataVersion:"16.21.5",date:"2026-10-30",tiers:{"63":3,"64":1}} : null, patchRankingsEnabled: req.url?.startsWith("/rankings") } : { catalog };
@@ -202,6 +238,94 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     base = `http://127.0.0.1:${address.port}`; browser = await puppeteer.launch({ headless: true });
     await mkdir("tmp/lol-mayhem-review", { recursive: true });
   }, 90_000);
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 공용·챔피언 조합을 등급별 증강과 아이템으로 제보한다", async (width, height) => {
+    const page = await browser.newPage(); await page.setViewport({ width, height });
+    const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
+    // 외부 이미지 요청은 막고 제보 저장 본문만 기록한다.
+    const sent: string[] = []; await page.setRequestInterception(true);
+    page.on("request", request => { if (["POST", "PATCH"].includes(request.method())) sent.push(request.postData() ?? ""); if (request.url().startsWith(base)) void request.continue(); else void request.abort(); });
+    const click = (selector: string, text: string) => page.$$eval(selector, (nodes, label) => (nodes as HTMLElement[]).find(node => node.textContent?.trim() === label)!.click(), text);
+    await page.goto(`${base}/tips`, { waitUntil: "networkidle0" });
+    await click('[aria-label="증바람 보기"] button', "유저 조합 제보");
+    await page.waitForSelector('[aria-label="유저 조합 목록"] > li');
+    expect(await page.$eval('[aria-label="유저 조합 목록"]', node => node.textContent)).toContain("공용 조합");
+    await click("button", "조합 제보하기");
+    await page.waitForSelector('form[aria-label="조합 제보"]');
+    // 등급 탭마다 그 등급 증강만 보인다.
+    await click('[aria-label="증강 등급"] button', "골드");
+    expect(await page.$$eval('[aria-label="증강 목록"] button', nodes => nodes.map(node => node.textContent))).toEqual(["증강 2", "증강 5", "증강 8", "증강 11"]);
+    await click('[aria-label="증강 목록"] button', "증강 2");
+    await click('[aria-label="증강 등급"] button', "프리즘");
+    await click('[aria-label="증강 목록"] button', "증강 4");
+    await click('[aria-label="아이템 목록"] button', "루덴의 동반자");
+    await click('[aria-label="아이템 목록"] button', "마법사의 신발");
+    expect(await page.$$eval('[aria-label="고른 증강"] li', nodes => nodes.length)).toBe(2);
+    await page.type('form[aria-label="조합 제보"] input:not([type])', "공용으로 쓰기 좋은 조합");
+    await page.type("form textarea", "골드 먼저 고르고 프리즘에서 마무리");
+    await page.click('form input[role="switch"]');
+    expect(await page.$eval("form", node => node.textContent)).toContain('작성자가 "익명"으로 보입니다');
+    await page.screenshot({ path: `tmp/lol-mayhem-review/tips-form-${width}x${height}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await click("form button", "조합 제보하기");
+    await page.waitForFunction(() => document.querySelector('[aria-label="유저 조합 목록"]')?.textContent?.includes("공용으로 쓰기 좋은 조합"));
+    expect(JSON.parse(sent[0])).toEqual({ championId: null, augmentIds: [2, 4], itemIds: [6655, 3020], summary: "공용으로 쓰기 좋은 조합", usage: "골드 먼저 고르고 프리즘에서 마무리", anonymous: true, kind: "tip" });
+    const card = (summary: string) => page.$$eval('[aria-label="유저 조합 목록"] > li', (nodes, text) => nodes.find(node => node.textContent?.includes(text))?.textContent ?? "", summary);
+    expect(await card("공용으로 쓰기 좋은 조합")).toContain("익명(내 글)");
+    expect(await card("누구나 쓰기 좋은")).toContain("칼바람장인");
+    // 남의 제보에는 투표하고, 내 제보에는 투표 버튼이 막힌다.
+    await page.$$eval('[aria-label="유저 조합 목록"] > li', nodes => (nodes.find(node => node.textContent?.includes("누구나 쓰기 좋은"))!.querySelector('button[aria-label^="추천"]') as HTMLButtonElement).click());
+    await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="유저 조합 목록"] > li')].find(node => node.textContent?.includes("누구나 쓰기 좋은"))?.querySelector('button[aria-label="추천 6"][aria-pressed="true"]'));
+    expect(await page.$$eval('[aria-label="유저 조합 목록"] > li', nodes => (nodes.find(node => node.textContent?.includes("공용으로 쓰기 좋은"))!.querySelector('button[aria-label^="추천"]') as HTMLButtonElement).disabled)).toBe(true);
+    // 내 제보를 고치고 지운다.
+    await click('[aria-label="유저 조합 목록"] button', "수정");
+    await page.waitForSelector('form[aria-label="조합 제보 수정"]');
+    await page.$eval('form[aria-label="조합 제보 수정"] input:not([type])', node => { (node as HTMLInputElement).select(); });
+    await page.type('form[aria-label="조합 제보 수정"] input:not([type])', "고친 한줄평");
+    await click('form[aria-label="조합 제보 수정"] button', "수정 저장");
+    await page.waitForFunction(() => document.querySelector('[aria-label="유저 조합 목록"]')?.textContent?.includes("고친 한줄평"));
+    expect(JSON.parse(sent.at(-1)!)).toMatchObject({ id: 99, summary: "고친 한줄평", anonymous: true });
+    expect(await card("고친 한줄평")).toContain("수정됨");
+    await page.screenshot({ path: `tmp/lol-mayhem-review/tips-list-${width}x${height}.png`, fullPage: true });
+    await click('[aria-label="유저 조합 목록"] button', "지우기");
+    await click('[aria-label="유저 조합 목록"] button', "삭제");
+    await page.waitForFunction(() => !document.querySelector('[aria-label="유저 조합 목록"]')?.textContent?.includes("고친 한줄평"));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]); await page.close();
+  });
+
+  it.each([[375, 667], [1440, 900]])("%ix%i에서 질문을 올리고 답변·답글을 단다", async (width, height) => {
+    const page = await browser.newPage(); await page.setViewport({ width, height });
+    const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
+    const sent: string[] = []; await page.setRequestInterception(true);
+    page.on("request", request => { if (request.method() === "POST") sent.push(request.postData() ?? ""); if (request.url().startsWith(base)) void request.continue(); else void request.abort(); });
+    const click = (selector: string, text: string) => page.$$eval(selector, (nodes, label) => (nodes as HTMLElement[]).find(node => node.textContent?.trim() === label)!.click(), text);
+    await page.goto(`${base}/tips`, { waitUntil: "networkidle0" });
+    await click('[aria-label="증바람 보기"] button', "유저 조합 제보");
+    await page.waitForSelector('[aria-label="유저 조합 목록"] > li');
+    await click('[aria-label="글 종류 필터"] button', "질문");
+    await page.waitForFunction(() => document.querySelectorAll('[aria-label="유저 조합 목록"] > li').length === 1);
+    // 답변을 열면 답글이 들여쓰기로 보이고 글쓴이 표시가 붙는다.
+    await click('[aria-label="유저 조합 목록"] button', "답변 2");
+    await page.waitForSelector('[aria-label="답변 목록"] [aria-label="답글"] li');
+    expect(await page.$eval('[aria-label="답변 목록"]', node => node.textContent)).toContain("글쓴이");
+    await click('[aria-label="답변 목록"] button', "답글");
+    await page.type('[aria-label="답변 목록"] textarea[aria-label="답글 달기"]', "저도 궁금해요");
+    await page.$$eval('[aria-label="답글"] form button[type="submit"]', nodes => (nodes[0] as HTMLButtonElement).click());
+    await page.waitForFunction(() => document.querySelector('[aria-label="답변 목록"]')?.textContent?.includes("저도 궁금해요"));
+    expect(JSON.parse(sent.at(-1)!)).toEqual({ tipId: 3, parentId: 1, body: "저도 궁금해요", anonymous: false });
+    await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="유저 조합 목록"] button[aria-expanded]')].some(node => node.textContent === "답변 3"));
+    // 질문은 증강 없이 올린다.
+    await click("button", "질문하기");
+    await page.waitForSelector('form[aria-label="질문"]');
+    await page.type('form[aria-label="질문"] input:not([type])', "도미닉 오만 뭐가 좋아요?");
+    await click('form[aria-label="질문"] button', "질문 올리기");
+    await page.waitForFunction(() => !document.querySelector('form[aria-label="질문"]'));
+    expect(JSON.parse(sent.at(-1)!)).toMatchObject({ kind: "question", augmentIds: [], summary: "도미닉 오만 뭐가 좋아요?" });
+    await page.screenshot({ path: `tmp/lol-mayhem-review/tips-question-${width}x${height}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]); await page.close();
+  });
+
   afterAll(async () => { await browser?.close(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); });
 
   it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 검색·등급·신규 필터와 빈·오류 상태가 넘치지 않는다", async (width, height) => {
