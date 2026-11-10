@@ -1,3 +1,5 @@
+import { classifyLolItems } from "./championStats";
+
 export const MAYHEM_TIP_LIMITS = { augments: 6, items: 6, summary: 60, usage: 1000, dailyPerUser: 10, pageSize: 20, comment: 500, comments: 300 } as const;
 
 export type MayhemTipSort = "recent" | "top";
@@ -44,4 +46,25 @@ export function parseMayhemTipCommentInput(value: unknown): MayhemTipCommentInpu
   const text = body.body.trim();
   if (!text || text.length > MAYHEM_TIP_LIMITS.comment || controlChars.test(text)) return null;
   return { tipId, parentId, body: text, anonymous };
+}
+
+type ItemJson = { data?: Record<string, { name?: string; image?: { full?: string }; maps?: Record<string, boolean> }> };
+
+// 칼바람 맵(12)에서 살 수 있는 완성 아이템과 신발만 고를 수 있다.
+// Data Dragon에는 같은 아이템이 모드별 번호(예: 강철심장 3084·223084)로 겹쳐 있어 이름마다 가장 작은 번호 하나만 남긴다.
+// 황금 뒤집개(994403)·궁극의 히드라(226668)처럼 변형 번호만 있는 아수라장 아이템은 그 번호로 남는다.
+// 77xxxx는 맵 12로 표시되지만 아수라장 통계에 나오지 않는 예전 칼바람용 번호(서풍·수호 천사 등)라 뺀다.
+const legacyAramItem = (id: number) => id >= 770_000 && id < 780_000;
+export function selectMayhemTipItems(json: unknown): MayhemTipItem[] {
+  const data = (json as ItemJson | null)?.data ?? {};
+  const meta = classifyLolItems(json);
+  const byName = new Map<string, MayhemTipItem>();
+  for (const [key, item] of Object.entries(data)) {
+    const id = Number(key), kind = meta[id];
+    if (!kind || legacyAramItem(id) || !(kind.final || kind.boots) || item.maps?.["12"] !== true || !item.name || !item.image?.full) continue;
+    const name = item.name.replace(/<[^>]*>/g, "").trim();
+    const current = byName.get(name);
+    if (!current || id < current.id) byName.set(name, { id, name, image: item.image.full, boots: kind.boots });
+  }
+  return [...byName.values()].sort((a, b) => Number(a.boots) - Number(b.boots) || a.name.localeCompare(b.name, "ko"));
 }

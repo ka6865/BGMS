@@ -26,18 +26,20 @@ const toggle = (list: number[], id: number, max: number) => list.includes(id) ? 
 
 const KIND_LABEL: Record<MayhemTipKind, string> = { tip: "조합 제보", question: "질문" };
 
-function TipForm({ champions, version, catalog, items, initial = null, presetKind = "tip", onSaved, onCancel }: {
-  champions: LolChampion[]; version: string | null; catalog: LolMayhemCatalog; items: MayhemTipItem[]; initial?: MayhemTip | null; presetKind?: MayhemTipKind; onSaved: (tip: MayhemTip) => void; onCancel: () => void;
+type TipDraft = { augmentId: number; summary: string };
+
+function TipForm({ champions, version, catalog, items, initial = null, presetKind = "tip", prefill = null, onSaved, onCancel }: {
+  champions: LolChampion[]; version: string | null; catalog: LolMayhemCatalog; items: MayhemTipItem[]; initial?: MayhemTip | null; presetKind?: MayhemTipKind; prefill?: TipDraft | null; onSaved: (tip: MayhemTip) => void; onCancel: () => void;
 }) {
   const [kind, setKind] = useState<MayhemTipKind>(initial?.kind ?? presetKind);
   const question = kind === "question";
   const [championId, setChampionId] = useState(initial?.championId ? String(initial.championId) : "");
   const [rarity, setRarity] = useState<LolAugmentRarity>("silver");
   const [augmentQuery, setAugmentQuery] = useState("");
-  const [augmentIds, setAugmentIds] = useState<number[]>(initial?.augmentIds ?? []);
+  const [augmentIds, setAugmentIds] = useState<number[]>(initial?.augmentIds ?? (prefill ? [prefill.augmentId] : []));
   const [itemQuery, setItemQuery] = useState("");
   const [itemIds, setItemIds] = useState<number[]>(initial?.itemIds ?? []);
-  const [summary, setSummary] = useState(initial?.summary ?? "");
+  const [summary, setSummary] = useState(initial?.summary ?? prefill?.summary ?? "");
   const [usage, setUsage] = useState(initial?.usage ?? "");
   const [anonymous, setAnonymous] = useState(initial?.anonymous ?? false);
   const [sending, setSending] = useState(false);
@@ -261,9 +263,14 @@ function TipCard({ tip, champion, version, catalog, augmentMap, itemMap, signedI
   </li>;
 }
 
-export default function LolMayhemTips({ champions, championVersion = null, catalog, items }: { champions: LolChampion[]; championVersion?: string | null; catalog: LolMayhemCatalog; items: MayhemTipItem[] }) {
+// draft는 증강 도감의 "정보가 다르면 알려 주세요"에서 넘어온 질문 초안이다. 탭이 새로 열릴 때 한 번만 쓴다.
+export default function LolMayhemTips({ champions, championVersion = null, catalog, items, draft = null, onDraftUsed }: {
+  champions: LolChampion[]; championVersion?: string | null; catalog: LolMayhemCatalog; items: MayhemTipItem[]; draft?: TipDraft | null; onDraftUsed?: () => void;
+}) {
+  const [prefill] = useState(draft);
+  useEffect(() => { if (prefill) onDraftUsed?.(); }, [prefill, onDraftUsed]);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
-  const [writing, setWriting] = useState<MayhemTipKind | null>(null);
+  const [writing, setWriting] = useState<MayhemTipKind | null>(prefill ? "question" : null);
   const [kind, setKind] = useState<MayhemTipKind | "">("");
   const [editing, setEditing] = useState<number | null>(null);
   const [filter, setFilter] = useState("");
@@ -291,7 +298,7 @@ export default function LolMayhemTips({ champions, championVersion = null, catal
     return () => controller.abort();
   }, [filter, kind, sort, offset, retry]);
 
-  const form = (initial: MayhemTip | null) => <TipForm key={initial?.id ?? writing ?? ""} champions={champions} version={championVersion} catalog={catalog} items={items} initial={initial} presetKind={writing ?? "tip"}
+  const form = (initial: MayhemTip | null) => <TipForm key={initial?.id ?? writing ?? ""} champions={champions} version={championVersion} catalog={catalog} items={items} initial={initial} presetKind={writing ?? "tip"} prefill={initial ? null : prefill}
     onCancel={() => initial ? setEditing(null) : setWriting(null)}
     onSaved={tip => { if (initial) { replace(tip); setEditing(null); } else { setWriting(null); setTips(list => [tip, ...list]); setTotal(value => value + 1); } }} />;
 
