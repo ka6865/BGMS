@@ -9,6 +9,7 @@ import { parseMayhemChampionTiers } from "@/lib/lol/mayhemChampionTiers";
 import { getLolChampions } from "@/lib/lol/champions.server";
 import { getPublicReference, referencePublicEnabled } from "@/lib/lol/mayhemReferenceStore.server";
 import { getMayhemPatchNotes } from "@/lib/lol/augments/patchNotes.server";
+import { getMayhemTipItems } from "@/lib/lol/mayhemTips.server";
 
 export const metadata: Metadata = { title: { absolute: "BGMS | LoL 증바람 증강" } };
 
@@ -19,11 +20,15 @@ export default async function LolAramMayhemPage() {
   const dataset = catalog ? await getPublicMayhemDataset(catalog.view.clientPatch).catch(() => null) : null;
   const championStatsEnabled = process.env.LOL_MAYHEM_CHAMPION_DATASET_ENABLED === "true";
   const itemsEnabled = process.env.LOL_MAYHEM_ITEMS_ENABLED === "true";
-  const champions = dataset || championStatsEnabled || itemsEnabled ? await getLolChampions() : null;
+  // 조합 제보는 운영 DB에 테이블을 만든 뒤 켠다.
+  const tipsEnabled = process.env.LOL_MAYHEM_TIPS_ENABLED === "true";
+  const champions = dataset || championStatsEnabled || itemsEnabled || tipsEnabled ? await getLolChampions() : null;
+  // 아이템 목록을 못 불러와도 증강만으로 제보할 수 있게 빈 목록으로 연다.
+  const tipItems = tipsEnabled && catalog && champions ? await getMayhemTipItems(champions.version).catch(() => []) : null;
   const championTiers = referencePublicEnabled()
     ? await getPublicReference("champion_tiers").catch(() => null)
     : parseMayhemChampionTiers(tierSnapshot);
   // 패치노트는 부가 정보라 실패해도 나머지 화면은 그대로 보여준다.
   const patchNotes = catalog ? await getMayhemPatchNotes(catalog.view.clientPatch).catch(() => []) : [];
-  return <LolMayhemView catalog={catalog?.view ?? null} error={catalog === undefined} dataset={dataset} champions={champions?.champions} championStatsEnabled={championStatsEnabled} championVersion={champions?.version} itemsEnabled={itemsEnabled} championTiers={championTiers} patchRankingsEnabled patchNotes={patchNotes} />;
+  return <LolMayhemView catalog={catalog?.view ?? null} error={catalog === undefined} dataset={dataset} champions={champions?.champions} championStatsEnabled={championStatsEnabled} championVersion={champions?.version} itemsEnabled={itemsEnabled} championTiers={championTiers} patchRankingsEnabled patchNotes={patchNotes} tipItems={tipItems} />;
 }

@@ -23,30 +23,33 @@ const typeInfo = (type: string) => TYPES[type] ?? { label: type, tone: "border-z
 const rarityRing: Record<LolAugmentRarity, string> = { prismatic: "border-fuchsia-400/70", gold: "border-amber-400/70", silver: "border-zinc-400/60" };
 const rarityText: Record<LolAugmentRarity, string> = { prismatic: "text-fuchsia-300", gold: "text-amber-300", silver: "text-zinc-300" };
 
-function AugmentIcon({ icon, patch, rarity, size }: { icon: string | null | undefined; patch: string; rarity: LolAugmentRarity | null | undefined; size: number }) {
+export function AugmentIcon({ icon, patch, rarity, size }: { icon: string | null | undefined; patch: string; rarity: LolAugmentRarity | null | undefined; size: number }) {
   const ring = rarity ? rarityRing[rarity] : "border-zinc-700";
   return icon ? <img src={`/api/lol/augment-icons/${patch}/${icon}`} alt="" width={size} height={size} loading="lazy" decoding="async" className={`shrink-0 rounded-lg border-2 bg-zinc-950 ${ring}`} style={{ width: size, height: size }} />
     : <span aria-hidden="true" className={`shrink-0 rounded-lg border-2 border-dashed bg-zinc-900 ${ring}`} style={{ width: size, height: size }} />;
 }
 
-function ChampionPicker({ champions, version, value, onChange }: { champions: LolChampion[]; version: string | null; value: string; onChange: (id: string) => void }) {
+export function ChampionPicker({ champions, version, value, onChange, label = "챔피언", emptyLabel = "전체 챔피언", extra = [], id = "archive-champion" }: {
+  champions: LolChampion[]; version: string | null; value: string; onChange: (id: string) => void; label?: string; emptyLabel?: string; extra?: { value: string; label: string }[]; id?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selected = champions.find(c => String(c.id) === value);
+  const selectedLabel = selected?.name ?? extra.find(option => option.value === value)?.label ?? emptyLabel;
   const pick = (id: string) => { onChange(id); setOpen(false); setQuery(""); };
   return <div className="relative space-y-2 text-sm" onKeyDown={event => { if (event.key === "Escape") setOpen(false); }}>
-    <span id="archive-champion-label">챔피언</span>
-    <button type="button" aria-labelledby="archive-champion-label" aria-expanded={open} aria-controls="archive-champion-list" onClick={() => setOpen(v => !v)} className={`${input} flex items-center gap-2 text-left`}>
+    <span id={`${id}-label`}>{label}</span>
+    <button type="button" aria-labelledby={`${id}-label`} aria-expanded={open} aria-controls={`${id}-list`} onClick={() => setOpen(v => !v)} className={`${input} flex items-center gap-2 text-left`}>
       {selected ? <ChampionPortrait champion={selected} version={version} size={24} /> : <span aria-hidden="true" className="size-6 shrink-0 rounded-lg bg-zinc-800" />}
-      <span className="min-w-0 flex-1 truncate">{selected?.name ?? "전체 챔피언"}</span>
+      <span className="min-w-0 flex-1 truncate">{selectedLabel}</span>
       <ChevronDown aria-hidden="true" size={16} className={`text-zinc-400 transition-transform ${open ? "rotate-180" : ""}`} />
     </button>
-    {open && <div id="archive-champion-list" className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-xl">
+    {open && <div id={`${id}-list`} className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-xl">
       <label className="relative block p-2"><span className="sr-only">조합 챔피언 찾기</span><Search aria-hidden="true" size={16} className="pointer-events-none absolute left-5 top-5.5 text-zinc-400" />
         <input type="search" autoFocus aria-label="조합 챔피언 찾기" placeholder="이름, 초성" value={query} onChange={event => setQuery(event.target.value)} className={`${input} pl-9`} />
       </label>
       <div role="group" aria-label="조합 챔피언 목록" className="max-h-72 overflow-y-auto overscroll-contain border-t border-zinc-800 p-1.5">
-        {!query && <button type="button" aria-pressed={!value} onClick={() => pick("")} className={`flex min-h-11 w-full items-center rounded-lg px-2.5 text-left ${!value ? "bg-amber-400/10 font-semibold text-amber-300" : "text-zinc-300 hover:bg-zinc-800"}`}>전체 챔피언</button>}
+        {!query && [{ value: "", label: emptyLabel }, ...extra].map(option => <button key={option.value} type="button" aria-pressed={value === option.value} onClick={() => pick(option.value)} className={`flex min-h-11 w-full items-center rounded-lg px-2.5 text-left ${value === option.value ? "bg-amber-400/10 font-semibold text-amber-300" : "text-zinc-300 hover:bg-zinc-800"}`}>{option.label}</button>)}
         {filterLolChampions(champions, query, null).map(c => <button key={c.id} type="button" aria-pressed={String(c.id) === value} onClick={() => pick(String(c.id))}
           className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-2.5 text-left ${String(c.id) === value ? "bg-amber-400/10 font-semibold text-amber-300" : "text-zinc-300 hover:bg-zinc-800"}`}>
           <ChampionPortrait champion={c} version={version} size={28} /><span className="min-w-0 flex-1 truncate">{c.name}</span>
@@ -123,7 +126,8 @@ export default function LolMayhemArchive({ patch, champions, catalog, championVe
             {(a.nameEn || (a.sourceName && a.sourceName !== a.name)) && <p className="text-xs text-zinc-400">{[a.nameEn, a.sourceName && a.sourceName !== a.name ? `원본 이름: ${a.sourceName}` : null].filter(Boolean).join(" · ")}</p>}
             {!!a.text && <p className={`whitespace-pre-line text-zinc-300 ${open ? "" : "line-clamp-2"}`}>{a.text}</p>}
             {(a.text.length > 60 || a.text.includes("\n")) && <button type="button" aria-expanded={open} className="min-h-11 text-xs text-zinc-400 underline underline-offset-4 hover:text-white" onClick={() => setExpanded(prev => { const next = new Set(prev); if (open) next.delete(a.key); else next.add(a.key); return next; })}>{open ? "효과 접기" : "효과 펼치기"}</button>}
-            <p className="text-xs text-zinc-400">{a.reason}{a.sourceUrl && <> · <a className="inline-flex min-h-11 items-center text-amber-300 underline underline-offset-4" href={a.sourceUrl} target="_blank" rel="noreferrer">원본 기록 보기</a></>}</p>
+            {/* 사용 중 증강의 검수 연결 사유는 내부 기록이라 숨기고, 빠진 증강만 사유를 보여 준다. */}
+            {(a.status !== "active" || a.sourceUrl) && <p className="text-xs text-zinc-400">{a.status !== "active" && a.reason}{a.status !== "active" && a.sourceUrl && " · "}{a.sourceUrl && <a className="inline-flex min-h-11 items-center text-amber-300 underline underline-offset-4" href={a.sourceUrl} target="_blank" rel="noreferrer">원본 기록 보기</a>}</p>}
           </div>
         </li>;
       })}</ul> : <ul aria-label="보존 조합 목록" className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">{data.rows.map(c => {

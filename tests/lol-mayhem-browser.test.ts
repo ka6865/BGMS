@@ -73,6 +73,18 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       if (req.url === "/archive-error") archiveError = true;
       if (req.url === "/archive-race") archiveRace = true;
       if (req.url === "/archive") { archiveError = false; archiveRace = false; }
+      if (req.url?.startsWith("/api/lol/mayhem/tips")) {
+        res.setHeader("Content-Type", "application/json");
+        if (req.method === "POST") {
+          let raw = ""; req.on("data", chunk => { raw += chunk; }); req.on("end", () => { res.statusCode = 201; res.end(JSON.stringify({ tip: { id: 99, createdAt: "2026-11-11T00:00:00Z", ...JSON.parse(raw) } })); });
+          return;
+        }
+        const common = new URL(req.url, "http://x").searchParams.get("champion") === "common";
+        const rows = [{ id: 1, championId: null, augmentIds: [1, 3], itemIds: [3020], summary: "누구나 쓰기 좋은 공용 조합", usage: "초반 실버에서 먼저 고르세요.\n두 번째 줄 설명", createdAt: "2026-11-10T00:00:00Z" },
+          { id: 2, championId: 63, augmentIds: [1, 2, 3, 4], itemIds: [3020, 6655, 3089], summary: "브랜드 도트 피해 조합", usage: "", createdAt: "2026-11-09T00:00:00Z" }].filter(row => !common || row.championId === null);
+        res.end(JSON.stringify({ patch: "16.21", offset: 0, signedIn: true, rows, total: rows.length }));
+        return;
+      }
       if (req.url?.startsWith("/api/lol/mayhem/archive?")) {
         res.setHeader("Content-Type","application/json");
         if (archiveError) { archiveError = false; res.statusCode=503;res.end(JSON.stringify({error:"failed"}));return; }
@@ -188,7 +200,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       }
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
       const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items") || req.url?.startsWith("/history") || req.url?.startsWith("/rankings");
-      const props = req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championStatsEnabled:false} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/fallback"
+      const tipItems = [{ id: 3020, name: "마법사의 신발", image: "3020.png", boots: true }, { id: 6655, name: "루덴의 동반자", image: "6655.png", boots: false }, { id: 3089, name: "라바돈의 죽음모자", image: "3089.png", boots: false }];
+      const props = req.url === "/tips" ? { catalog, champions: champs, championVersion: "16.21.1", tipItems } : req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championStatsEnabled:false} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/fallback"
         ? { catalog, dataset: { ...dataset, patch: "16.20", archiveAvailable: true }, champions: champs, championStatsEnabled: true, championVersion: "16.21.1", itemsEnabled: true, championTiers: { patch: "16.20", dataVersion: "16.20.3", date: "2026-10-16", tiers: { "63": 3, "64": 1 } } }
         : req.url === "/dataset"
         ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: req.url !== "/items-only", championVersion: "16.21.1", itemsEnabled: true, championTiers: req.url?.startsWith("/rankings") ? {patch:"16.21",dataVersion:"16.21.5",date:"2026-10-30",tiers:{"63":3,"64":1}} : null, patchRankingsEnabled: req.url?.startsWith("/rankings") } : { catalog };
@@ -202,6 +215,40 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     base = `http://127.0.0.1:${address.port}`; browser = await puppeteer.launch({ headless: true });
     await mkdir("tmp/lol-mayhem-review", { recursive: true });
   }, 90_000);
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 공용·챔피언 조합을 등급별 증강과 아이템으로 제보한다", async (width, height) => {
+    const page = await browser.newPage(); await page.setViewport({ width, height });
+    const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
+    // 외부 이미지 요청은 막고 제보 저장 본문만 기록한다.
+    const sent: string[] = []; await page.setRequestInterception(true);
+    page.on("request", request => { if (request.method() === "POST") sent.push(request.postData() ?? ""); if (request.url().startsWith(base)) void request.continue(); else void request.abort(); });
+    const click = (selector: string, text: string) => page.$$eval(selector, (nodes, label) => (nodes as HTMLElement[]).find(node => node.textContent?.trim() === label)!.click(), text);
+    await page.goto(`${base}/tips`, { waitUntil: "networkidle0" });
+    await click('[aria-label="증바람 보기"] button', "유저 조합 제보");
+    await page.waitForSelector('[aria-label="유저 조합 목록"] > li');
+    expect(await page.$eval('[aria-label="유저 조합 목록"]', node => node.textContent)).toContain("공용 조합");
+    await click("button", "조합 제보하기");
+    await page.waitForSelector('form[aria-label="조합 제보"]');
+    // 등급 탭마다 그 등급 증강만 보인다.
+    await click('[aria-label="증강 등급"] button', "골드");
+    expect(await page.$$eval('[aria-label="증강 목록"] button', nodes => nodes.map(node => node.textContent))).toEqual(["증강 2", "증강 5", "증강 8", "증강 11"]);
+    await click('[aria-label="증강 목록"] button', "증강 2");
+    await click('[aria-label="증강 등급"] button', "프리즘");
+    await click('[aria-label="증강 목록"] button', "증강 4");
+    await click('[aria-label="아이템 목록"] button', "루덴의 동반자");
+    await click('[aria-label="아이템 목록"] button', "마법사의 신발");
+    expect(await page.$$eval('[aria-label="고른 증강"] li', nodes => nodes.length)).toBe(2);
+    await page.type('form[aria-label="조합 제보"] input:not([type])', "공용으로 쓰기 좋은 조합");
+    await page.type("form textarea", "골드 먼저 고르고 프리즘에서 마무리");
+    await page.screenshot({ path: `tmp/lol-mayhem-review/tips-form-${width}x${height}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await click("form button", "조합 제보하기");
+    await page.waitForFunction(() => document.querySelector('[aria-label="유저 조합 목록"]')?.textContent?.includes("공용으로 쓰기 좋은 조합"));
+    expect(JSON.parse(sent[0])).toEqual({ championId: null, augmentIds: [2, 4], itemIds: [6655, 3020], summary: "공용으로 쓰기 좋은 조합", usage: "골드 먼저 고르고 프리즘에서 마무리" });
+    await page.screenshot({ path: `tmp/lol-mayhem-review/tips-list-${width}x${height}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]); await page.close();
+  });
+
   afterAll(async () => { await browser?.close(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); });
 
   it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("%ix%i에서 검색·등급·신규 필터와 빈·오류 상태가 넘치지 않는다", async (width, height) => {
