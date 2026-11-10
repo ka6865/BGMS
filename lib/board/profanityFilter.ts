@@ -184,8 +184,9 @@ export function checkProfanity(text: string): ProfanityResult {
   }
 
   // 2. 자모 패턴 매칭 (ㅅㅂ, ㅄ 등 초성 비속어)
+  // 사용자가 직접 친 자모만 본다. 분해한 글자에서 찾으면 '멈춰'(ㅁㅊ), '받침'(ㄷㅊ)처럼 받침과 다음 초성이 이어져 오탐지된다.
   for (const pattern of JAMO_PATTERNS) {
-    if (pattern.test(normalized) || pattern.test(decomposed)) {
+    if (pattern.test(normalized)) {
       return { blocked: true, matchedWord: pattern.source };
     }
   }
