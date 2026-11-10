@@ -41,7 +41,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
       <summary className="min-h-11 cursor-pointer content-center text-sm font-semibold text-amber-300">챔피언별 해외 조합·전체 선택률</summary>
       <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog} />
     </details>}
-    {view === "archive" && catalog && dataset?.archiveAvailable ? <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog}/> : view === "rankings" && patchRankingsEnabled ? <LolMayhemPatchRankings/> : view === "notes" && patchNotes.length > 0 ? <LolMayhemPatchNotes notes={patchNotes}/> : !catalog ? <p role={error ? "alert" : undefined} className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">
+    {view === "archive" && catalog && dataset?.archiveAvailable ? <LolMayhemDatasetView data={dataset} champions={champions} catalog={catalog} championVersion={championVersion}/> : view === "rankings" && patchRankingsEnabled ? <LolMayhemPatchRankings/> : view === "notes" && patchNotes.length > 0 ? <LolMayhemPatchNotes notes={patchNotes}/> : !catalog ? <p role={error ? "alert" : undefined} className="mt-6 rounded-lg border border-zinc-800 px-4 py-8 text-center text-sm text-zinc-400">
       {error ? "증강 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." : "아직 게시된 증강 정보가 없습니다."}
     </p> : <>
       <p className="mt-3 text-sm text-zinc-300">
