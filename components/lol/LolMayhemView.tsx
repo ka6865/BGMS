@@ -11,12 +11,16 @@ import LolMayhemDatasetView from "./LolMayhemDatasetView";
 import LolMayhemTips from "./LolMayhemTips";
 import type { MayhemTipItem } from "@/lib/lol/mayhemTips";
 import LolMayhemChampionStats from "./LolMayhemChampionStats";
+import { MAYHEM_RANDOM_EXCLUDED, MAYHEM_RANDOM_GRANTERS, mayhemOfferNotes, type MayhemOfferRule } from "@/lib/lol/mayhemOfferRules";
 import {
   LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments,
   type LolAugmentRarity, type LolMayhemCatalog,
 } from "@/lib/lol/augments/catalog";
 
 const rarityColors: Record<LolAugmentRarity, string> = { prismatic: "text-fuchsia-300", gold: "text-amber-300", silver: "text-zinc-300" };
+const granters = new Set<number>(MAYHEM_RANDOM_GRANTERS);
+const hasOfferInfo = (id: number) => granters.has(id) || mayhemOfferNotes(id).length > 0;
+const SourceBadge = ({ rule }: { rule: Pick<MayhemOfferRule, "verified" | "patch"> }) => <span className={`mr-1.5 inline-block rounded px-1.5 align-[1px] text-[10px] font-bold ${rule.verified ? "bg-emerald-400/15 text-emerald-300" : "bg-orange-400/15 text-orange-300"}`}>{rule.verified ? "공식" : "확인 필요"}{rule.patch && ` · ${rule.patch}`}</span>;
 const chip = (active: boolean) => `min-h-11 rounded-lg border px-3 text-sm font-semibold transition ${active
   ? "border-amber-400 bg-amber-400/10 text-amber-300" : "border-zinc-700 text-zinc-400 hover:text-zinc-100"}`;
 
@@ -24,9 +28,12 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [newOnly, setNewOnly] = useState(false);
+  const [offerOnly, setOfferOnly] = useState(false);
   const [view, setView] = useState(championStatsEnabled || itemsEnabled ? "champions" : "catalog");
   const augments = catalog?.augments;
-  const visible = useMemo(() => filterLolMayhemAugments(augments ?? [], query, rarity, newOnly), [augments, query, rarity, newOnly]);
+  const visible = useMemo(() => filterLolMayhemAugments(augments ?? [], query, rarity, newOnly).filter(augment => !offerOnly || hasOfferInfo(augment.id)), [augments, query, rarity, newOnly, offerOnly]);
+  const augmentNames = new Map((augments ?? []).map(augment => [augment.id, augment.name]));
+  const excludedNames = [...MAYHEM_RANDOM_EXCLUDED.ids.flatMap(id => augmentNames.get(id) ?? []), ...MAYHEM_RANDOM_EXCLUDED.removedNames.map(name => `${name}(삭제됨)`)];
   const newCount = augments?.filter(augment => augment.isNew).length ?? 0;
 
   return <main className={`mx-auto w-full px-4 py-6 text-zinc-100 sm:px-6 ${view === "champions" ? "max-w-7xl" : "max-w-5xl"}`}>
@@ -63,6 +70,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
           {LOL_AUGMENT_RARITIES.map(item => <button key={item} type="button" aria-pressed={rarity === item} className={chip(rarity === item)}
             onClick={() => setRarity(item)}>{LOL_AUGMENT_RARITY_LABELS[item]}</button>)}
           <button type="button" aria-pressed={newOnly} className={chip(newOnly)} onClick={() => setNewOnly(value => !value)}>신규만</button>
+          <button type="button" aria-pressed={offerOnly} className={chip(offerOnly)} onClick={() => setOfferOnly(value => !value)}>등장 조건 있음</button>
         </div>
       </div>
       {visible.length === 0
@@ -82,6 +90,10 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
             </h2>
             <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-zinc-300">{augment.text}</p>
             {augment.notice && <p className="mt-1 text-xs text-zinc-500">{augment.notice}</p>}
+            {hasOfferInfo(augment.id) && <div aria-label="등장 조건" className="mt-2 space-y-1 rounded-md bg-zinc-950/60 px-2.5 py-2 text-xs leading-5 text-zinc-300">
+              {granters.has(augment.id) && <p><SourceBadge rule={MAYHEM_RANDOM_EXCLUDED} />나오지 않는 증강: {excludedNames.join(", ")}</p>}
+              {mayhemOfferNotes(augment.id).map(rule => <p key={rule.text}><SourceBadge rule={rule} />{rule.text}</p>)}
+            </div>}
           </div>
         </li>)}</ul>}
       {catalog.removed.length > 0 && <section aria-label="삭제된 증강" className="mt-6 border-t border-zinc-800 pt-4">
@@ -89,6 +101,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
         <p className="mt-1 break-words text-sm leading-6 text-zinc-400">{catalog.removed.join(", ")}</p>
       </section>}</>}
       <p className="mt-6 text-xs leading-5 text-zinc-500">
+        등장 조건 중 &quot;확인 필요&quot;는 Riot 공식 원문으로 확인하지 못한 커뮤니티 정리 정보입니다.
         증강 이름·설명은 게임 클라이언트 자료(CommunityDragon)를 기준으로 합니다. Riot 정책에 따라 증강 승률은 제공하지 않으며,
         Riot API가 아수라장 경기를 공개하지 않아 전적에도 표시되지 않습니다.
       </p>
