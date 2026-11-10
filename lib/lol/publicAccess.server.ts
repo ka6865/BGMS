@@ -7,9 +7,11 @@ import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.serv
 import { isSameOriginLolRequest } from "./http.server";
 import { isLolLiveEnabled } from "./liveGame";
 
+export { lolRiotDataPublic } from "./previewAccess";
+
 const buckets = new Map<string, { count: number; expiresAt: number }>();
 const salt = randomBytes(32);
-const limits = { search: 10, read: 30 };
+const limits = { search: 10, read: 30, preview: 5 };
 
 export function requireLolPublicPage(): void {
   if (process.env.LOL_PUBLIC_ENABLED !== "true") notFound();

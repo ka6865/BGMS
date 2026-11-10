@@ -20,7 +20,7 @@ const navigation = `
 const stubs: Plugin = { name: "lol-public-fixture", setup(builder) {
   builder.onResolve({ filter: /^(next\/navigation|next\/script|server-only|@\/components\/lol\/LolStatusBanner|@\/lib\/lol\/publicAccess\.server|@\/lib\/lol\/ranking|@\/components\/common\/Footer)$/ }, args => ({ path: args.path, namespace: "fixture" }));
   builder.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ loader: "js", resolveDir: process.cwd(), contents:
-    args.path === "@/lib/lol/publicAccess.server" ? "export const requireLolPublicPage = () => {};"
+    args.path === "@/lib/lol/publicAccess.server" ? "export const requireLolPublicPage = () => {}; export const lolRiotDataPublic = () => true;"
       : args.path === "@/lib/lol/ranking" ? "export const lolMastersPublic = () => false;"
       : args.path === "next/navigation" ? navigation : args.path === "next/script"
       ? "import React from 'react'; export default props => React.createElement('script', props);"

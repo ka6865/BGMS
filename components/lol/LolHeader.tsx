@@ -8,7 +8,7 @@ import { usePathname } from "next/navigation";
 // Riot ID 경로(/lol/kr/이름-태그)가 메뉴 이름으로 시작해도 잘못 표시하지 않도록 경로 조각 단위로 비교한다.
 const under = (path: string, base: string) => path === base || path.startsWith(`${base}/`);
 // 랭크 컷 화면은 "랭킹"으로 통합되어 순위표와 일별 컷을 함께 보여 준다.
-const RESERVED_BASES = ["/lol/kr/champions", "/lol/kr/aram-mayhem", "/lol/kr/ladder", "/lol/kr/masters", "/lol/kr/status"];
+const RESERVED_BASES = ["/lol/kr/champions", "/lol/kr/aram-mayhem", "/lol/kr/preview", "/lol/kr/ladder", "/lol/kr/masters", "/lol/kr/status"];
 const NAV = [
   { href: "/lol/kr", label: "전적 검색", masters: false, match: (path: string) => path === "/lol" || path === "/lol/kr"
     || (path.startsWith("/lol/kr/") && !RESERVED_BASES.some(base => under(path, base))) },
@@ -20,7 +20,8 @@ const NAV = [
 ] as const;
 
 // 장인 메뉴는 서버가 LOL_MASTERS_PUBLIC을 읽어 넘긴 값으로만 보인다.
-export default function LolHeader({ mastersEnabled = false }: { mastersEnabled?: boolean }) {
+// riotLocked는 운영 키 승인 전 상태다. 증바람을 뺀 메뉴는 Riot API 데이터라 "개발 중"으로 표시한다.
+export default function LolHeader({ mastersEnabled = false, riotLocked = false }: { mastersEnabled?: boolean; riotLocked?: boolean }) {
   const pathname = usePathname() ?? "";
   return (
     <header
@@ -45,6 +46,9 @@ export default function LolHeader({ mastersEnabled = false }: { mastersEnabled?:
                 ? "bg-zinc-800 text-amber-300" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"}`}
             >
               {item.label}
+              {riotLocked && item.href !== "/lol/kr/aram-mayhem" && (
+                <span className="ml-1 rounded bg-zinc-800 px-1 py-px text-[10px] font-bold text-zinc-400">개발 중</span>
+              )}
             </Link>
           );
         })}

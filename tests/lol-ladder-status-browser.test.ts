@@ -8,11 +8,13 @@ import tailwind from "@tailwindcss/postcss";
 import puppeteer, { type Browser } from "puppeteer";
 
 const stubs: Plugin = { name: "ladder-status-fixture", setup(builder) {
-  builder.onResolve({ filter: /^(server-only|next\/link|next\/navigation|@\/lib\/lol\/(publicAccess|status|ladder|ranking)\.server)$/ }, args => ({ path: args.path, namespace: "fixture" }));
+  builder.onResolve({ filter: /^(server-only|next\/link|next\/navigation|next\/headers|@\/lib\/lol\/previewAccess|@\/lib\/lol\/(publicAccess|status|ladder|ranking)\.server)$/ }, args => ({ path: args.path, namespace: "fixture" }));
   builder.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ loader: "tsx", resolveDir: process.cwd(), contents:
     args.path === "next/link" ? "export default ({ children, ...props }) => <a {...props}>{children}</a>;"
       : args.path === "next/navigation" ? "export const usePathname = () => globalThis.__lolFixturePath ?? null;"
-      : args.path.includes("publicAccess") ? "export const requireLolPublicPage = () => {};"
+      : args.path.includes("publicAccess") ? "export const requireLolPublicPage = () => {}; export const lolRiotDataPublic = () => true;"
+      : args.path === "next/headers" ? "export const cookies = async () => ({ get: () => undefined });"
+      : args.path.includes("previewAccess") ? "export const LOL_PREVIEW_COOKIE = 'bgms_lol_preview'; export const hasLolRiotAccess = () => true;"
         : args.path.includes("status.server") ? `export const getLolPlatformStatus = async () => ({ available: true, stale: false, fetchedAt: new Date().toISOString(), items: [
           { id: 1, kind: 'maintenance', title: '한국 서버 정기 점검 안내와 게임 접속 지연 현상에 관한 상세 공지', message: '한국어 공지 내용입니다.' },
           { id: 2, kind: 'incident', title: '게임 접속 장애', message: '확인 중입니다.' }
