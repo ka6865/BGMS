@@ -28,7 +28,7 @@ async function readJson(request: Request): Promise<unknown | Response> {
 // 형식·비속어·현재 패치 목록을 차례로 확인하고, 통과하면 제보와 패치를 돌려준다.
 async function validTip(body: unknown): Promise<{ input: MayhemTipInput; patch: string } | Response> {
   const input = parseMayhemTipInput(body);
-  if (!input) return reply({ error: "증강 1~6개, 아이템 6개 이하, 한줄평 2~60자로 입력해 주세요." }, 400);
+  if (!input) return reply({ error: "증강(질문은 선택) 6개 이하, 아이템 6개 이하, 제목 2~60자로 입력해 주세요." }, 400);
   if (checkProfanity(`${input.summary} ${input.usage}`).blocked) return reply({ error: "부적절한 표현이 포함되어 있습니다." }, 400);
   const [catalog, champions] = await Promise.all([currentPatch(), getLolChampions()]);
   if (!catalog || !champions) return unavailable();
@@ -43,14 +43,14 @@ export async function GET(request: Request) {
   if (!tipsEnabled()) return notFound();
   const denied = await guardLolPublicRequest(request, "read");
   if (denied) return denied;
-  const params = new URL(request.url).searchParams, champion = params.get("champion"), sort = params.get("sort") ?? "recent", rawOffset = params.get("offset") ?? "0";
-  if ([...params.keys()].some(key => !["champion", "sort", "offset"].includes(key) || params.getAll(key).length !== 1) || !/^(0|[1-9][0-9]{0,3})$/.test(rawOffset)
-    || (sort !== "recent" && sort !== "top") || (champion !== null && champion !== "common" && !/^[1-9][0-9]{0,5}$/.test(champion))) return reply({ error: "조회 조건을 확인해 주세요." }, 400);
+  const params = new URL(request.url).searchParams, champion = params.get("champion"), kind = params.get("kind"), sort = params.get("sort") ?? "recent", rawOffset = params.get("offset") ?? "0";
+  if ([...params.keys()].some(key => !["champion", "kind", "sort", "offset"].includes(key) || params.getAll(key).length !== 1) || !/^(0|[1-9][0-9]{0,3})$/.test(rawOffset)
+    || (sort !== "recent" && sort !== "top") || (kind !== null && kind !== "tip" && kind !== "question") || (champion !== null && champion !== "common" && !/^[1-9][0-9]{0,5}$/.test(champion))) return reply({ error: "조회 조건을 확인해 주세요." }, 400);
   try {
     const [catalog, auth] = await Promise.all([currentPatch(), withAuthGuard().catch(() => null)]);
     if (!catalog) return unavailable();
     const viewer = auth && !auth.error ? auth.user.id : null;
-    const page = await listMayhemTips(catalog.clientPatch, champion === null ? null : champion === "common" ? "common" : Number(champion), sort, Number(rawOffset), viewer);
+    const page = await listMayhemTips(catalog.clientPatch, champion === null ? null : champion === "common" ? "common" : Number(champion), kind as "tip" | "question" | null, sort, Number(rawOffset), viewer);
     return reply({ patch: catalog.clientPatch, offset: Number(rawOffset), signedIn: viewer !== null, ...page });
   } catch { return unavailable(); }
 }
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     const valid = await validTip(body);
     if (valid instanceof Response) return valid;
     const tip = await createMayhemTip(auth.user.id, valid.patch, valid.input);
-    if (tip === "daily_limit") return reply({ error: "조합 제보는 하루 10개까지 할 수 있습니다." }, 429);
+    if (tip === "daily_limit") return reply({ error: "제보와 질문은 하루 10개까지 올릴 수 있습니다." }, 429);
     return reply({ tip }, 201);
   } catch { return unavailable(); }
 }
