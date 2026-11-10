@@ -5,6 +5,7 @@ import { CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from
 import { CRS } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { toCalibratedCoords } from "@/utils/coordinate";
+import { dailyPlaceLabel } from "@/lib/learn/dailyPlaces";
 
 export type RoutePoint = { timeSeconds: number; x: number; y: number; place: string | null; spreadMeters: number;
   players: { name: string; x: number; y: number }[] };
@@ -53,6 +54,6 @@ export default function DailyRouteMap({ route, mapName, nickname }: { route: Rou
         {timeLabel(sample.timeSeconds)}
       </button>)}
     </div>
-    <p className="mt-1 text-sm text-zinc-300">{timeLabel(point.timeSeconds)} · {point.place ?? "지역명 미기록"} · 팀 {point.players.length}명 위치 확인{point.players.length > 1 ? ` · 대상과 최대 약 ${Math.round(point.spreadMeters)}m` : ""}</p>
+    <p className="mt-1 text-sm text-zinc-300">{timeLabel(point.timeSeconds)} · {dailyPlaceLabel(point.place) ?? "지역명 미기록"} · 팀 {point.players.length}명 위치 확인{point.players.length > 1 ? ` · 대상과 최대 약 ${Math.round(point.spreadMeters)}m` : ""}</p>
   </div>;
 }

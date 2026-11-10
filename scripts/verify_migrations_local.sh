@@ -151,6 +151,9 @@ MIGRATIONS=(
   "20261104131538_official_game_catalog"
   "20261105010000_lol_mayhem_reference_snapshots"
   "20261104210948_weapon_meta_aliases"
+  "20260923222549_daily_ranker_stories"
+  "20260927145237_daily_ranker_stories_by_mode"
+  "20261110120000_daily_ranker_story_display_update"
 )
 
 cleanup() {
@@ -261,6 +264,7 @@ done
 
 echo "▶ RPC 동작 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/weapon-meta-alias-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/daily-ranker-stories-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/telemetry-retry-sqlstate-checks.sql
 # 이미 적용된 DB 에 다시 실행해도 아무것도 바꾸지 않아야 한다.
 "${PSQL[@]}" -f supabase/migrations/20261013185213_telemetry_lease_errors_without_postgrest_retry.sql

@@ -94,20 +94,6 @@ export function lessonMatchesReplay(lesson: RankerLesson, request: {
     (request.mapName === undefined || request.mapName === lesson.mapId || request.mapName === lesson.mapName);
 }
 
-export function rankerReplayHref(lesson: RankerLesson, scene = lesson.scenes[0]) {
-  const query = new URLSearchParams({
-    playback: lesson.matchId,
-    nickname: lesson.nickname,
-    platform: lesson.replayIdentity.platform,
-    mode: lesson.replayIdentity.mode,
-    lesson: lesson.id,
-    scene: scene.id,
-    t: String(scene.startSeconds),
-    sidebar: "false",
-  });
-  return `/maps/${lesson.mapId.toLowerCase()}?${query}`;
-}
-
 export function formatLessonTime(seconds: number) {
   return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}`;
 }

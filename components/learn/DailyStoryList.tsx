@@ -14,6 +14,13 @@ export function getKstYesterday(now = new Date()) {
   return previous.toISOString().slice(0, 10);
 }
 
+/** 전날 해설이 아직 없으면(발행은 오후에 끝나기도 한다) 가장 최근 발행일을 대표로 보여 준다. */
+export function pickFeaturedDay(yesterday: string, yesterdayStories: DailyStorySummary[], archive: DailyStorySummary[]) {
+  if (yesterdayStories.length || !archive.length) return { day: yesterday, stories: yesterdayStories };
+  const day = archive[0].dayKst;
+  return { day, stories: archive.filter((story) => story.dayKst === day) };
+}
+
 function formatDate(day: string) {
   const [year, month, date] = day.split("-");
   return `${year}.${month}.${date}`;
@@ -31,10 +38,10 @@ function RankDetails({ story }: { story: DailyStorySummary }) {
     {story.leaderboardObservedAt ? ` · ${formatObservedAt(story.leaderboardObservedAt)} 조회` : " · 조회 날짜 기록 없음"}</span>;
 }
 
-export function DailyModeCards({ day, stories }: { day: string; stories: DailyStorySummary[] }) {
+export function DailyModeCards({ day, stories, isYesterday = true }: { day: string; stories: DailyStorySummary[]; isYesterday?: boolean }) {
   return <section aria-labelledby="yesterday-heading" className="mt-7">
     <div className="flex flex-wrap items-end justify-between gap-2 border-b border-zinc-800 pb-3">
-      <div><p className="text-xs font-semibold text-emerald-300">전날 경기일 · 한국 시간</p><h2 id="yesterday-heading" className="mt-1 text-xl font-bold">{formatDate(day)} 모드별 우승 경기</h2></div>
+      <div><p className="text-xs font-semibold text-emerald-300">{isYesterday ? "전날 경기일" : "최근 공개 경기일"} · 한국 시간</p><h2 id="yesterday-heading" className="mt-1 text-xl font-bold">{formatDate(day)} 모드별 우승 경기</h2></div>
     </div>
     <div className="mt-4 grid gap-3 md:grid-cols-2">
       {MODES.map((mode) => {

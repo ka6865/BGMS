@@ -3,6 +3,7 @@ import type { DailyScene } from "./dailyScenes";
 import type { DailyEvidence, DailyEvidenceFact } from "./dailyEvidence";
 import { dailyWeaponName, type DailyEncounterAction } from "./dailyCombatStory";
 import { WEAPON_NAMES } from "../pubg-analysis/constants";
+import { dailyNearbyPlace, dailyPlaceLabel } from "./dailyPlaces";
 
 export type DailyWalkthroughChapter = DailyScene & {
   brief?: { situation: string; action: string; outcome: string };
@@ -33,6 +34,19 @@ type BlueSample = { timeSeconds: number; center: { x: number; y: number }; radiu
 
 const time = (seconds: number) => String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(Math.floor(seconds % 60)).padStart(2, "0");
 const distanceLabel = (meters: number) => meters >= 1000 ? (meters / 1000).toFixed(1) + "km" : Math.round(meters) + "m";
+const spanLabel = (seconds: number) => {
+  const total = Math.round(seconds);
+  return total >= 60 ? Math.floor(total / 60) + "분" + (total % 60 ? " " + (total % 60) + "초" : "") : total + "초";
+};
+/** 원 공개부터 원 안 위치 확인까지 걸린 시간과 축소 시작 대비 여유를 이동 장면의 핵심으로 요약한다. */
+const entryLesson = (zone: Zone, insideSeconds: number, vehicleName?: string) => [
+  (zone.outsideMeters ?? 0) > 0 ? "공개 때 경계 밖 약 " + distanceLabel(zone.outsideMeters!) : "",
+  vehicleName ? vehicleName + " 이동" : "",
+  "공개 " + spanLabel(insideSeconds - zone.observedSeconds) + " 뒤 원 안 확인"
+    + (zone.shrinkObservedSeconds == null || !Number.isFinite(zone.shrinkObservedSeconds) ? ""
+      : insideSeconds <= zone.shrinkObservedSeconds ? " · 축소 시작 " + spanLabel(zone.shrinkObservedSeconds - insideSeconds) + " 전"
+        : " · 축소 시작 " + spanLabel(insideSeconds - zone.shrinkObservedSeconds) + " 뒤"),
+].filter(Boolean).join(" → ") + ".";
 const unique = <T,>(values: T[]) => [...new Set(values)];
 const validPoint = (point: { x: number; y: number }) => Number.isFinite(point.x) && Number.isFinite(point.y);
 const knownWeapons = new Set(Object.values(WEAPON_NAMES));
@@ -331,7 +345,8 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
   const factAt = (kind: string, seconds: number) => facts.find((fact) => fact.kind === kind && Math.abs(fact.timeSeconds - seconds) < 0.01);
   const factIdsIn = (start: number, end: number, last: boolean) => facts
     .filter(({ timeSeconds }) => timeSeconds >= start && (last ? timeSeconds <= end : timeSeconds < end)).map(({ id }) => id);
-  const landingPlace = landing?.place?.trim() || null;
+  // 텔레메트리 지역 정보는 마을 경계 안에서만 붙어, 비어 있으면 착지 좌표로 가까운 지명을 찾는다.
+  const landingPlace = dailyPlaceLabel(landing?.place) ?? dailyNearbyPlace(story.mapName, landing?.position);
   const movementFor = (zone: Zone | undefined, end: number, withLanding = false): DailyWalkthroughChapter["movement"] => {
     if (!zone && !(withLanding && landing)) return undefined;
     return {
@@ -421,7 +436,7 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
     }
     const placeSample = chapterRoute.find(({ place }) => Boolean(place));
     const movement = placeSample ? time(placeSample.timeSeconds) + "에는 "
-      + (placeSample.place!.toLowerCase() === "losleones" ? "Los Leones" : placeSample.place)
+      + dailyPlaceLabel(placeSample.place)
       + " 인근에 있었습니다." : "";
     const representativeVehicle = vehicleFacts.find((vehicle) => contextZone && vehicle.timeSeconds >= contextZone.observedSeconds
       && (contextZone.firstInsideSeconds == null || vehicle.timeSeconds <= contextZone.firstInsideSeconds)) ?? vehicleFacts[0];
@@ -665,7 +680,7 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
   const carepackage = finds.find(({ source, player, timeSeconds }) => source === "carepackage" && player === story.nickname && inMatch(timeSeconds));
   const summary: string[] = [];
   if (firstZone) {
-    const opening = firstZone.phase + "번째 원 공개 때 안전 구역에서 약 " + distanceLabel(firstZone.outsideMeters!) + " 떨어져";
+    const opening = (landingPlace ? landingPlace + "에 착지해 " : "") + firstZone.phase + "번째 원 공개 때 안전 구역에서 약 " + distanceLabel(firstZone.outsideMeters!) + " 떨어져";
     if (story.mode !== "solo" && firstZone.firstInsideSeconds !== null) {
       const earlyKills = teamKills.filter(({ timeSeconds }) => timeSeconds >= firstZone.observedSeconds
         && timeSeconds < firstZone.firstInsideSeconds!).length;
@@ -677,7 +692,10 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
         ? opening + " 있었고, 원 안 위치 관측 전 초반 교전에서 팀 " + earlyKills + "킬을 기록했습니다."
         : opening + (firstZone.firstInsideSeconds !== null ? " 있었고 이후 원 안 위치가 관측됐습니다." : " 있었습니다."));
     } else summary.push(opening + (firstZone.firstInsideSeconds !== null ? " 있었고 이후 원 안 위치가 관측됐습니다." : " 있었습니다."));
-  } else if (firstKill) summary.push("첫 킬은 " + displayWeapon(firstKill.weapon) + "으로 기록됐습니다.");
+  } else {
+    if (landingPlace) summary.push(landingPlace + "에 착지했습니다.");
+    if (firstKill) summary.push("첫 킬은 " + displayWeapon(firstKill.weapon) + "으로 기록됐습니다.");
+  }
   if (ownLifeCycles.length) {
     const lifeText = ownLifeCycles.map(({ death, returned, finalDeath }) => time(death.timeSeconds)
       + "에 사망한 뒤 " + time(returned.timeSeconds) + "에 재등장"
@@ -701,8 +719,8 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
       : selfRecoveryCount > 1 ? "본인은 두 번 기절했지만 팀원이 모두 살렸고"
         : selfRecoveryCount ? "본인은 기절 후 소생됐고"
           : "팀원이 기절 후 소생됐고";
-    summary.push(recoverySentence + (hasPostReviveKill ? ", 이후에도 킬을 올렸습니다."
-      : terminalDown && terminalOutcomeFact ? "," : "."));
+    summary.push(hasPostReviveKill ? recoverySentence + ", 이후에도 킬을 올렸습니다."
+      : terminalDown && terminalOutcomeFact ? recoverySentence + "," : recoverySentence.replace(/고$/, "습니다."));
   }
   const finalKill = lastTeamKill ?? lastPersonalKill;
   if (terminalOutcomeFact && finish) {
@@ -874,7 +892,9 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
       id: "highlight-opening", kind: "opening", title: "착지와 " + openingZone.phase + "번째 원",
       startSeconds: landing.timeSeconds, anchorSeconds: openingZone.observedSeconds, endSeconds: end,
       brief, movement,
-      ...((openingZone.outsideMeters ?? 0) > 0 ? { lesson: time(openingZone.observedSeconds) + " "
+      // 첫 원 진입 장면이 따로 있으면 같은 문장을 반복하지 않도록 그쪽에만 진입 요약을 둔다.
+      ...(inside !== null && !firstZoneMovement ? { lesson: entryLesson(openingZone, inside, boarding?.vehicleName) }
+        : (openingZone.outsideMeters ?? 0) > 0 ? { lesson: time(openingZone.observedSeconds) + " "
         + openingZone.phase + "번째 원 공개 때 경계 밖 약 " + distanceLabel(openingZone.outsideMeters!) } : {}),
     }, [landing, zoneFact, ...(boarding ? [boarding] : [])], movementSamples, openingZone);
     openingHighlight.action = brief.action + (openingZone.outsideMeters === 0 ? " · 공개 때 원 안" : "");
@@ -1037,8 +1057,7 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
       id: "highlight-opening-movement", kind: "movement", title: zone.phase + "번째 원 진입",
       startSeconds: movementStartSeconds, anchorSeconds: movementStartSeconds, endSeconds: insideSeconds, brief,
       movement: movementFor(zone, insideSeconds),
-      lesson: boarding ? time(boarding.timeSeconds) + " " + boarding.vehicleName + " 탑승 → "
-        + time(insideSeconds) + " 원 안 위치 기록" : time(insideSeconds) + " 원 안 위치 기록",
+      lesson: entryLesson(zone, insideSeconds, boarding?.vehicleName),
     }, [zoneFact, ...(fightFact ? [fightFact] : []), ...(boarding ? [boarding] : []), ...(entryFact ? [entryFact] : [])], overviewSamples, zone));
   }
   for (const find of finds.filter((find) => find.source === "carepackage" && find.playerId === rankerId && rankerId && inMatch(find.timeSeconds))) {
@@ -1102,7 +1121,7 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
     secondary.push(makeHighlight({
       id: "highlight-" + zoneFact.id, kind: "movement", title: zone.phase + "번째 원 이동",
       startSeconds: start, anchorSeconds: zone.observedSeconds, endSeconds: end, brief, movement: movementFor(zone, end),
-      ...(positionSamples.length || boarding ? { lesson: brief.action } : {}),
+      ...(firstInside ? { lesson: entryLesson(zone, firstInside.timeSeconds, (boarding || undefined)?.vehicleName) } : {}),
     }, [zoneFact, ...(boarding ? [boarding] : [])], [...samples, ...overviewSamples], zone));
   }
   // One encounter card per recorded fight. Allocate each team kill to one card even when
@@ -1256,20 +1275,10 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
       const deadBeforeSnapshot = opponentRoster.filter(({ id, name }) => priorDeadIds.has(id)
         && (Array.isArray(explicitDeadIds) ? explicitDeadIds.includes(id)
           : !observedOpponentIds.has(id) && !observedOpponentNames.has(name)));
-      const unknownPositions = opponentRoster.filter(({ id, name }) =>
-        !observedOpponentIds.has(id) && !observedOpponentNames.has(name)
-        && !deadBeforeSnapshot.some((player) => player.id === id));
       const opponentAliases = (players: typeof opponentRoster) => players.map(({ id, name }) => participantLabel(name, id, "opponent"));
       const shortNames = (names: string[]) => names.length > 4 ? names.slice(0, 4).join("·") + " 외 " + (names.length - 4) + "명" : names.join("·");
-      const rosterSituation = opponentRoster.length
-        ? [`교전 시작 전후 15초 내 위치: ${observedOpponents.length}/${opponentRoster.length}명`,
-          unknownPositions.length ? `${shortNames(opponentAliases(unknownPositions))} 위치 미확인` : "",
-          deadBeforeSnapshot.length ? `교전 전 사망: ${shortNames(opponentAliases(deadBeforeSnapshot))}` : "",
-          observedOpponents.some(({ ageSeconds }) => ageSeconds > 0)
-            ? `표본 시각 최대 ${Math.round(Math.max(...observedOpponents.map(({ ageSeconds }) => ageSeconds)))}초 차이` : "",
-        ].filter(Boolean).join(" · ")
-        : [`상대 팀 전체 인원 확인 불가`, ...(knownOpponents.length
-          ? [`확인된 상대 ${knownOpponents.length}명 중 위치 기록 ${observedOpponents.length}명`] : [])].join(" · ");
+      // 위치 표본 수·시각 차이 같은 검증용 정보는 전체 기록에 남기고, 장면 설명에는 교전 전 사망만 보여준다.
+      const rosterSituation = deadBeforeSnapshot.length ? `교전 전 사망: ${shortNames(opponentAliases(deadBeforeSnapshot))}` : "";
       const situation = firstHit
         ? time(firstHit.timeSeconds) + " " + playerLabel(firstHit.actor, firstHit.actorId,
           friendly(firstHit) ? "ally" : "opponent", firstHit.actorInVehicle) + "의 "
@@ -1341,9 +1350,27 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
         return label !== name ? [label + "=" + name] : [];
       }));
       if (participantLookup.length) context.push("참가자 이름: " + participantLookup.join(", "));
+      // 첫 피해 시점의 랭커(없으면 아군) 위치로 교전 지명을 붙인다. 스냅숏 좌표는 cm 단위다.
+      const anchorAlly = encounter.snapshots?.find(({ offsetSeconds }) => offsetSeconds === 0)?.points
+        .filter(({ side }) => side === "ally").sort((a, b) => Number(b.playerId === rankerId) - Number(a.playerId === rankerId))[0];
+      const encounterPlace = anchorAlly ? dailyNearbyPlace(story.mapName, { x: anchorAlly.x / 100, y: anchorAlly.y / 100 }) : null;
+      // 누가 먼저 맞혔는지, 아군 손실, 정리까지 걸린 시간을 한 줄로 묶어 이 교전의 판단 포인트로 보여준다.
+      const allyKnocks = new Set(allyDowns.map((event) => event.victimId ?? event.victim)).size;
+      const killTimes = allocated.map(({ index }) => teamKills[index].timeSeconds);
+      const remainingOpponents = opponentRoster.length - priorOpponentDeaths;
+      const fightSeconds = killTimes.length ? Math.max(...killTimes) - (firstHit?.timeSeconds ?? encounter.startSeconds) : 0;
+      const fightTime = Math.round(fightSeconds);
+      const lesson = killTimes.length ? [
+        firstHit ? (friendly(firstHit) ? "아군 선공" : "상대 선공") + "(" + displayWeapon(firstHit.weapon)
+          + (firstHit.distanceMeters != null ? ", 약 " + distanceLabel(firstHit.distanceMeters) : "") + ")으로 시작해" : "",
+        fightTime >= 1 ? spanLabel(fightTime) + " 만에" : "곧바로",
+        remainingOpponents > 1 && encounterOpponentDeaths === remainingOpponents
+          ? "남은 상대 " + remainingOpponents + "명을 모두 처치했습니다." : killTimes.length + "명을 처치했습니다.",
+        allyKnocks ? "이 과정에서 아군 " + allyKnocks + "명이 기절했습니다." : "아군 기절은 없었습니다.",
+      ].filter(Boolean).join(" ") : undefined;
       const scene: DailyWalkthroughChapter = {
-        id: "combat-" + encounter.id, kind: "combat" as const,
-        title: time(encounter.startSeconds) + " 교전" + (allocated.length
+        id: "combat-" + encounter.id, kind: "combat" as const, ...(lesson ? { lesson } : {}),
+        title: time(encounter.startSeconds) + (encounterPlace ? " " + encounterPlace : "") + " 교전" + (allocated.length
           ? " · " + (story.mode === "solo" ? "" : "팀 ") + allocated.length + "킬" : ""),
         startSeconds: sceneStart, anchorSeconds: encounter.startSeconds, endSeconds: sceneEnd,
         evidenceIds, sourceIndices: unique([...(encounterFact?.sourceIndices ?? []), ...(encounter.sourceIndices ?? []),
@@ -1510,6 +1537,10 @@ export function buildDailyWalkthrough(story: DailyRankerStory): {
   }
   const highlights = [...primary, ...selectedSecondary, ...chosenFights]
     .sort((a, b) => a.startSeconds - b.startSeconds || a.anchorSeconds - b.anchorSeconds);
+  for (const scene of highlights) if (scene.kind === "combat" && !scene.lesson) {
+    const lesson = combatScenes.find(({ id }) => id === scene.id.replace(/^highlight-/, "combat-"))?.lesson;
+    if (lesson) scene.lesson = lesson;
+  }
   const durationLabel = (seconds: number) => {
     const totalSeconds = Math.round(seconds);
     return totalSeconds >= 60

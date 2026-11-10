@@ -418,15 +418,15 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
       <div className="w-full max-w-[1280px] px-4 mx-auto xl:grid xl:grid-cols-[160px_minmax(0,960px)_160px] xl:justify-center xl:gap-5">
         <div className="w-full min-w-0 space-y-3 sm:space-y-6 xl:col-start-2">
 
-        {/* BETA 서비스 공지 배너 (접이식 details/summary 적용) */}
+        {/* 시뮬레이터 이용 안내 배너 (접이식 details/summary 적용) */}
         <details className="bg-slate-900/60 border-2 border-amber-500/20 rounded-3xl p-2 sm:p-5 text-slate-300 text-xs sm:text-sm backdrop-blur-[12px] shadow-2xl relative overflow-hidden group transition-all duration-300">
           <summary className="list-none cursor-pointer flex items-center gap-4 focus:outline-none select-none">
             <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 to-transparent pointer-events-none" />
             <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5 animate-pulse" />
             <div className="flex-1 min-w-0 flex flex-wrap justify-between items-center gap-x-3 gap-y-1.5 z-10">
               <h4 className="min-w-0 font-black text-amber-500 tracking-wide flex items-center gap-1.5 text-sm uppercase">
-                <span className="sm:hidden">BETA 안내</span>
-                <span className="hidden sm:inline">시뮬레이터 BETA 서비스 안내</span>
+                <span className="sm:hidden">이용 안내</span>
+                <span className="hidden sm:inline">시뮬레이터 이용 안내</span>
               </h4>
               <span className="shrink-0 text-[10px] bg-slate-800 text-slate-400 border border-slate-700/60 px-2 py-0.5 rounded font-black group-open:text-amber-400 group-open:border-amber-500/30 transition-all select-none">
                 클릭하여 안내 읽기
@@ -435,7 +435,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           </summary>
           <div className="mt-4 pl-10 space-y-1.5 z-10 relative">
             <p className="text-slate-300/90 font-bold leading-relaxed">
-              본 시뮬레이터는 아직 <span className="text-amber-400">BETA 서비스</span> 단계이므로 실제 인게임 확률 및 계산 결과와 100% 일치하지 않을 수 있습니다. 
+              본 시뮬레이터는 공식 확률표를 바탕으로 계산하지만 실제 인게임 확률 및 계산 결과와 100% 일치하지 않을 수 있습니다. 
               일부 최신 또는 희귀 구성품의 이미지는 아직 준비 중이거나 대체 처리되어 노출될 수 있으니 양해 부탁드립니다. 
               더욱 정확하고 풍성한 경험을 위해 지속적으로 기능 보정 및 리소스 추가가 진행되고 있습니다.
             </p>
