@@ -11,8 +11,8 @@ on:
       - LoL 챔피언 통계 수집
     types: [completed]
 permissions:
-  actions: read
   contents: read
+  actions: read
 jobs:
   notify:
     if: >-
