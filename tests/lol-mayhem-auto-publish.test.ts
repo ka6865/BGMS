@@ -47,6 +47,16 @@ describe("자동 공개 실행", () => {
     expect(await autoPublishMayhem("combos", { dryRun: true })).toMatchObject({ published: 0, ready: [{ group: "combos", patch: "16.21" }] });
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
+
+  it("새 패치가 공개된 뒤 남은 지난 패치 조합 후보는 적용 대상에서 뺀다", async () => {
+    const { comboUpdateGroup } = await import("@/lib/lol/mayhemAdminUpdates");
+    const stale = { ...release(12, "approved", 424, "2026-11-08T00:00:00Z"), verified_client_patch: "16.21" };
+    const current = { ...release(19, "approved", 430, "2026-11-09T00:00:00Z"), verified_client_patch: "16.22" };
+    const data = { releases: [stale, current], publications: [{ client_patch: "16.21", release_id: 6 }, { client_patch: "16.22", release_id: 19 }], sync: [], mappings: [], augments: [] };
+    expect(comboUpdateGroup(data as never).targets).toEqual([]);
+    const next = { ...release(20, "pending", 431, "2026-11-10T00:00:00Z"), verified_client_patch: "16.22" };
+    expect(comboUpdateGroup({ ...data, releases: [...data.releases, next] } as never).targets.map(row => row.id)).toEqual([20]);
+  });
   it("현재 공식 패치가 아닌 조합 후보는 공개를 시도하지 않고 보류한다", async () => {
     mocks.officialPatch = "16.22";
     mocks.combos.mockResolvedValue({ releases: [release(12, "approved", 424, "2026-11-09T00:00:00Z")], publications: [{ client_patch: "16.21", release_id: 9 }], sync: [] });
