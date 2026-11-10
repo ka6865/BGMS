@@ -8,6 +8,7 @@ import { buildIngestion, createSourceBytesDownloader, createSourceDownloader, MA
 import { lolAugmentIcons } from "../lib/lol/augments/catalog";
 import { LOL_AUGMENT_ICON_BUCKET, syncLolAugmentIcons } from "../lib/lol/augments/icons";
 import { toDisplayPatch } from "../lib/lol/augments/patchMap";
+import { extractMayhemOfferHints } from "../lib/lol/mayhemOfferHints";
 import { extractAugmentPool, type Augment } from "../lib/lol/augments/extract";
 import { diffAugments } from "../lib/lol/augments/diff";
 import type { AugmentSnapshot } from "../lib/lol/augments/persistence.server";
@@ -100,10 +101,12 @@ export async function runIngestion(options: Options) {
       paths[kind] = `${patch}/${kind}-${sha256(raw[kind])}.json`;
     }
     let notes: PatchNotes = { url: notesUrl(patch), published_at: null, added_names: [], removed_names: [], parse_status: "failed" };
+    let offerHints: string[] = [];
     try {
       const html = options.sourceDir ? await readFile(resolve(options.sourceDir, "patch-notes.html"), "utf8")
         : await download(notes.url, false, 4 * 1024 * 1024);
       notes = parsePatchNotes(html, notes.url);
+      offerHints = extractMayhemOfferHints(html);
     } catch { /* 공식 노트 장애는 관리자 검토로 넘긴다. */ }
     let previous: Augment[] | undefined;
     let previousDescriptions: Manifest["descriptions"];
@@ -159,6 +162,13 @@ export async function runIngestion(options: Options) {
         verified_at: version && notes.published_at ? new Date().toISOString() : null }, snapshot_path: snapshotPath, augments: result.rows };
       await rpc("upsert_lol_augment_snapshot", { p_run_id: runId, p_client_patch: patch, p_payload: payload });
       await rpc("record_lol_augment_patch_notes", { p_run_id: runId, p_client_patch: patch, p_locale: "ko_kr", p_notes: notes });
+      // 증강 등장 조건 후보는 부가 정보라 저장에 실패해도 수집은 계속한다. 관리자가 /admin/lol/offer-rules에서 확인한다.
+      if (offerHints.length) {
+        const { error } = await db.from("lol_mayhem_offer_rules").upsert(offerHints.map(quote => ({
+          kind: "condition", status: "candidate", source_quote: quote, source_url: notes.url, patch: toDisplayPatch(patch),
+        })), { onConflict: "source_quote", ignoreDuplicates: true }).abortSignal(AbortSignal.timeout(10_000));
+        console.log(JSON.stringify({ event: "mayhem_offer_hints", patch, hints: offerHints.length, saved: !error }));
+      }
       await rpc("record_lol_augment_patch_changes", { p_run_id: runId, p_client_patch: patch, p_changes: result.changes });
       await rpc("finish_lol_augment_ingestion_run", { p_run_id: runId,
         p_status: !result.validation.ok ? "blocked" : result.changes.some(c => c.review_status === "pending") || result.validation.warnings.length ? "review" : "succeeded",

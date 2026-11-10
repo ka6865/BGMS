@@ -224,7 +224,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
       const champs = [{ id: 63, imageId: "Brand", name: "브랜드", title: "", tags: [] }, { id: 64, imageId: "Lux", name: "럭스", title: "", tags: [] }];
       const isStats = req.url?.startsWith("/stats") || req.url?.startsWith("/items") || req.url?.startsWith("/history") || req.url?.startsWith("/rankings");
       const tipItems = [{ id: 3020, name: "마법사의 신발", image: "3020.png", boots: true }, { id: 6655, name: "루덴의 동반자", image: "6655.png", boots: false }, { id: 3089, name: "라바돈의 죽음모자", image: "3089.png", boots: false }];
-      const props = req.url === "/tips" ? { catalog, champions: champs, championVersion: "16.21.1", tipItems } : req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championStatsEnabled:false} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/fallback"
+      const offerRules = [{ id: 1, augmentId: 2, kind: "random_excluded" as const, text: "", patch: "26.18", verified: false }, { id: 2, augmentId: 2, kind: "condition" as const, text: "루난의 허리케인을 가지고 있으면 제시되지 않습니다.", patch: "26.17", verified: true }];
+      const props = req.url === "/tips" ? { catalog, champions: champs, championVersion: "16.21.1", tipItems, offerRules } : req.url?.startsWith("/archive") ? {catalog,dataset:{...dataset,archiveAvailable:true},champions:champs,championStatsEnabled:false} : req.url === "/rankings-no-catalog" ? {catalog:null,error:true,patchRankingsEnabled:true} : req.url === "/error" ? { catalog: null, error: true } : req.url === "/empty" ? { catalog: null } : req.url === "/fallback"
         ? { catalog, dataset: { ...dataset, patch: "16.20", archiveAvailable: true }, champions: champs, championStatsEnabled: true, championVersion: "16.21.1", itemsEnabled: true, championTiers: { patch: "16.20", dataVersion: "16.20.3", date: "2026-10-16", tiers: { "63": 3, "64": 1 } } }
         : req.url === "/dataset"
         ? { catalog, dataset, champions: champs, championStatsEnabled: true, championVersion: "16.21.1" } : isStats ? { catalog, champions: champs, championStatsEnabled: req.url !== "/items-only", championVersion: "16.21.1", itemsEnabled: true, championTiers: req.url?.startsWith("/rankings") ? {patch:"16.21",dataVersion:"16.21.5",date:"2026-10-30",tiers:{"63":3,"64":1}} : null, patchRankingsEnabled: req.url?.startsWith("/rankings") } : { catalog };
@@ -322,6 +323,26 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     await page.waitForFunction(() => !document.querySelector('form[aria-label="질문"]'));
     expect(JSON.parse(sent.at(-1)!)).toMatchObject({ kind: "question", augmentIds: [], summary: "도미닉 오만 뭐가 좋아요?" });
     await page.screenshot({ path: `tmp/lol-mayhem-review/tips-question-${width}x${height}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]); await page.close();
+  });
+
+  it("증강 도감에 등장 조건을 확인 필요·공식으로 나눠 보이고, 제보 버튼은 질문 초안을 연다", async () => {
+    const page = await browser.newPage(); await page.setViewport({ width: 390, height: 844 });
+    const errors: string[] = []; page.on("pageerror", error => errors.push(String(error)));
+    await page.setRequestInterception(true); page.on("request", request => { if (request.url().startsWith(base)) void request.continue(); else void request.abort(); });
+    const click = (selector: string, text: string) => page.$$eval(selector, (nodes, label) => (nodes as HTMLElement[]).find(node => node.textContent?.trim() === label)!.click(), text);
+    await page.goto(`${base}/tips`, { waitUntil: "networkidle0" });
+    await click('[aria-label="증바람 보기"] button', "전체 증강 도감");
+    await click('[aria-label="등급"] button', "등장 조건 있음");
+    await page.waitForFunction(() => document.querySelectorAll('[aria-label="증강 목록"] > li').length === 1);
+    const text = await page.$eval('[aria-label="등장 조건"]', node => node.textContent);
+    expect(text).toContain("확인 필요 · 26.18");
+    expect(text).toContain("공식 · 26.17");
+    await click('[aria-label="등장 조건"] button', "정보가 다르면 알려 주세요");
+    await page.waitForSelector('form[aria-label="질문"]');
+    expect(await page.$eval('form[aria-label="질문"] input:not([type])', node => (node as HTMLInputElement).value)).toBe("증강 2 등장 조건 제보");
+    expect(await page.$$eval('[aria-label="고른 증강"] li', nodes => nodes.length)).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]); await page.close();
   });

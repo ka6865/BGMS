@@ -21,6 +21,7 @@ export default async function LolDevLayout({
       <Link href="/admin/lol" className="flex min-h-11 items-center hover:text-white">전적 개발</Link>
       <Link href="/admin/lol/augments" className="flex min-h-11 items-center hover:text-white">증강 수집·검토</Link>
       <Link href="/admin/lol/mayhem-datasets" className="flex min-h-11 items-center hover:text-white">증바람 데이터 관리</Link>
+      <Link href="/admin/lol/offer-rules" className="flex min-h-11 items-center hover:text-white">증강 등장 조건</Link>
     </nav>
     <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
   </div>;
