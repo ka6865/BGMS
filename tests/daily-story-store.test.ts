@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => {
   const state = {
     rows: [] as Record<string, unknown>[],
+    privatePlayers: [] as Record<string, unknown>[],
     error: null as { code: string } | null,
     calls: [] as { table: string; filters: [string, unknown][]; selection: string; limit?: number }[],
     createClient: vi.fn(),
@@ -20,11 +21,14 @@ const db = vi.hoisted(() => {
           call.limit = limit;
           const rows = state.rows.filter((row) => call.filters.every(([key, value]) => row[key] === value));
           const data = call.selection.includes("headline:story")
-            ? rows.map((row) => ({ ...row, ...Object.fromEntries(Object.entries(row.story as object).filter(([key]) => ["headline", "conclusion", "sceneCount", "leaderboardObservedAt", "leaderboardSeason", "leaderboardSource"].includes(key))) }))
+            ? rows.map((row) => ({ ...row, ...Object.fromEntries(Object.entries(row.story as object).filter(([key]) => ["headline", "conclusion", "sceneCount", "leaderboardObservedAt", "leaderboardSeason", "leaderboardSource", "roster"].includes(key))) }))
             : rows;
           return { data, error: state.error };
         },
         async maybeSingle() {
+          if (table === "system_settings") {
+            return { data: state.privatePlayers.length ? { value: JSON.stringify(state.privatePlayers) } : null, error: null };
+          }
           const row = state.rows.find((item) => call.filters.every(([key, value]) => item[key] === value)) ?? null;
           return { data: row, error: state.error };
         },
@@ -60,6 +64,7 @@ beforeEach(() => {
   db.rows.splice(0, db.rows.length, storyRow);
   db.calls.splice(0);
   db.error = null;
+  db.privatePlayers.splice(0);
   db.createClient.mockClear();
 });
 
@@ -82,7 +87,18 @@ describe("daily story store", () => {
     };
     const result = await getDailyRankerStory("2024-02-29", "duo");
     expect(result).toMatchObject({ dayKst: "2024-02-29", matchId: "match-1", nickname: "Winner", mode: "duo" });
-    expect(db.calls.at(-1)?.filters).toEqual([["day_kst", "2024-02-29"], ["mode", "duo"]]);
+    expect(db.calls.filter((call) => call.table === "daily_ranker_stories").at(-1)?.filters).toEqual([["day_kst", "2024-02-29"], ["mode", "duo"]]);
+  });
+
+  it("hides stories whose ranker or teammate requested a private profile", async () => {
+    db.rows[0] = { ...storyRow, account_id: "account.winner", story: { ...storyRow.story, roster: [{ name: "Winner" }, { name: "Mate" }] } };
+    db.privatePlayers.push({ platform: "steam", nickname: "mate", lower_nickname: "mate" });
+    expect(await getDailyRankerStory("2024-02-29", "duo")).toBeNull();
+    expect(await listDailyRankerStoriesForDay("2024-02-29")).toEqual([]);
+    db.privatePlayers.splice(0, 1, { platform: "steam", nickname: "Renamed", lower_nickname: "renamed", account_id: "account.winner" });
+    expect(await listDailyRankerStories()).toEqual([]);
+    db.privatePlayers.splice(0, 1, { platform: "steam", nickname: "Other", lower_nickname: "other" });
+    expect(await getDailyRankerStory("2024-02-29", "duo")).toMatchObject({ nickname: "Winner" });
   });
 
   it("lists a date's stories with the stored JSON scene count and optional leaderboard metadata", async () => {

@@ -1,5 +1,6 @@
 import { MAP_NAMES, getTranslatedWeaponName } from "../pubg-analysis/constants";
 import { hasMatchingTelemetryDefinition } from "../pubg-analysis/telemetrySource";
+import { dailyPlaceLabel } from "./dailyPlaces";
 import { buildDailyCombatStory, buildDailyLifeStateAt, dailyWeaponName, type DailyEncounter, type DailyWeaponFind } from "./dailyCombatStory";
 
 export type DailyEvidenceFact = {
@@ -78,8 +79,10 @@ const timeLabel = (seconds: number) => {
   const whole = Math.round(seconds);
   return `${Math.floor(whole / 60).toString().padStart(2, "0")}:${(whole % 60).toString().padStart(2, "0")}`;
 };
-const placeName = (value: string) => ({ lacobreria: "라 코브레리아", cruzdelvalle: "크루즈 델 바예", school: "학교",
-  stadium: "경기장", palace: "궁전", boatyard: "조선소", georgopol: "게오르고폴" })[value.toLowerCase()] ?? value;
+const zonePlace = (event: AnyRecord | undefined) => {
+  const zone = event?.character?.zone;
+  return Array.isArray(zone) && zone.length ? dailyPlaceLabel(zone.join(",")) : null;
+};
 const creditedWeapon = (event: AnyRecord, accountId: string) => {
   const rawWeapon = event.killerDamageInfo?.damageCauserName
     ?? event.dBNODamageInfo?.damageCauserName
@@ -356,8 +359,7 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
     const timeSeconds = relativeSeconds(event, startMs);
     const position = eventPosition(event);
     if (timeSeconds === null || !position) continue;
-    const zone = Array.isArray(event.character?.zone) && event.character.zone.length ? event.character.zone : null;
-    const place = Array.isArray(zone) && zone.length ? zone.map(placeName).join(", ") : null;
+    const place = zonePlace(event);
     facts.push({
       id: (() => { const base = characterId(event, "character") === candidate.accountId ? "landing" : `landing-${characterId(event, "character")}`; return facts.some(fact => fact.id === base) ? `${base}-${sourceIndex}` : base; })(),
       timeSeconds,
@@ -393,9 +395,8 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
       });
       routeSources.set(sample.timeSeconds, [...new Set(sources)]);
       const spreadMeters = Math.max(0, ...players.map((player) => Math.hypot(player.x - target.x, player.y - target.y)));
-      const zone = sample.event.character?.zone;
       route.push({ timeSeconds: sample.timeSeconds, ...target,
-        place: Array.isArray(zone) && zone.length ? zone.map(placeName).join(", ") : null,
+        place: zonePlace(sample.event),
         spreadMeters, players });
     }
   }
