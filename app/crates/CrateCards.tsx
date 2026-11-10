@@ -144,6 +144,13 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
     : "border-slate-800 shadow-none";
 
   const isHighRarity = card.rarity === "LEGENDARY" || card.rarity === "ULTIMATE";
+  const probabilityLabel = card.probability !== undefined ? `${parseFloat((card.probability * 100).toFixed(4))}%` : "";
+  // 5열처럼 카드가 좁으면 머리줄에 등급과 확률이 함께 들어가지 않아, 확률을 그림 모서리에 따로 표시한다.
+  const narrowProbability = card.probability !== undefined && card.probability > 0 && isRevealed ? (
+    <span className="@[6.5rem]:hidden absolute bottom-0.5 right-0.5 whitespace-nowrap tabular-nums text-[9px] leading-none text-slate-200 font-extrabold bg-slate-950/80 px-1 py-0.5 rounded border border-slate-700/60 z-10 select-none">
+      {probabilityLabel}
+    </span>
+  ) : null;
 
   return (
     <div
@@ -201,7 +208,7 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
         {/* 카드 앞면 (공개됨) */}
         <div className={`absolute inset-0 rounded-xl border-2 p-2 sm:p-2.5 flex flex-col justify-between items-center backface-hidden overflow-hidden ${
           isUltimate && isRevealed ? "bg-gradient-to-b from-red-950 via-[#2a0d10] to-slate-900" : "bg-slate-900"
-        } ${borderGlow}`}>
+        } ${borderGlow} @container`}>
           <div className="flex justify-between w-full items-center gap-1">
             {card.rarity !== "COMMON" ? (
               <span className={`shrink-0 whitespace-nowrap text-[10px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${getRarityBadgeStyle(card.rarity)}`}>
@@ -211,8 +218,8 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
               <div />
             )}
             {card.probability !== undefined && card.probability > 0 && isRevealed && (
-              <span className="min-w-0 truncate text-[10px] text-slate-400 font-extrabold bg-slate-950/60 px-1.5 py-0.5 rounded border border-slate-800/40 z-10 select-none">
-                {parseFloat((card.probability * 100).toFixed(4))}%
+              <span className="hidden @[6.5rem]:inline-block shrink-0 whitespace-nowrap tabular-nums text-[10px] text-slate-400 font-extrabold bg-slate-950/60 px-1.5 py-0.5 rounded border border-slate-800/40 z-10 select-none">
+                {probabilityLabel}
               </span>
             )}
           </div>
@@ -226,9 +233,11 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
                 className="object-contain max-h-full max-w-full drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
                 onError={() => setImageError(true)}
               />
+              {narrowProbability}
             </div>
           ) : (
-            <div className="w-full flex-1 flex items-center justify-center p-1 text-center overflow-hidden">
+            <div className="relative w-full flex-1 flex items-center justify-center p-1 text-center overflow-hidden">
+              {narrowProbability}
               <span 
                 className="font-black text-slate-200 tracking-tight break-all whitespace-normal block w-full text-center"
                 style={{

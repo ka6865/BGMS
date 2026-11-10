@@ -172,6 +172,12 @@ describe("daily walkthrough", () => {
     expect(finalHighlight.brief?.outcome).toContain("팀 3킬 (개인 0킬)");
     expect(finalHighlight.brief?.outcome).not.toContain("경기 종료");
     expect(finalHighlight.kind).toBe("combat");
+    expect(scene.lesson).toBe("아군 선공(뮤턴트, 약 59m)으로 시작해 16초 만에 3명을 처치했습니다. 아군 기절은 없었습니다.");
+    expect(finalHighlight.lesson).toBe(scene.lesson);
+    const knocked = structuredClone(input);
+    knocked.encounters![0].actions.push({ ...knocked.encounters![0].actions[2], timeSeconds: 487, kind: "ally_down" });
+    expect(buildDailyWalkthrough(knocked).combatScenes?.find(({ id }) => id === "combat-fight")?.lesson)
+      .toContain("이 과정에서 아군 1명이 기절했습니다.");
     expect(finalHighlight.endSeconds).toBe(494.981);
     expect(finalHighlight.startSeconds).toBe(scene.startSeconds);
     expect(finalHighlight.anchorSeconds).toBe(scene.anchorSeconds);
@@ -179,6 +185,22 @@ describe("daily walkthrough", () => {
     expect(finalHighlight.combatZone).toEqual(scene.combatZone);
     expect(finalHighlight.evidenceIds).toEqual(expect.arrayContaining(scene.evidenceIds));
     expect(finalHighlight.sourceIndices).toEqual(expect.arrayContaining(scene.sourceIndices ?? []));
+  });
+
+  it("names the landing and encounter areas from recorded coordinates", () => {
+    const base = soloMatch();
+    const atPochinki = { ...base, mapName: "에란겔" };
+    expect(buildDailyWalkthrough(atPochinki).summary).not.toContain("포친키");
+    const landed = buildDailyWalkthrough({ ...atPochinki, facts: atPochinki.facts.map((item) =>
+      item.id === "landing" ? { ...item, position: { x: 3640, y: 4070 } } : item) });
+    expect(landed.summary.startsWith("포친키에 착지해 1번째 원 공개 때")).toBe(true);
+    expect(landed.highlights!.find(({ id }) => id === "highlight-opening")?.brief?.situation).toBe("01:16 포친키 착지");
+    const encounterStory = story({ mode: "squad", mapName: "에란겔", facts: [{ ...fact("landing", 90, "landing"), actorId: "ranker" }, fact("fight", 479, "encounter"), fact("finish", 600, "finish", "경기 종료 기록 · 1위")],
+      encounters: [{ id: "fight", startSeconds: 479, endSeconds: 480, precontactMovement: [], arrival: null, vehicle: null,
+        snapshots: [{ offsetSeconds: 0, anchorLabel: "처음 기록된 피해", targetTimeSeconds: 479, missingPlayers: [], deadPlayerIds: [],
+          points: [{ playerId: "ranker", player: "Ranker", side: "ally", directlyInvolved: true, x: 450_600, y: 680_000, sampleTimeSeconds: 479, ageSeconds: 0 }] }],
+        actions: [{ timeSeconds: 479, kind: "first_hit", actor: "Ranker", victim: "Enemy", weapon: "M416", actorId: "ranker", victimId: "enemy", actorTeamId: 1, victimTeamId: 2 }] }] });
+    expect(buildDailyWalkthrough(encounterStory).combatScenes?.[0]?.title).toContain("07:59 소스노브카 군사기지 교전");
   });
 
   it("keeps role aliases stable across reengagements and limits nicknames to the detail lookup", () => {
@@ -322,6 +344,19 @@ describe("daily walkthrough", () => {
     const duo = connectedSolo();
     duo.mode = "duo";
     expect(buildDailyWalkthrough(duo).combatScenes?.at(-1)?.brief?.outcome).toContain("팀 1킬 (개인 1킬)");
+  });
+
+  it("ends a recovery sentence without a dangling connective when no kill follows", () => {
+    const input = connectedSolo();
+    input.mode = "duo";
+    const lastKill = Math.max(...input.facts.filter(({ kind }) => kind === "kill" || kind === "teammate_kill").map(({ timeSeconds }) => timeSeconds));
+    input.facts.push(
+      { ...fact("late-down", lastKill + 1, "down"), victimId: "ranker-id", victimTeamId: 1 },
+      { ...fact("late-revive", lastKill + 2, "revive"), actorId: "ally-id", actorTeamId: 1, victimId: "ranker-id", victimTeamId: 1 },
+    );
+    const { summary } = buildDailyWalkthrough(input);
+    expect(summary).toContain("본인은 기절 후 소생됐습니다.");
+    expect(summary).not.toMatch(/고\./);
   });
 
   it("keeps both consequential recoveries and early/late circle movement in the eight-card bridge", () => {
@@ -681,7 +716,7 @@ describe("daily walkthrough", () => {
     expect(result.chapters[1].action).toContain("원 안 위치를 관측했습니다. 실제 진입 시각은 다를 수 있습니다.");
     expect(result.chapters[1].action).toContain("전리품 상자에서 M24");
     expect(result.chapters[1].action).toContain("오토바이에 탔습니다");
-    expect(result.chapters[1].action).toContain("09:02에는 Los Leones");
+    expect(result.chapters[1].action).toContain("09:02에는 로스 레오네스");
     expect(result.chapters[2].action).toContain("135m");
     expect(result.chapters[2].action).toContain("18:42");
     expect(result.chapters[3].action).toContain("107m");
@@ -1065,8 +1100,7 @@ describe("daily walkthrough", () => {
     expect(firstScene.mapSnapshot!.observations).toContainEqual(expect.objectContaining({
       timeSeconds: 96, sourceIndices: [96], label: expect.stringContaining("4초 전 표본"),
     }));
-    expect(firstScene.brief?.situation).toContain("교전 시작 전후 15초 내 위치: 1/3명");
-    expect(firstScene.brief?.situation).toContain("상대 2·상대 3 위치 미확인");
+    expect(firstScene.brief?.situation).not.toMatch(/15초 내 위치|위치 미확인|표본 시각/);
     expect(firstScene.brief?.outcome).toContain("상대 팀 3명 중 1명 처치");
     expect(firstScene.brief?.outcome).toContain("1명은 처치 기록 없음 · 교전 중 타팀 처치 1명");
     expect(firstScene.brief?.outcome).not.toContain("전원 처치 기록 확인");
@@ -1101,6 +1135,6 @@ describe("daily walkthrough", () => {
     }));
     const scene = result.combatScenes!.find(({ id }) => id === "combat-kill-anchored")!;
     expect(scene.brief?.situation).not.toContain("교전 전 사망");
-    expect(scene.brief?.situation).toContain("위치 미확인");
+    expect(scene.brief?.situation).not.toContain("위치 미확인");
   });
 });

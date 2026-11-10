@@ -3,8 +3,10 @@ import "dotenv/config";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { buildDailyEvidence, DAILY_EVIDENCE_VERSION, type DailyEvidence } from "../lib/learn/dailyEvidence";
-import { DAILY_STORY_PROMPT_VERSION, generateDailyAiStory, type DailyAiStory } from "../lib/learn/dailyAi";
-import type { DailyMode } from "../lib/learn/dailyStories";
+import { DAILY_STORY_PROMPT_VERSION, generateDailyAiStory, validateDailyAiStory, type DailyAiStory } from "../lib/learn/dailyAi";
+import { isPrivateStory, type DailyMode } from "../lib/learn/dailyStories";
+import { buildDailyWalkthrough } from "../lib/learn/dailyWalkthrough";
+import { getPrivatePlayersList } from "../lib/pubg/privatePlayers";
 import { buildDailySceneCandidates, type DailyScene } from "../lib/learn/dailyScenes";
 import { relationshipBoundTelemetryAsset, parseOrdinaryTelemetryUrl } from "../lib/pubg-analysis/telemetrySource";
 
@@ -16,6 +18,9 @@ const DEFAULT_PUBLISH_MODES = ["duo", "squad"] as const;
 const MAX_PLAYERS_PER_MODE = 20;
 const MAX_MATCHES_PER_PLAYER = 32;
 const MAX_SEARCH_MS = 12 * 60 * 1000;
+const DETERMINISTIC_SCENE_MODEL = "deterministic-scene-fallback";
+const MIN_FEATURED_KILLS = 3;
+const RECENT_PLAYER_DAYS = 3;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -94,9 +99,22 @@ export function isWinningMatch(value: unknown, candidate: Candidate, day: string
   });
 }
 
-export function rankPublicationCandidates<T extends { evidence: { matchId: string; playedAt: string }; scenes: { kind: string }[]; repeatCount: number }>(candidates: T[]): T[] {
+/** 분석 대상이 직접 3킬 이상 올렸고 최근 며칠 안에 소개되지 않은 선수의 경기만 우선 후보로 본다. */
+export function isFeaturedCandidate(evidence: { kills: number; accountId: string }, recentAccounts: ReadonlySet<string>): boolean {
+  return evidence.kills >= MIN_FEATURED_KILLS && !recentAccounts.has(evidence.accountId);
+}
+
+export function recentAccountIds(history: { account_id?: string; day_kst?: string }[], day: string): Set<string> {
+  const since = kstDate(new Date(Date.parse(`${day}T00:00:00+09:00`) - RECENT_PLAYER_DAYS * 86_400_000));
+  return new Set(history.flatMap((row) => row.account_id && row.day_kst && row.day_kst >= since && row.day_kst < day ? [row.account_id] : []));
+}
+
+export function rankPublicationCandidates<T extends { evidence: { matchId: string; playedAt: string; kills?: number; accountId?: string }; scenes: { kind: string }[]; repeatCount: number; recentPlayer?: boolean }>(candidates: T[]): T[] {
+  // 저킬·최근 소개 선수 경기는 제외하지 않고 뒤로 보내, 다른 후보가 없는 날에도 발행이 끊기지 않게 한다.
   return candidates.filter(({ scenes }) => scenes.length >= 3 && scenes.some((scene) => scene.kind === "finish")).sort((a, b) =>
-    new Set(b.scenes.map((scene) => scene.kind)).size - new Set(a.scenes.map((scene) => scene.kind)).size
+    Number((a.evidence.kills ?? MIN_FEATURED_KILLS) < MIN_FEATURED_KILLS) - Number((b.evidence.kills ?? MIN_FEATURED_KILLS) < MIN_FEATURED_KILLS)
+    || Number(a.recentPlayer === true) - Number(b.recentPlayer === true)
+    || new Set(b.scenes.map((scene) => scene.kind)).size - new Set(a.scenes.map((scene) => scene.kind)).size
     || a.repeatCount - b.repeatCount
     || a.evidence.playedAt.localeCompare(b.evidence.playedAt)
     || a.evidence.matchId.localeCompare(b.evidence.matchId));
@@ -139,11 +157,17 @@ export function publicationRepeatCount(history: { account_id?: string; map_name?
 export function buildStoredStory(aiStory: DailyAiStory, evidence: DailyEvidence, provenance: {
   leaderboardObservedAt: string; leaderboardSeason: string; leaderboardSource: string;
 }) {
-  return { ...aiStory, ...provenance, sceneCount: aiStory.scenes?.length ?? 0,
+  const story = { ...aiStory, ...provenance, sceneCount: aiStory.scenes?.length ?? 0,
     facts: evidence.facts, weapons: evidence.weapons, killEvents: evidence.killEvents,
     teamKillEvents: evidence.teamKillEvents, roster: evidence.roster, encounters: evidence.encounters,
     weaponFinds: evidence.weaponFinds, route: evidence.route, aircraft: evidence.aircraft,
     zones: evidence.zones, blueZoneSamples: evidence.blueZoneSamples, limitations: evidence.limitations };
+  if (!story.scenes?.length) return story;
+  // 목록 카드도 상세 페이지와 같은 제목·요약을 보여 주도록 장면 해설 결과를 저장한다.
+  const walkthrough = buildDailyWalkthrough({ ...story, dayKst: evidence.dayKst, matchId: evidence.matchId,
+    nickname: evidence.nickname, mode: evidence.mode, mapName: evidence.mapName, leaderboardRank: evidence.leaderboardRank,
+    playedAt: evidence.playedAt, publishedAt: "", kills: evidence.kills, damage: evidence.damage, teamKills: evidence.teamKills });
+  return { ...story, headline: walkthrough.headline, conclusion: walkthrough.summary };
 }
 
 function createRun(day: string, key: string) {
@@ -164,7 +188,8 @@ function createRun(day: string, key: string) {
   return { day, headers, checkBudget, readCached, observedAt: (url: string) => requestTimes.get(url), matchCache };
 }
 
-async function selectEvidence(mode: DailyMode, run: ReturnType<typeof createRun>, seasonId: string): Promise<VerifiedCandidate[]> {
+async function selectEvidence(mode: DailyMode, run: ReturnType<typeof createRun>, seasonId: string,
+  recentAccounts: ReadonlySet<string>): Promise<VerifiedCandidate[]> {
   const { day, headers, checkBudget, readCached, matchCache } = run;
   checkBudget();
   let boardMode = mode;
@@ -186,7 +211,9 @@ async function selectEvidence(mode: DailyMode, run: ReturnType<typeof createRun>
   }
   const found: VerifiedCandidate[] = [];
   const seenMatchIds = new Set<string>();
-  for (let offset = 0; offset < players.length && found.length < 3; offset += 10) {
+  // 저킬·최근 소개 선수 경기는 예비 후보로 남기고, 우선 후보가 3개 모일 때까지 다음 선수를 찾는다.
+  const featuredCount = () => found.filter(({ evidence }) => isFeaturedCandidate(evidence, recentAccounts)).length;
+  for (let offset = 0; offset < players.length && featuredCount() < 3; offset += 10) {
     checkBudget();
     const batch = players.slice(offset, offset + 10);
     const ids = batch.map((player) => player.accountId).join(",");
@@ -248,13 +275,14 @@ async function selectEvidence(mode: DailyMode, run: ReturnType<typeof createRun>
             return true;
           });
           found.push({ evidence, scenes: distinctScenes, observedAt: run.observedAt(boardUrl) ?? new Date().toISOString(), season: seasonId, source });
-          if (found.length === 3) break;
+          // 한 선수의 경기가 독식하지 않도록 우선 후보가 나오면 다음 선수로 넘어간다.
+          if (isFeaturedCandidate(evidence, recentAccounts)) break;
         } catch (error) {
           if (isRateLimited(error) || isProviderFailure(error)) throw error;
           console.warn(`DAILY_STORY_CANDIDATE_SKIPPED:${id}:evidence_unavailable`);
         }
       }
-      if (found.length === 3) break;
+      if (featuredCount() >= 3) break;
     }
   }
   return found;
@@ -272,20 +300,32 @@ async function publishMode(day: string, mode: DailyMode, apply: boolean, db: any
   const existing = await db.from("daily_ranker_stories").select("match_id").eq("day_kst", day).eq("mode", mode).maybeSingle();
   if (existing.error) throw new Error(`daily_story_existing_read:${existing.error.code}`);
   if (existing.data) return { state: "already_published", dayKst: day, mode, matchId: existing.data.match_id };
-  const discovered = await selectEvidence(mode, run, seasonId);
-  if (!discovered.length) return { state: "no_verified_candidate", dayKst: day, mode };
-  const history = await db.from("daily_ranker_stories").select("account_id,map_name")
+  const privatePlayers = await getPrivatePlayersList(db);
+  const history = await db.from("daily_ranker_stories").select("account_id,map_name,day_kst")
     .gte("day_kst", recentKstStart(day))
     .lt("day_kst", day);
   if (history.error) throw new Error(`daily_story_history_read:${history.error.code}`);
+  const recentAccounts = recentAccountIds(history.data ?? [], day);
+  const discovered = (await selectEvidence(mode, run, seasonId, recentAccounts)).filter((item) => {
+    const excluded = isPrivateStory(privatePlayers, { nickname: item.evidence.nickname, account_id: item.evidence.accountId, roster: item.evidence.roster });
+    if (excluded) console.warn(`DAILY_STORY_CANDIDATE_SKIPPED:${item.evidence.matchId}:private_player`);
+    return !excluded;
+  });
+  if (!discovered.length) return { state: "no_verified_candidate", dayKst: day, mode };
   const ranked = rankPublicationCandidates(discovered.map((item) => ({ ...item,
-    repeatCount: publicationRepeatCount(history.data ?? [], item.evidence) })));
+    repeatCount: publicationRepeatCount(history.data ?? [], item.evidence),
+    recentPlayer: recentAccounts.has(item.evidence.accountId) })));
   if (!ranked.length) return { state: "no_complete_story", dayKst: day, mode };
   let chosen: { item: typeof ranked[number]; story: Awaited<ReturnType<typeof generateDailyAiStory>>["story"]; model: string } | undefined;
   for (const item of ranked) {
     try {
       run.checkBudget();
-      const result = await generateDailyAiStory(item.evidence, aiKey);
+      const result = await generateDailyAiStory(item.evidence, aiKey).catch((error) => {
+        if (isExpectedStoryRejection(error)) throw error;
+        // AI 한도·장애는 장면 선택만 대신하면 되므로 규칙 기반 선택으로 발행을 이어간다.
+        console.warn(`DAILY_STORY_AI_FALLBACK:${item.evidence.matchId}:${error instanceof Error ? error.message.slice(0, 120) : "unknown"}`);
+        return { story: validateDailyAiStory({ sceneIds: [] }, item.evidence), model: DETERMINISTIC_SCENE_MODEL };
+      });
       run.checkBudget();
       if (result.story.scenes?.length && result.story.scenes.length >= 3
         && result.story.scenes.some((scene) => scene.kind === "finish")) {
@@ -323,7 +363,8 @@ async function publishMode(day: string, mode: DailyMode, apply: boolean, db: any
     }
     throw new Error(`daily_story_insert:${result.error.code}`);
   }
-  return { state: "published", dayKst: day, mode, matchId: evidence.matchId };
+  return { state: "published", dayKst: day, mode, matchId: evidence.matchId,
+    ...(chosen.model === DETERMINISTIC_SCENE_MODEL ? { aiFallback: true } : {}) };
 }
 
 export async function publishDailyRankerStory(options: { day: string; mode?: DailyMode; apply: boolean; env?: NodeJS.ProcessEnv }) {
@@ -400,7 +441,8 @@ export function formatPublicationSummary(result: unknown): string {
       const state = typeof row.state === "string" ? row.state : "unknown";
       const day = typeof row.dayKst === "string" ? row.dayKst : "확인 불가";
       const mode = typeof row.mode === "string" ? row.mode : "확인 불가";
-      const label = isRateLimitedResult(row) ? "PUBG API 한도(429) · 다음 시도에서 재시도" : labels[state] ?? "알 수 없는 결과 · 확인 필요";
+      const label = isRateLimitedResult(row) ? "PUBG API 한도(429) · 다음 시도에서 재시도"
+        : row.aiFallback === true ? "발행 완료 · AI 실패로 규칙 기반 장면 선택" : labels[state] ?? "알 수 없는 결과 · 확인 필요";
       return `| ${day} | ${mode} | ${label} |`;
     }),
     "",
