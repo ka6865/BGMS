@@ -119,6 +119,13 @@ const getMayhemDatasetPublications = unstable_cache(async () => {
   return data;
 }, ["lol-mayhem-publications-v1"], { revalidate: 60, tags: [MAYHEM_DATASET_TAG] });
 
+// 홈 소식에 쓰는 가장 최근 공개 시각이다.
+export async function getLatestMayhemPublication(): Promise<{ patch: string; publishedAt: string } | null> {
+  if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return null;
+  const latest = [...await getMayhemDatasetPublications()].sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at))[0];
+  return latest ? { patch: latest.client_patch, publishedAt: latest.published_at } : null;
+}
+
 // 새 패치 공개본이 생기기 전에는 직전 패치 공개본을 그 패치 표시와 함께 보여준다.
 export async function getPublicMayhemDataset(patch: string): Promise<PublicMayhemDataset | null> {
   if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return null;

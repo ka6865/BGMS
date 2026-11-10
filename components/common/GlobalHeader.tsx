@@ -193,11 +193,11 @@ export default function GlobalHeader() {
         {!isMobile && (
           <nav className="flex items-center gap-0.5 ml-4 overflow-x-auto no-scrollbar">
             {MAP_LIST.map((m) => {
-              const isActive = activeMapId.toLowerCase() === m.id.toLowerCase() || (pathname === '/' && m.id === 'Erangel');
+              const isActive = activeMapId.toLowerCase() === m.id.toLowerCase();
               return (
                 <Link
                   key={m.id}
-                  href={`/?tab=${m.id}`}
+                  href={`/maps/${m.id.toLowerCase()}`}
                   aria-current={isActive ? "page" : undefined}
                   className={`shrink-0 relative inline-flex items-center h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
                     isActive ? "bg-black/90 text-white shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"

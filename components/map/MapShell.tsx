@@ -634,7 +634,7 @@ const MapShell = memo(({
                       p.delete("lesson");
                       p.delete("scene");
                       p.delete("t");
-                      router.push(`/?${p.toString()}`);
+                      router.push(`/maps/${(activeMapId || "Erangel").toLowerCase()}?${p.toString()}`);
                     }}
                   />
                 </div>

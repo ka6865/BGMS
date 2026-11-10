@@ -61,7 +61,7 @@ describe("stats auto ads ownership boundary", () => {
     expect(html).not.toContain("auto-ad-anchor");
   });
 
-  it.each(["/admin/support", "/admin/support/ticket-1", "/support", "/support/ticket-1"])(
+  it.each(["/", "/admin/support", "/admin/support/ticket-1", "/support", "/support/ticket-1"])(
     "%s는 광고 없이 전체 내용을 스크롤할 수 있다",
     (pathname) => {
       vi.stubEnv("NODE_ENV", "production");
@@ -75,7 +75,7 @@ describe("stats auto ads ownership boundary", () => {
     },
   );
 
-  it.each(["/", "/maps/erangel", "/admin/agent", "/replay/match-1"])(
+  it.each(["/maps/erangel", "/admin/agent", "/replay/match-1"])(
     "%s의 기존 전체 화면 레이아웃을 유지한다",
     (pathname) => {
       route.pathname = pathname;
