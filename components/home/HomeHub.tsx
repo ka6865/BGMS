@@ -21,13 +21,19 @@ const LOL_LOCKED_LINKS = [
   { href: "/lol/kr/ladder", label: "랭킹" },
 ];
 
+const NEWS_LIMIT = 6;
+const NOTICE_DAYS = 30;
+
 // 소식은 부가 정보라 출처별로 실패해도 나머지 홈은 그대로 보여 준다.
+// 최근 30일 공지(최대 3개)와 증바람 갱신을 먼저 담고, 남은 자리를 최신 게시글로 채운 뒤 날짜순으로 정렬한다.
 async function getNews(): Promise<NewsItem[]> {
-  const [notices, mayhem] = await Promise.allSettled([
-    createClient().then(supabase => supabase.from("posts").select("id, title, created_at")
-      .eq("status", "published").eq("is_notice", true).order("created_at", { ascending: false }).limit(5)),
-    getLatestMayhemPublication(),
-  ]);
+  const since = new Date(Date.now() - NOTICE_DAYS * 86_400_000).toISOString();
+  const recentPosts = async (notice: boolean) => {
+    const query = (await createClient()).from("posts").select("id, title, category, created_at")
+      .eq("status", "published").eq("is_notice", notice);
+    return (notice ? query.gte("created_at", since) : query).order("created_at", { ascending: false }).limit(notice ? 3 : NEWS_LIMIT);
+  };
+  const [notices, latest, mayhem] = await Promise.allSettled([recentPosts(true), recentPosts(false), getLatestMayhemPublication()]);
   const items: NewsItem[] = [];
   if (notices.status === "fulfilled" && !notices.value.error) {
     for (const post of notices.value.data ?? []) items.push({ href: `/board/${post.id}`, label: "공지", title: post.title, at: post.created_at });
@@ -35,7 +41,12 @@ async function getNews(): Promise<NewsItem[]> {
   if (mayhem.status === "fulfilled" && mayhem.value) {
     items.push({ href: "/lol/kr/aram-mayhem", label: "LoL", title: `증바람 ${mayhem.value.patch.replace(/^16\./, "26.")} 조합·증강 자료 갱신`, at: mayhem.value.publishedAt });
   }
-  return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 6);
+  if (latest.status === "fulfilled" && !latest.value.error) {
+    for (const post of (latest.value.data ?? []).slice(0, NEWS_LIMIT - items.length)) {
+      items.push({ href: `/board/${post.id}`, label: post.category || "새 글", title: post.title, at: post.created_at });
+    }
+  }
+  return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
 
 const dateLabel = (value: string) => new Date(value).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", year: "2-digit", month: "2-digit", day: "2-digit" });
@@ -96,7 +107,7 @@ export default async function HomeHub() {
                 {news.map(item => (
                   <li key={item.href + item.at}>
                     <Link href={item.href} className="flex min-h-11 items-center gap-2 py-2 text-sm text-white/80 hover:text-white">
-                      <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-bold text-white/60">{item.label}</span>
+                      <span className="max-w-[6rem] shrink-0 truncate rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-bold text-white/60">{item.label}</span>
                       <span className="min-w-0 flex-1 truncate">{item.title}</span>
                       <time dateTime={item.at} className="shrink-0 text-xs text-white/40">{dateLabel(item.at)}</time>
                     </Link>
