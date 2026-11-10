@@ -2,9 +2,14 @@
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import type { MayhemPatchRanking } from "@/lib/lol/mayhemPatchRankings";
+import type { LolMayhemCatalog } from "@/lib/lol/augments/catalog";
+import { AugmentIcon } from "./LolMayhemArchive";
 const control="min-h-11 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus-visible:border-amber-400";
 const rarityLabels={silver:"실버",gold:"골드",prismatic:"프리즘"};
-export default function LolMayhemPatchRankings(){
+// 순위 자료는 외부 ID라 공식 증강과 한글 이름(공백·"퀘스트:" 접두어 무시)으로 맞춰 아이콘을 찾는다. 도감에 없는 지난 증강은 빈 칸으로 둔다.
+const nameKey=(name:string)=>name.replace(/^퀘스트:/,"").replace(/\s+/g,"");
+export default function LolMayhemPatchRankings({catalog=null}:{catalog?:LolMayhemCatalog|null}){
+  const icons=new Map((catalog?.augments??[]).map(augment=>[nameKey(augment.name),augment.icon]));
   const [patch,setPatch]=useState("");const [query,setQuery]=useState("");const [rarity,setRarity]=useState("");const [retry,setRetry]=useState(0);
   const [patches,setPatches]=useState<string[]>([]);
   const [response,setResponse]=useState<{key:string;ranking:MayhemPatchRanking|null;error:boolean}|null>(null);
@@ -30,7 +35,7 @@ export default function LolMayhemPatchRankings(){
       </div>}
     {!current?<p role="status" className="py-10 text-center text-sm text-zinc-400">패치별 순위를 불러오는 중입니다.</p>:current.error?<div role="alert" className="space-y-3 py-10 text-center text-sm text-zinc-400"><p>패치별 증강 순위를 불러오지 못했습니다.</p><button className={control} onClick={()=>setRetry(value=>value+1)}>다시 시도</button></div>:<>
       {rows.length?<ol aria-label="패치 증강 순위 목록" className="grid grid-cols-1 gap-2">{rows.map(row=><li key={row.id} className="flex min-w-0 items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
-        <span className="w-9 shrink-0 text-center text-sm tabular-nums text-zinc-400">{row.rank??"—"}</span><div className="min-w-0 flex-1"><h3 className="break-words text-sm font-semibold">{row.name}</h3><p className="mt-1 text-xs text-zinc-400">{rarityLabels[row.rarity]}</p></div>
+        <span className="w-9 shrink-0 text-center text-sm tabular-nums text-zinc-400">{row.rank??"—"}</span>{catalog&&<AugmentIcon icon={icons.get(nameKey(row.name))} patch={catalog.clientPatch} rarity={row.rarity} size={40}/>}<div className="min-w-0 flex-1"><h3 className="break-words text-sm font-semibold">{row.name}</h3><p className="mt-1 text-xs text-zinc-400">{rarityLabels[row.rarity]}</p></div>
         <span className="shrink-0 text-sm font-semibold tabular-nums text-amber-300">{row.pickRate===null?"미제공":`${row.pickRate.toFixed(2)}%`}</span>
       </li>)}</ol>:<div role="status" className="space-y-3 py-10 text-center text-sm text-zinc-400"><p>조건에 맞는 증강이 없습니다.</p><button className={control} onClick={()=>{setQuery("");setRarity("");}}>필터 초기화</button></div>}
     </>}
