@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { cache } from "react";
+import { getPrivatePlayersList, matchesPrivatePlayer, type PrivatePlayer } from "@/lib/pubg/privatePlayers";
 import type { DailyEncounter, DailyWeaponFind } from "./dailyCombatStory";
 import type { DailyEvidence, DailyEvidenceFact } from "./dailyEvidence";
 import type { DailyScene } from "./dailyScenes";
@@ -46,6 +47,7 @@ export type DailyRankerStory = {
 
 type StoryRow = {
   day_kst: string;
+  account_id?: string;
   match_id: string;
   nickname: string;
   mode: DailyMode;
@@ -59,20 +61,21 @@ type StoryRow = {
   story: Pick<DailyRankerStory, "headline" | "conclusion" | "points" | "facts" | "weapons" | "killEvents" | "teamKillEvents" | "roster" | "encounters" | "weaponFinds" | "route" | "aircraft" | "zones" | "blueZoneSamples" | "limitations" | "scenes" | "sceneCount" | "schemaVersion" | "evidenceVersion" | "promptVersion" | "selection" | "leaderboardObservedAt" | "leaderboardSeason" | "leaderboardSource">;
 };
 
-const FIELDS = "day_kst,match_id,nickname,mode,map_name,leaderboard_rank,played_at,published_at,kills,damage,team_kills,story";
-const LIST_FIELDS = "day_kst,nickname,mode,map_name,leaderboard_rank,published_at,kills,damage,headline:story->>headline,conclusion:story->>conclusion,sceneCount:story->sceneCount,leaderboardObservedAt:story->>leaderboardObservedAt,leaderboardSeason:story->>leaderboardSeason,leaderboardSource:story->>leaderboardSource";
+const FIELDS = "day_kst,account_id,match_id,nickname,mode,map_name,leaderboard_rank,played_at,published_at,kills,damage,team_kills,story";
+const LIST_FIELDS = "day_kst,account_id,nickname,mode,map_name,leaderboard_rank,published_at,kills,damage,headline:story->>headline,conclusion:story->>conclusion,sceneCount:story->sceneCount,leaderboardObservedAt:story->>leaderboardObservedAt,leaderboardSeason:story->>leaderboardSeason,leaderboardSource:story->>leaderboardSource,roster:story->roster";
 
 export type DailyStorySummary = Pick<DailyRankerStory,
   "dayKst" | "nickname" | "mode" | "mapName" | "leaderboardRank" | "publishedAt" | "kills" | "damage" | "headline" | "conclusion"> & Pick<DailyRankerStory,
   "leaderboardObservedAt" | "leaderboardSeason" | "leaderboardSource"> & { sceneCount?: number };
 
-type StoryListRow = Pick<StoryRow, "day_kst" | "nickname" | "mode" | "map_name" | "leaderboard_rank" | "published_at" | "kills" | "damage"> & {
+type StoryListRow = Pick<StoryRow, "day_kst" | "account_id" | "nickname" | "mode" | "map_name" | "leaderboard_rank" | "published_at" | "kills" | "damage"> & {
   headline: string;
   conclusion: string;
   sceneCount?: number | null;
   leaderboardObservedAt?: string | null;
   leaderboardSeason?: string | null;
   leaderboardSource?: string | null;
+  roster?: { name?: unknown }[] | null;
 };
 
 function storyClient() {
@@ -90,6 +93,12 @@ function isValidDay(day: string): boolean {
 
 function isDailyMode(mode: string): mode is DailyMode {
   return mode === "solo" || mode === "duo" || mode === "squad";
+}
+
+// 분석 대상이나 팀원이 전적 비공개를 요청하면 이미 발행된 해설도 노출하지 않는다.
+export function isPrivateStory(list: readonly PrivatePlayer[], row: { nickname: string; account_id?: string; roster?: { name?: unknown }[] | null }) {
+  return matchesPrivatePlayer(list, "steam", row.nickname, row.account_id)
+    || (Array.isArray(row.roster) ? row.roster : []).some((member) => typeof member?.name === "string" && matchesPrivatePlayer(list, "steam", member.name));
 }
 
 function toStory(row: StoryRow): DailyRankerStory {
@@ -138,9 +147,12 @@ async function listStories(query: { day?: string; limit?: number }): Promise<Dai
   if (query.day) request = request.eq("day_kst", query.day);
   request = request.order("day_kst", { ascending: false });
   if (query.day) request = request.order("mode", { ascending: true });
-  const { data, error } = await request.limit(Math.max(1, Math.min(query.limit ?? 100, 100)));
+  const [{ data, error }, privatePlayers] = await Promise.all([
+    request.limit(Math.max(1, Math.min(query.limit ?? 100, 100))),
+    getPrivatePlayersList(db),
+  ]);
   if (error) throw new Error(`daily-story-list:${error.code}`);
-  return ((data ?? []) as unknown as StoryListRow[]).map(toSummary);
+  return ((data ?? []) as unknown as StoryListRow[]).filter((row) => !isPrivateStory(privatePlayers, row)).map(toSummary);
 }
 
 export async function listDailyRankerStories(limit = 30): Promise<DailyStorySummary[]> {
@@ -156,8 +168,12 @@ export const getDailyRankerStory = cache(async (day: string, mode: DailyMode): P
   if (!isValidDay(day) || !isDailyMode(mode)) return null;
   const db = storyClient();
   if (!db) return null;
-  const { data, error } = await db.from("daily_ranker_stories")
-    .select(FIELDS).eq("day_kst", day).eq("mode", mode).maybeSingle();
+  const [{ data, error }, privatePlayers] = await Promise.all([
+    db.from("daily_ranker_stories").select(FIELDS).eq("day_kst", day).eq("mode", mode).maybeSingle(),
+    getPrivatePlayersList(db),
+  ]);
   if (error) throw new Error(`daily-story-read:${error.code}`);
-  return data ? toStory(data as unknown as StoryRow) : null;
+  if (!data) return null;
+  const row = data as unknown as StoryRow;
+  return isPrivateStory(privatePlayers, { ...row, roster: row.story.roster }) ? null : toStory(row);
 });

@@ -2,7 +2,7 @@
 import React from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ArchivedDailyStories, DailyModeCards } from "@/components/learn/DailyStoryList";
+import { ArchivedDailyStories, DailyModeCards, pickFeaturedDay } from "@/components/learn/DailyStoryList";
 import type { DailyStorySummary } from "@/lib/learn/dailyStories";
 
 vi.mock("next/link", () => ({
@@ -43,5 +43,12 @@ describe("DailyStoryList", () => {
     expect(screen.getAllByText("착지부터 우승까지")).toHaveLength(2);
     const soloLink = document.querySelector<HTMLAnchorElement>(`a[href="/learn/daily/${day}/solo"]`);
     expect(soloLink?.textContent).toContain("솔로 공개 경기");
+  });
+  it("features the latest published day until yesterday's stories are published", () => {
+    const row = (dayKst: string, mode: DailyStorySummary["mode"]) => ({ dayKst, mode } as DailyStorySummary);
+    const archive = [row("2026-11-08", "duo"), row("2026-11-08", "squad"), row("2026-11-07", "squad")];
+    expect(pickFeaturedDay("2026-11-09", [], archive)).toEqual({ day: "2026-11-08", stories: archive.slice(0, 2) });
+    expect(pickFeaturedDay("2026-11-09", [row("2026-11-09", "duo")], archive).day).toBe("2026-11-09");
+    expect(pickFeaturedDay("2026-11-09", [], [])).toEqual({ day: "2026-11-09", stories: [] });
   });
 });

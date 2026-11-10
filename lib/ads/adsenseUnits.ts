@@ -21,6 +21,8 @@ export const ADSENSE_SLOTS = {
   cratesBottom: "5910063457", // 상자깡_하단_가로
   cratesRailLeft: "2917813463", // 상자깡_좌측레일_세로
   cratesRailRight: "1650598365", // 상자깡_우측레일_세로
+  learnRailLeft: "7102387863", // 경기해설_좌측레일_세로
+  learnRailRight: "6100297385", // 경기해설_우측레일_세로
   rankingsTop: "8752594072", // 랭킹_상단_가로
   rankingsRailLeft: "4154128657", // 랭킹_좌측레일_세로
   rankingsRailRight: "1527965317", // 랭킹_우측레일_세로

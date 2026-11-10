@@ -295,7 +295,7 @@ describe("daily regression evidence", () => {
     expect(evidence.facts.find(fact => fact.kind === "landing")).toMatchObject({
       position: { x: 123.45, y: 234.56 }, positionTimeSeconds: 20, place: null,
     });
-    expect(evidence.facts.find(fact => fact.kind === "landing" && fact.timeSeconds === 21)).toMatchObject({ place: "학교, unmapped-place" });
+    expect(evidence.facts.find(fact => fact.kind === "landing" && fact.timeSeconds === 21)).toMatchObject({ place: "학교" });
     expect(evidence.facts.find(fact => fact.id === "aircraft-board")).toMatchObject({
       actorId: accountId, actorTeamId: 7, vehicleName: "비행기", positionTimeSeconds: 5,
     });

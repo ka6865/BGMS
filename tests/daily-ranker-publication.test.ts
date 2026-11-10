@@ -47,6 +47,9 @@ vi.mock("@/lib/learn/dailyAi", () => ({
       { id: "opening", kind: "opening" }, { id: "combat", kind: "combat" }, { id: "finish", kind: "finish" },
     ], schemaVersion: 2, evidenceVersion: 5, promptVersion: "test-prompt", selection: { usedFallback: false, rejectedReasons: [] } }, model: "mock" };
   }),
+  validateDailyAiStory: vi.fn(() => ({ headline: "fallback", conclusion: "fallback", points: [], scenes: [
+    { id: "opening", kind: "opening" }, { id: "combat", kind: "combat" }, { id: "finish", kind: "finish" },
+  ], schemaVersion: 2, evidenceVersion: 5, promptVersion: "test-prompt", selection: { usedFallback: true, rejectedReasons: ["missing_or_empty_selection"] } })),
 }));
 vi.mock("@/lib/learn/dailyEvidence", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/learn/dailyEvidence")>();
@@ -79,7 +82,7 @@ vi.mock("@/lib/pubg-analysis/telemetrySource", () => ({
 import {
   buildStoredStory, fallbackLeaderboardMode, isRateLimited, isWinningMatch,
   formatPublicationSummary, publicationExitCode, publicationRepeatCount, publishDailyRankerStory,
-  rankPublicationCandidates, recentKstStart,
+  rankPublicationCandidates, recentKstStart, recentAccountIds,
 } from "@/scripts/publish_daily_ranker_story";
 
 const env: NodeJS.ProcessEnv = {
@@ -244,13 +247,15 @@ describe("daily ranker publication", () => {
     }
   });
 
-  it("keeps AI provider outages red but defers invalid story output without failing the workflow", async () => {
+  it("publishes with rule-based scenes on AI outages but defers invalid story output without failing the workflow", async () => {
     setupWinningMatch("duo", ["winner"]);
     installApi();
-    state.aiError = "model transport unavailable";
-    const failed = await publishDailyRankerStory({ day: dayKst, mode: "duo", apply: false, env });
-    expect(failed).toMatchObject({ state: "failed", error: "model transport unavailable" });
-    expect(publicationExitCode(failed)).toBe(1);
+    state.aiError = "[429 Too Many Requests] quota exceeded";
+    const fallback = await publishDailyRankerStory({ day: dayKst, mode: "duo", apply: true, env });
+    expect(fallback).toMatchObject({ state: "published", aiFallback: true });
+    expect(state.inserted[0]).toMatchObject({ model: "deterministic-scene-fallback" });
+    expect(publicationExitCode(fallback)).toBe(0);
+    expect(formatPublicationSummary(fallback)).toContain("규칙 기반 장면 선택");
 
     reset();
     setupWinningMatch("duo", ["winner"]);
@@ -259,6 +264,16 @@ describe("daily ranker publication", () => {
     const deferred = await publishDailyRankerStory({ day: dayKst, mode: "duo", apply: false, env });
     expect(deferred).toMatchObject({ state: "no_complete_story" });
     expect(publicationExitCode(deferred)).toBe(0);
+  });
+
+  it("skips winners who requested a private profile before generating a story", async () => {
+    setupWinningMatch("duo", ["winner"]);
+    installApi();
+    state.rows.push({ key: "private_players_list", value: JSON.stringify([{ platform: "steam", nickname: "winner", lower_nickname: "winner" }]) });
+    const skipped = await publishDailyRankerStory({ day: dayKst, mode: "duo", apply: true, env });
+    expect(skipped).toMatchObject({ state: "no_verified_candidate" });
+    expect(state.aiCalls).toBe(0);
+    expect(state.inserted).toHaveLength(0);
   });
 
   it("treats a concurrent same-mode 23505 as success, but reports a match collision from another day", async () => {
@@ -309,16 +324,25 @@ describe("daily ranker publication", () => {
     expect(rankPublicationCandidates([item("z", ["opening", "combat", "finish"]), item("a", ["opening", "combat", "finish", "movement"]), item("missing", ["opening", "combat", "movement"])]).map(({ evidence }) => evidence.matchId))
       .toEqual(["a", "z"]);
     expect(recentKstStart(dayKst)).toBe("2026-09-16");
+    const full = ["opening", "combat", "finish", "movement"];
+    const featured = (matchId: string, kills: number, recentPlayer: boolean, kinds = ["opening", "combat", "finish"]) =>
+      ({ ...item(matchId, kinds), evidence: { matchId, playedAt: "2026-09-23T00:00:00Z", kills }, recentPlayer });
+    expect(rankPublicationCandidates([featured("low", 1, false, full), featured("recent", 9, true, full), featured("fresh", 4, false)])
+      .map(({ evidence }) => evidence.matchId)).toEqual(["fresh", "recent", "low"]);
+    expect([...recentAccountIds([{ account_id: "a", day_kst: "2026-09-21" }, { account_id: "b", day_kst: "2026-09-18" },
+      { account_id: "c", day_kst: dayKst }], dayKst)]).toEqual(["a"]);
     expect(publicationRepeatCount([{ account_id: "account.a", map_name: "미라마" }, { account_id: "other", map_name: "에란겔" }], { accountId: "account.a", mapName: "에란겔" } as any)).toBe(2);
     expect(["solo", "duo", "squad"].map((mode) => fallbackLeaderboardMode(mode as "solo" | "duo" | "squad"))).toEqual(["duo", "squad", "duo"]);
     expect(isRateLimited({ response: { status: "429" } })).toBe(true);
   });
 
   it("retains generated metadata, indexed facts, and leaderboard provenance", () => {
-    const evidence = { facts: [{ id: "f1", sourceIndices: [7] }] } as any;
+    const evidence = { facts: [{ id: "f1", sourceIndices: [7], kind: "landing", timeSeconds: 70, text: "착지" }], route: [], zones: [], killEvents: [], teamKillEvents: [],
+      weapons: [], limitations: [], mapName: "미라마", nickname: "Winner", mode: "duo", kills: 0, damage: 0, teamKills: 0 } as any;
     const aiStory = { schemaVersion: 2, evidenceVersion: 5, promptVersion: "scene-v1", selection: { usedFallback: false, rejectedReasons: [] }, scenes: [{ id: "1" }, { id: "2" }, { id: "3" }] } as any;
     const story = buildStoredStory(aiStory, evidence, { leaderboardObservedAt: "2026-09-23T00:00:00Z", leaderboardSeason: "s1", leaderboardSource: "board" });
     expect(story).toMatchObject({ schemaVersion: 2, evidenceVersion: 5, promptVersion: "scene-v1", sceneCount: 3, leaderboardSource: "board" });
     expect(story.facts[0].sourceIndices).toEqual([7]);
+    expect(story.headline).toMatch(/^미라마 · /);
   });
 });
