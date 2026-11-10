@@ -75,7 +75,9 @@ export function referenceUpdateGroup(data: ReferenceAdminData, kind: ReferenceKi
 
 export function comboUpdateGroup(data: MayhemDatasetAdminData): UpdateGroup {
   const summary = [...data.releases].sort((a, b) => b.id - a.id)[0]?.metadata.archiveSummary;
-  const rows = newest(data.releases.map(row => ({
+  // 공개는 현재 공식 패치만 받으므로, 더 새 패치가 공개된 뒤 남은 지난 패치 후보는 적용 대상에서 뺀다.
+  const latestPatch = [...data.releases.map(row => row.verified_client_patch), ...data.publications.map(pub => pub.client_patch)].sort(compareReferencePatches)[0];
+  const rows = newest(data.releases.filter(row => row.verified_client_patch === latestPatch).map(row => ({
     id: row.id, patch: row.verified_client_patch, subject: "증강 조합 전체", status: row.status, fetchedAt: row.fetched_at,
     sourceDate: row.metadata.sourceStatsDate ?? "미제공", amount: row.metadata.combos ?? 0,
     blocked: row.metadata.unknown_count ? `증강 ${row.metadata.unknown_count}개의 이름을 먼저 연결해야 합니다.` : "",
