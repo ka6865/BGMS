@@ -12,8 +12,8 @@ import { shouldLoadExternalAdScripts } from '@/lib/ads/statsAdPlacements';
 export default function SidebarFooterWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   
-  // 메인 홈(/) 또는 상세 지도(/maps/...) 경로인 경우 지도 레이아웃으로 간주
-  const isMapPage = pathname === '/' || pathname.startsWith('/maps/');
+  // 상세 지도(/maps/...) 경로인 경우 지도 레이아웃으로 간주
+  const isMapPage = pathname.startsWith('/maps/');
   // 3D 리플레이 경로인 경우 (헤더/하단바가 없으므로 전체화면 레이아웃)
   const isReplayPage = pathname.startsWith('/replay/');
   // 어드민 도구는 앱 화면처럼 동작하므로 공용 푸터를 붙이지 않는다.
@@ -21,7 +21,8 @@ export default function SidebarFooterWrapper({ children }: { children: React.Rea
   const isSupportPage = pathname === '/support' || pathname.startsWith('/support/');
   const isAdminSupportPage = pathname === '/admin/support' || pathname.startsWith('/admin/support/');
   const isLolPage = pathname === "/lol" || pathname.startsWith("/lol/");
-  const isAdFreePage = isAdminToolPage || isSupportPage || isLolPage;
+  // 홈 허브는 내용이 자리 잡을 때까지 광고를 싣지 않는다.
+  const isAdFreePage = pathname === '/' || isAdminToolPage || isSupportPage || isLolPage;
 
   return (
     <>

@@ -22,11 +22,10 @@ describe("SEO 메타데이터 계약", () => {
     expect(read("app/weapons/page.tsx")).not.toMatch(/generateMetadata|getTabSeo/);
   });
 
-  it("사이트맵은 이동하는 루트 대신 실제 페이지를 싣는다", async () => {
+  it("사이트맵은 홈 허브와 실제 페이지를 싣는다", async () => {
     const { default: sitemap } = await import("@/app/sitemap");
     const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname);
-    expect(urls).not.toContain("/");
-    expect(urls).toEqual(expect.arrayContaining(["/maps/erangel", "/rankings", "/crates", "/board", "/stats"]));
+    expect(urls).toEqual(expect.arrayContaining(["/", "/maps/erangel", "/rankings", "/crates", "/board", "/stats"]));
     expect(urls).not.toContain("/meta");
   });
 
@@ -36,8 +35,8 @@ describe("SEO 메타데이터 계약", () => {
     expect(redirects).toContainEqual({ source: "/meta", destination: "/weapons", permanent: true });
   });
 
-  it("루트는 영구 이동하고 개발·관리 화면은 검색에서 제외한다", () => {
-    expect(read("app/page.tsx")).not.toMatch(/\bredirect\(/);
+  it("루트는 홈 허브를 렌더링하고 개발·관리 화면은 검색에서 제외한다", () => {
+    expect(read("app/page.tsx")).not.toMatch(/\bredirect\(|permanentRedirect\(['"`]\/maps\/erangel['"`]\)/);
     for (const dir of ["test-coordinate", "map-editor"]) {
       expect(read(`app/${dir}/layout.tsx`)).toContain("robots: { index: false, follow: false }");
     }

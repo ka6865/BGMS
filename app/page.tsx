@@ -1,4 +1,12 @@
+import type { Metadata } from 'next';
+import HomeHub from '@/components/home/HomeHub';
 import { permanentRedirect } from 'next/navigation';
+
+export const metadata: Metadata = {
+  title: { absolute: 'BGMS | 배틀그라운드·리그 오브 레전드 전적과 전술 정보' },
+  description: '배틀그라운드 지도·AI 전적 분석·랭킹과 리그 오브 레전드 증바람 증강 정보를 한곳에서 확인하세요.',
+  alternates: { canonical: '/' },
+};
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   const s = await searchParams;
@@ -32,10 +40,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ [
     }
   }
 
-  //  [기본 동작] 루트 접속 시 에란겔 맵으로 영구 이동한다. 검색엔진이 지도 주소를 대표 주소로 쓰게 한다.
-  if (queryString) {
-    permanentRedirect(`/maps/erangel${queryString}`);
-  }
-  permanentRedirect('/maps/erangel');
+  // 쿼리만 있는 루트(광고 추적 값 등)도 홈 허브를 보여 준다.
+  return <HomeHub />;
 }
-

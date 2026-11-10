@@ -25,7 +25,7 @@ export default async function MapPage({ params }: { params: Promise<{ mapId: str
 
   const jsonLd: JsonLdProps[] = [
     getBreadcrumbJsonLd([
-      { name: "지도", item: "/" },
+      { name: "홈", item: "/" },
       { name: formattedId, item: `/maps/${formattedId.toLowerCase()}` }
     ]) as JsonLdProps
   ];
