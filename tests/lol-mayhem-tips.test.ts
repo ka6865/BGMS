@@ -159,3 +159,18 @@ describe("댓글 입력", () => {
     expect(parseMayhemTipCommentInput({ tipId: 1, body: "a", anonymous: "y" })).toBeNull();
   });
 });
+
+describe("제보 아이템 목록", () => {
+  it("칼바람 완성 아이템만 이름마다 하나씩, 아수라장 전용 변형 번호는 남기고 예전 칼바람 번호는 뺀다", async () => {
+    const { selectMayhemTipItems } = await import("@/lib/lol/mayhemTips");
+    const item = (name: string, maps: Record<string, boolean>, total = 3000, extra = {}) => ({ name, image: { full: "x.png" }, maps, gold: { total, purchasable: true }, tags: [], ...extra });
+    const json = { data: {
+      "3084": item("강철심장", { 11: true, 12: true }), "223084": item("강철심장", { 12: true, 30: true }, 2500),
+      "773089": item("라바돈의 죽음모자", { 12: true }), "3089": item("라바돈의 죽음모자", { 11: true, 12: true }),
+      "994403": item("황금 뒤집개", { 12: true }, 2500), "4403": item("황금 뒤집개", {}, 7187),
+      "226668": item("궁극의 히드라", { 12: true }, 6000), "773172": item("서풍", { 12: true }), "223031": item("무한의 대검", { 30: true }, 2500),
+      "1001": item("장화", { 12: true }, 300, { tags: ["Boots"] }), "3020": item("마법사의 신발", { 12: true }, 1100, { tags: ["Boots"] }),
+    } };
+    expect(selectMayhemTipItems(json).map(i => i.id)).toEqual([3084, 226668, 3089, 994403, 3020]);
+  });
+});

@@ -1,8 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
-import { classifyLolItems } from "./championStats";
-import { MAYHEM_TIP_LIMITS, type MayhemTip, type MayhemTipComment, type MayhemTipCommentInput, type MayhemTipInput, type MayhemTipItem, type MayhemTipKind, type MayhemTipSort } from "./mayhemTips";
+import { MAYHEM_TIP_LIMITS, selectMayhemTipItems, type MayhemTip, type MayhemTipComment, type MayhemTipCommentInput, type MayhemTipInput, type MayhemTipItem, type MayhemTipKind, type MayhemTipSort } from "./mayhemTips";
 
 const signal = () => AbortSignal.timeout(10_000);
 const table = "lol_mayhem_combo_tips";
@@ -33,18 +32,11 @@ async function toTips(rows: Row[], viewer: string | null): Promise<MayhemTip[]> 
   }));
 }
 
-// 칼바람 맵(12)에서 살 수 있는 완성 아이템과 신발만 제보에 고를 수 있다.
 export const getMayhemTipItems = unstable_cache(async (version: string): Promise<MayhemTipItem[]> => {
   const response = await fetch(`https://ddragon.leagueoflegends.com/cdn/${version}/data/ko_KR/item.json`, { cache: "no-store", redirect: "error", signal: signal() });
   if (!response.ok) throw new Error("mayhem_tip_items_unavailable");
-  const json = await response.json() as { data?: Record<string, { name?: string; image?: { full?: string }; maps?: Record<string, boolean> }> };
-  const meta = classifyLolItems(json);
-  return Object.entries(json.data ?? {}).flatMap(([key, item]) => {
-    const id = Number(key), kind = meta[id];
-    if (!kind || !(kind.final || kind.boots) || item.maps?.["12"] !== true || !item.name || !item.image?.full) return [];
-    return [{ id, name: item.name.replace(/<[^>]*>/g, ""), image: item.image.full, boots: kind.boots }];
-  }).sort((a, b) => Number(a.boots) - Number(b.boots) || a.name.localeCompare(b.name, "ko"));
-}, ["lol-mayhem-tip-items-v1"], { revalidate: 21600 });
+  return selectMayhemTipItems(await response.json());
+}, ["lol-mayhem-tip-items-v2"], { revalidate: 21600 });
 
 export async function listMayhemTips(patch: string, champion: number | "common" | null, kind: MayhemTipKind | null, sort: MayhemTipSort, offset: number, viewer: string | null): Promise<{ rows: MayhemTip[]; total: number }> {
   let query = createServiceRoleSupabase().from(table).select(columns, { count: "exact" }).eq("status", "published").eq("client_patch", patch);
