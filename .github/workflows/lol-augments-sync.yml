@@ -57,4 +57,20 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' && "$INGEST_DRY_RUN" != 'false' ]]; then args+=(--dry-run); fi
           if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' && "$INGEST_FORCE" == 'true' ]]; then args+=(--force); fi
           if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' && "$INGEST_ICONS_ONLY" == 'true' ]]; then args+=(--icons-only); fi
-          npx tsx scripts/lol_augments_ingest.ts "${args[@]}"
+          npx tsx scripts/lol_augments_ingest.ts "${args[@]}" | tee "$RUNNER_TEMP/augments-ingest.log"
+      # 새 패치 증강 도감은 관리자가 승인해야 공개되고, 그 전에는 증바람 조합·통계도 새 패치로 공개되지 않는다.
+      # 공개 전까지 매일 한 번 알린다.
+      - name: Notify Pending Review
+        if: ${{ success() && github.event_name == 'schedule' }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          APP_URL: ${{ vars.APP_URL }}
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/augments-ingest.log"
+          if [ -z "$DISCORD_WEBHOOK_URL" ] || [ ! -f "$log" ] || grep -q '"skipped": "already_published"' "$log"; then exit 0; fi
+          patch=$(grep -oE '"patch": "[0-9]+\.[0-9]+"' "$log" | head -1 | cut -d'"' -f4)
+          if [ -z "$patch" ]; then exit 0; fi
+          MESSAGE=$(printf '🆕 **LoL 증강 도감 %s 승인 대기**\n관리자 화면에서 검토·공개해야 증바람 조합·챔피언 통계·순위가 새 패치로 공개됩니다.\n공개 전까지 매일 알립니다.\n\n검토 화면: %s/admin/lol/augments' "$patch" "${APP_URL:-https://bgms.kr}")
+          jq -n --arg content "$MESSAGE" '{content: $content, allowed_mentions: {parse: []}}' \
+            | curl --connect-timeout 10 --max-time 30 -fsS -X POST "$DISCORD_WEBHOOK_URL" -H "Content-Type: application/json" --data @-
