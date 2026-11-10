@@ -3,7 +3,7 @@ import LolStatusBanner from "@/components/lol/LolStatusBanner";
 import LolHeader from "@/components/lol/LolHeader";
 import LolFooter from "@/components/lol/LolFooter";
 import type { Metadata } from "next";
-import { requireLolPublicPage } from "@/lib/lol/publicAccess.server";
+import { lolRiotDataPublic, requireLolPublicPage } from "@/lib/lol/publicAccess.server";
 import { lolMastersPublic } from "@/lib/lol/ranking";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export default function LolPublicLayout({ children }: Readonly<{ children: React
   requireLolPublicPage();
   // 내용이 짧은 페이지(빈 검색·서버 상태·404)에서도 LoL 푸터가 화면 아래에 붙도록 본문을 늘린다.
   return <div className="flex h-full min-h-0 flex-1 flex-col bg-zinc-950">
-    <LolHeader mastersEnabled={lolMastersPublic()} />
+    <LolHeader mastersEnabled={lolMastersPublic()} riotLocked={!lolRiotDataPublic()} />
     <Suspense fallback={null}><LolStatusBanner /></Suspense>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex-1">{children}</div>

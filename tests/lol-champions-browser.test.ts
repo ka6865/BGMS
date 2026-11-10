@@ -9,11 +9,13 @@ import puppeteer, { type Browser } from "puppeteer";
 import type { LolChampion } from "../lib/lol/champions";
 
 const stubs: Plugin = { name: "champions-fixture", setup(builder) {
-  builder.onResolve({ filter: /^(server-only|next\/link|next\/navigation|@\/lib\/lol\/(publicAccess|status|champions|championStats|riotSearch)\.server)$/ }, args => ({ path: args.path, namespace: "fixture" }));
+  builder.onResolve({ filter: /^(server-only|next\/link|next\/navigation|next\/headers|@\/lib\/lol\/previewAccess|@\/lib\/lol\/(publicAccess|status|champions|championStats|riotSearch)\.server)$/ }, args => ({ path: args.path, namespace: "fixture" }));
   builder.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ loader: "tsx", resolveDir: process.cwd(), contents:
     args.path === "next/link" ? "export default ({ children, ...props }) => <a {...props}>{children}</a>;"
       : args.path === "next/navigation" ? "export const usePathname = () => globalThis.__lolFixturePath ?? null; export const notFound = () => { throw new Error('NOT_FOUND'); };"
-      : args.path.includes("publicAccess") ? "export const requireLolPublicPage = () => {};"
+      : args.path.includes("publicAccess") ? "export const requireLolPublicPage = () => {}; export const lolRiotDataPublic = () => true;"
+      : args.path === "next/headers" ? "export const cookies = async () => ({ get: () => undefined });"
+      : args.path.includes("previewAccess") ? "export const LOL_PREVIEW_COOKIE = 'bgms_lol_preview'; export const hasLolRiotAccess = () => true;"
         : args.path.includes("status.server") ? "export const getLolPlatformStatus = async () => ({ available: true, stale: false, fetchedAt: new Date().toISOString(), items: [] });"
           : args.path.includes("championStats.server") ? `export const getLolChampionStats = async () => globalThis.__lolStats;
             export const getLolChampionDetailStats = async () => globalThis.__lolDetail;`
