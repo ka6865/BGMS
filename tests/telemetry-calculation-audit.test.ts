@@ -10,16 +10,17 @@ import { calcBenchmarkScoreDetails, type MatchTierInput } from '@/lib/pubg-analy
 import { deriveSquadRecoveryStatsFromTimeline } from '@/lib/pubg-analysis/squadRecoveryStats';
 import type { TimelineEvent } from '@/lib/pubg-analysis/types';
 
-function positionSetup() {
+// 위치 샘플은 15초가 지나면 현재 위치로 보지 않는다(계산 6). 기본 생성 시각은 표본 시각(200초) 직전이다.
+function positionSetup(createdAt=190000, players:readonly (readonly [string,number])[]=[['me',10000],['alpha',30000],['beta',50000],['enemy',20000]]) {
   const names=new Set(['me','alpha','beta']), ids=new Set(['account.me','account.alpha','account.beta']);
   const engine=new AnalysisEngine('me','account.me',names,ids,new Set(),new Set(),'ours');
   const state=(engine as any).state;
   state.hasLanded=true;
   const handler=new PositionHandler(state);
-  for (const [name,x] of [['me',10000],['alpha',30000],['beta',50000],['enemy',20000]] as const) {
+  for (const [name,x] of players) {
     state.teamMapping.set(name,name==='enemy'?'enemy-roster':'ours');
     state.teamMapping.set(`account.${name}`,name==='enemy'?'enemy-roster':'ours');
-    handler.handleEvent({_T:'LogPlayerCreate',character:{name,accountId:`account.${name}`,location:{x,y:10000,z:0}}},0,0);
+    handler.handleEvent({_T:'LogPlayerCreate',character:{name,accountId:`account.${name}`,location:{x,y:10000,z:0}}},createdAt,createdAt);
     state.playerLocations.set(`account.${name}`,{x,y:10000,z:0});
   }
   const sample=(name:string,x:number,ts:number)=>handler.handleEvent({_T:'LogPlayerPosition',character:{name,accountId:`account.${name}`,location:{x,y:10000,z:0}}},ts,ts);
@@ -39,6 +40,29 @@ describe('telemetry formula audit regressions',()=>{
     expect(state.playerLocations.get('account.alpha').x).toBe(60000);
     expect(state.isolationData.minDist).toBe(500);
     expect(state.isolationData.isolationIndex).toBe(10);
+  });
+  it('does not measure isolation from teammate positions older than 15 seconds',()=>{
+    const {state,sample}=positionSetup(0);
+    sample('enemy',20000,199000);
+    sample('me',10000,200000);
+    expect(state.isolationSampleCount).toBe(0);
+    expect(state.isolationData.isolationIndex).toBeUndefined();
+  });
+  it('does not turn an unobserved enemy into a zero isolation sample',()=>{
+    const {state,sample}=positionSetup(190000,[['me',10000],['alpha',30000],['beta',50000]]);
+    sample('me',10000,200000);
+    expect(state.isolationSampleCount).toBe(0);
+  });
+  it('ignores a stale enemy position but keeps a fresh one',()=>{
+    const {state,sample}=positionSetup(0);
+    sample('alpha',30000,195000);
+    sample('beta',50000,195000);
+    sample('me',10000,200000);
+    expect(state.isolationSampleCount).toBe(0);
+    sample('enemy',20000,203000);
+    sample('me',10000,206000);
+    expect(state.isolationSampleCount).toBe(1);
+    expect(state.isolationData.isolationIndex).toBe(6);
   });
   it('does not penalize a measured zero-ms response more than a one-ms response',()=>{
     const input={survivalTime:1200,rankPct:.3,initiativeRate:0,counterLatencyMs:0} as MatchTierInput;

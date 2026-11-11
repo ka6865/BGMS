@@ -14,8 +14,8 @@ BEGIN
   next_benchmark := old_benchmark||'{"calculation_version":4,"damage":300}';
   BEGIN
     PERFORM public.upgrade_analysis_calculation('calc-v4-paired','steam','player_a',old_data,old_benchmark,
-      jsonb_set(next_result,'{calculationVersion}','6'),jsonb_set(next_benchmark,'{calculation_version}','6'));
-    RAISE EXCEPTION 'FAIL: unsupported calculation 6 accepted';
+      jsonb_set(next_result,'{calculationVersion}','7'),jsonb_set(next_benchmark,'{calculation_version}','7'));
+    RAISE EXCEPTION 'FAIL: unsupported calculation 7 accepted';
   EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
   IF NOT public.upgrade_analysis_calculation('calc-v4-paired','steam','player_a',old_data,old_benchmark,next_result,next_benchmark)
   THEN RAISE EXCEPTION 'FAIL: paired 3 to 4 rejected'; END IF;

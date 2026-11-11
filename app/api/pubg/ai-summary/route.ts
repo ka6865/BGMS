@@ -48,7 +48,9 @@ import {
   buildSummaryCardComparisonText,
   buildSummaryCards,
   CALCULATION_5_BENCHMARK_KEYS,
+  CALCULATION_6_BENCHMARK_KEYS,
   countPriorCalculationMatches,
+  countPriorPositionCalculationMatches,
   normalizeSummaryCardFinal,
   type SummaryCard,
 } from "@/lib/pubg-analysis/aiSummaryCards";
@@ -436,17 +438,22 @@ function observedVisualValue(value: unknown, round = false): number | string {
 }
 
 /**
- * 이전 계산 경기가 섞인 입력에서 계산 5 비교 지표의 비교 평균을 뺀 사본을 돌려준다.
- * 비교 평균은 계산 5 행만 쓰므로 개인 값이 계산 5 경기만으로 집계되지 않으면 비교할 수 없다.
+ * 이전 계산 경기가 섞인 입력에서 정의가 바뀐 비교 지표의 비교 평균을 뺀 사본을 돌려준다.
+ * 계산 5 지표 평균은 계산 5 이상, 위치 지표 평균은 계산 6 행만 쓰므로 개인 값도 같은 계산 경기만으로 집계돼야 비교할 수 있다.
  */
-function withoutCalculation5Benchmark(bench: ObservedBenchmark | null, priorCalculationMatchCount: number): ObservedBenchmark | null {
-  if (!bench || priorCalculationMatchCount <= 0) return bench;
+function withoutRedefinedMetricBenchmark(bench: ObservedBenchmark | null, matches: readonly unknown[]): ObservedBenchmark | null {
+  const gatedKeys = [
+    ...(countPriorCalculationMatches(matches) > 0 ? CALCULATION_5_BENCHMARK_KEYS : []),
+    // 고립 지수·최소 아군 거리 비교 평균은 계산 6 행만 쓰므로 계산 6 이전 경기가 섞이면 같이 뗀다.
+    ...(countPriorPositionCalculationMatches(matches) > 0 ? CALCULATION_6_BENCHMARK_KEYS : []),
+  ];
+  if (!bench || gatedKeys.length === 0) return bench;
   const gated: Record<string, any> = { ...bench };
-  for (const key of CALCULATION_5_BENCHMARK_KEYS) delete gated[key];
+  for (const key of gatedKeys) delete gated[key];
   for (const field of ["metricSampleCounts", "rawMetricValues"] as const) {
     if (!gated[field]) continue;
     const kept: Record<string, unknown> = { ...gated[field] };
-    for (const key of CALCULATION_5_BENCHMARK_KEYS) delete kept[key];
+    for (const key of gatedKeys) delete kept[key];
     gated[field] = kept;
   }
   return gated as ObservedBenchmark;
@@ -1407,7 +1414,7 @@ export async function POST(request: Request) {
       const tierBench = adaptObservedBenchmark(rawTierStats);
       // 이 모드 경기에 이전 계산 경기가 있으면 계산 5 비교 지표는 비교 평균을 붙이지 않는다. 개인 값은 그대로 쓴다.
       const groupPriorCount = countPriorCalculationMatches(gMatches);
-      const bench = withoutCalculation5Benchmark(tierBench, groupPriorCount);
+      const bench = withoutRedefinedMetricBenchmark(tierBench, gMatches);
       const benchmarkContext = {
         gameMode: benchmarkGameMode,
         matchType: dominantMatchType,
@@ -1524,10 +1531,9 @@ export async function POST(request: Request) {
     // 이전 계산 경기가 섞인 계산 5 비교 지표는 비교 평균을 보류한다. 주제 순위도 같은 기준을 써서
     // 계산 정의가 다른 값의 차이로 비교 주제를 고르지 않게 한다.
     const cardPriorCount = countPriorCalculationMatches(cardMatches);
-    const mainModePriorCount = countPriorCalculationMatches(mainModeMatches);
     const topicBench = useIdCards
-      ? withoutCalculation5Benchmark(cardBenchmark, cardPriorCount)
-      : withoutCalculation5Benchmark(mainBench, mainModePriorCount);
+      ? withoutRedefinedMetricBenchmark(cardBenchmark, cardMatches)
+      : withoutRedefinedMetricBenchmark(mainBench, mainModeMatches);
     const autoTopics = selectDebateTopics(useIdCards ? cardStats : mainModeStats, topicBench);
     userPrompt += `\n### [분석 집중 영역 (Debate Issues)]\n반드시 아래 3개 주제를 순서대로 다루어 주십시오:\n${autoTopics.map((t, i) => `${i + 1}. ${t}`).join(', ')}\n`;
 
@@ -1551,7 +1557,7 @@ export async function POST(request: Request) {
       };
     };
     const canonicalStats = useIdCards ? cardStats : mainModeStats;
-    const canonicalBench = withoutCalculation5Benchmark(mainBench, useIdCards ? cardPriorCount : mainModePriorCount);
+    const canonicalBench = withoutRedefinedMetricBenchmark(mainBench, useIdCards ? cardMatches : mainModeMatches);
     const mainTradeRate = calculateBoundedRate(canonicalStats.totalTradeKills, canonicalStats.totalTeammateKnocks);
     const mainSmokeOpportunityRate = calculateBoundedRate(canonicalStats.totalSmokeRescues, canonicalStats.totalTeammateKnocks);
     addCanonicalEvidence("damage_average", "평균 화력", canonicalStats.avgDamage, "동일 티어 평균 화력", canonicalBench?.avgDamage);
@@ -1599,7 +1605,7 @@ export async function POST(request: Request) {
         avgDamage: observedDamage.length > 0
           ? observedDamage.reduce((sum, damage) => sum + damage, 0) / observedDamage.length
           : null,
-      }, cardBenchmark), cardPriorCount);
+      }, cardBenchmark), cardPriorCount, countPriorPositionCalculationMatches(cardMatches));
       const rawModes = Array.from(new Set(cardMatches.map(normalizedMatchMode))).sort();
       const matchTypes = Array.from(new Set(cardMatches.map((match) => isCompetitiveMatch(match) ? "competitive" : "official"))).sort();
       const contextInput = {
@@ -1724,7 +1730,7 @@ export async function POST(request: Request) {
 
     const reactionTier = (lat: string) => lat === "측정 불가" ? "측정 불가" : "평가 보류";
     // 시각화의 백업 판정과 비교 표본 수도 카드·프롬프트와 같은 기준을 쓴다. 개인 값은 최근 10판(selectedMatches) 기준이다.
-    const visualBench = withoutCalculation5Benchmark(mainBench, countPriorCalculationMatches(selectedMatches));
+    const visualBench = withoutRedefinedMetricBenchmark(mainBench, selectedMatches);
     const backupContextForVisuals = buildBackupCoachingContext({
       avgBackupLatency,
       totalTradeKills,

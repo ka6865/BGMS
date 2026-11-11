@@ -215,7 +215,7 @@ describe("strict squad analysis population and scope",()=>{
     const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
     expect(a.benchmarkStats).toMatchObject({scope:'team_population',teamMode:'squad',sampleCount:833,avgReviveRate:36.3,avgTradeLatency:12300,tier:null});
     expect(teamChain.eq.mock.calls).toEqual(expect.arrayContaining([['team_mode','squad'],['observation_version',1]]));
-    expect(teamChain.in.mock.calls).toEqual([['calculation_version',[2,3,4,5]]]);
+    expect(teamChain.in.mock.calls).toEqual([['calculation_version',[2,3,4,5,6]]]);
   });
   it('combines the team benchmark across supported calculation versions when selected matches mix them',async()=>{
     // 팀 관측값(기절·소생·트레이드·연막)은 계산 2~5에서 산식이 같아 섞여도 비교한다.

@@ -237,18 +237,18 @@ export async function GET(request: Request) {
         .abortSignal(AbortSignal.timeout(HISTORICAL_LOOKUP_TIMEOUT_MS));
       if (cacheRowsError) throw cacheRowsError;
       const candidates = selectHistoricalMapCacheCandidates(cacheRows, baseIdentity, TELEMETRY_VERSION, HISTORICAL_MAP_CANDIDATE_LIMIT);
+      // 최신 후보의 객체가 없어도 이전 버전 후보가 정상이면 그것을 쓴다. 모두 실패했을 때만 없음으로 판정한다.
+      let missingObjectConfirmed = false;
       for (const candidate of candidates) {
         try {
           const cached = await readTelemetryMapCache(candidate.identity, cacheDeps);
           if (cached && cached.storagePath === candidate.storagePath) return responseFromCache(cached);
-          if (!cached && await downloadFromR2(candidate.storagePath) === null) {
-            return unavailableMatchDetailResponse();
-          }
+          if (!cached && await downloadFromR2(candidate.storagePath) === null) missingObjectConfirmed = true;
         } catch {
           // A stale or unreadable legacy object is a miss for this identity.
         }
       }
-      return null;
+      return missingObjectConfirmed ? unavailableMatchDetailResponse() : null;
     };
 
     if (historicalPlayerId) {

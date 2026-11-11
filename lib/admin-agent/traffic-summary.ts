@@ -144,7 +144,11 @@ export async function buildTrafficSummary(supabase: any, windowHours = 24): Prom
 
   const rows = (data || []) as AnalyticsEventRow[];
   const truncated = rows.length >= TRAFFIC_EVENT_ROW_LIMIT;
-  const profilesById = await fetchProfilesByUserId(supabase, rows);
+  const { profilesById, error: profilesError } = await fetchProfilesByUserId(supabase, rows);
+  // 역할을 확인하지 못하면 관리자 활동이 섞인 수치를 정상 집계로 내지 않는다.
+  if (profilesError) {
+    return buildUnavailableTrafficSummary(windowHours, `profiles: ${profilesError}`);
+  }
   const nonAdminRows = rows.filter((row) => !row.user_id || profilesById.get(row.user_id)?.role !== "admin");
   const currentRows = nonAdminRows.filter((row) => row.created_at >= currentSince);
   const previousRows = nonAdminRows.filter((row) => row.created_at < currentSince && row.created_at >= previousSince);
@@ -190,16 +194,16 @@ export function renderTrafficSummaryText(summary: TrafficSummary) {
 
 async function fetchProfilesByUserId(supabase: any, rows: AnalyticsEventRow[]) {
   const userIds = Array.from(new Set(rows.map((row) => row.user_id).filter(Boolean))) as string[];
-  if (!userIds.length) return new Map<string, AnalyticsUserProfile>();
+  if (!userIds.length) return { profilesById: new Map<string, AnalyticsUserProfile>(), error: null };
 
   const { data, error } = await supabase
     .from("profiles")
     .select("id, nickname, role, pubg_nickname")
     .in("id", userIds);
 
-  if (error) return new Map<string, AnalyticsUserProfile>();
+  if (error) return { profilesById: new Map<string, AnalyticsUserProfile>(), error: String(error.message || "unknown") };
   const entries = ((data || []) as AnalyticsUserProfile[]).map((profile) => [profile.id, profile] as const);
-  return new Map<string, AnalyticsUserProfile>(entries);
+  return { profilesById: new Map<string, AnalyticsUserProfile>(entries), error: null };
 }
 
 function summarizeRows(rows: AnalyticsEventRow[], profilesById: Map<string, AnalyticsUserProfile>): TrafficSummaryWindow {

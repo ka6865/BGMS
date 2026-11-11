@@ -77,7 +77,11 @@ describe('bounded legacy-team retention plan', () => {
     (value.artifacts[0].events[1] as any).character.location = { x: 0, y: 0, z: 0 };
     const position = { _T: 'LogPlayerPosition', _D: '2026-09-01T00:03:00.000Z',
       character: { accountId: 'account.target', name: 'Target', teamId: 7, location: { x: 20000, y: 0, z: 0 } } };
-    value.artifacts[0].events.splice(-1, 0, position as any);
+    // 고립 지수는 15초 안의 팀원·적 위치로만 잰다(계산 6). 두 원본 모두 같은 최근 위치를 갖고 내 위치만 다르다.
+    const recent = (accountId: string, name: string, teamId: number, x: number) => ({ _T: 'LogPlayerPosition', _D: '2026-09-01T00:02:55.000Z',
+      character: { accountId, name, teamId, location: { x, y: 0, z: 0 } } });
+    value.artifacts[0].events.splice(-1, 0, recent('account.alpha', 'Alpha', 7, 0) as any,
+      recent('account.enemy1', 'EnemyOne', 9, 60000) as any, position as any);
     const alternate = structuredClone(value.artifacts[0]);
     alternate.key = alternate.key.replace('_v62_', '_v61_'); alternate.sha256 = 'b'.repeat(64);
     (alternate.events.at(-2) as any).character.location.x = 40000;

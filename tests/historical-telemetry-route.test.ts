@@ -242,6 +242,29 @@ describe("historical telemetry route", () => {
     expect(mocks.readMap).not.toHaveBeenCalled();
   });
 
+  it("serves a valid older map when the newest ready map object is missing", async () => {
+    const oldVersion = TELEMETRY_VERSION - 1;
+    const oldIdentity = { ...identity, telemetryVersion: oldVersion };
+    const oldPath = buildTelemetryCacheKey(oldIdentity);
+    mocks.from.mockImplementation((table: string) => table === "telemetry_map_cache_entries"
+      ? query([mapRow(), mapRow({ telemetry_version: oldVersion, storage_path: oldPath })])
+      : table === "pubg_player_matches" ? query(playerMatchRow()) : query([]));
+    mocks.readMap.mockImplementation(async (requestIdentity: any) => requestIdentity.telemetryVersion === oldVersion ? {
+      downloadUrl: "https://r2.example/older-map",
+      payload: { identity: { matchId: MATCH, platform: "steam", playerKey: buildTelemetryPlayerKey(ACCOUNT), mode: "lite", telemetryVersion: oldVersion } },
+      storagePath: oldPath,
+    } : null);
+    mocks.downloadR2.mockResolvedValue(null);
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).downloadUrl).toBe("https://r2.example/older-map");
+    expect(mocks.readMap).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("falls back to upstream after a corrupt or missing map object", async () => {
     mocks.from.mockImplementation((table: string) => table === "telemetry_map_cache_entries" ? query([mapRow()])
       : table === "pubg_player_matches" ? query(playerMatchRow()) : query([]));

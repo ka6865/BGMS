@@ -217,3 +217,46 @@ export function normalizeReplayZoneEvents(events: readonly ReplayZoneEvent[]): Z
     };
   });
 }
+
+export type CarePackagePoint = {
+  relativeTimeMs: number;
+  x: number;
+  y: number;
+};
+
+/** 보급 상자 생성 뒤 이 시간 안의 착륙만 같은 상자로 본다. */
+export const CARE_PACKAGE_LANDING_WINDOW_MS = 120_000;
+
+/**
+ * 보급 상자 생성마다 착륙 이벤트를 하나씩 연결한다. 텔레메트리에 상자 식별자가 없으므로
+ * 생성 이후(이전 착륙은 제외) 120초 안의 아직 쓰지 않은 착륙 중 평면 거리가 가장 가까운 것을 고른다.
+ * 결과는 spawns와 같은 순서이며, 맞는 착륙이 없으면 null이다.
+ */
+export function matchCarePackageLandings<S extends CarePackagePoint, L extends CarePackagePoint>(
+  spawns: readonly S[],
+  lands: readonly L[],
+): (L | null)[] {
+  const matched: (L | null)[] = spawns.map(() => null);
+  const used = new Set<number>();
+  const spawnOrder = spawns.map((_, index) => index).sort((a, b) => spawns[a].relativeTimeMs - spawns[b].relativeTimeMs);
+  for (const spawnIndex of spawnOrder) {
+    const spawn = spawns[spawnIndex];
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    lands.forEach((land, landIndex) => {
+      if (used.has(landIndex)) return;
+      const delay = land.relativeTimeMs - spawn.relativeTimeMs;
+      if (delay < 0 || delay >= CARE_PACKAGE_LANDING_WINDOW_MS) return;
+      const distance = Math.hypot(land.x - spawn.x, land.y - spawn.y);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = landIndex;
+      }
+    });
+    if (bestIndex >= 0) {
+      used.add(bestIndex);
+      matched[spawnIndex] = lands[bestIndex];
+    }
+  }
+  return matched;
+}

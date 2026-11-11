@@ -16,6 +16,8 @@ import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 export const MAX_SESSION_PAYLOAD_BYTES = 16 * 1024;
 export const SESSION_QUOTA_MAX_EVENTS = 12;
 export const SESSION_QUOTA_WINDOW_SECONDS = 600;
+/** 같은 호출원(IP)이 session_id를 바꿔 보내도 넘을 수 없는 총량. PC방처럼 IP를 공유하는 환경을 감안한 여유값이다. */
+export const CALLER_QUOTA_MAX_EVENTS = 120;
 
 /** event_timeline 에 허용하는 최대 항목 수. 클라이언트 상한과 같아야 한다. */
 export const MAX_TIMELINE_ENTRIES = 40;

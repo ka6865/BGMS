@@ -31,16 +31,18 @@ export async function POST() {
 
     // 1. 현재 사용자 세션 확인: 웹 쿠키 세션과 모바일 Bearer 토큰을 모두 지원합니다.
     const headerStore = await headers();
-    const bearerToken = getBearerToken(headerStore.get('authorization'));
+    const authorization = headerStore.get('authorization');
+    const bearerToken = getBearerToken(authorization);
     let user: { id: string } | null = null;
     let supabase: Awaited<ReturnType<typeof createClient>> | null = null;
 
+    // Authorization 헤더를 보냈다면 그 토큰만 인정한다. 비었거나 형식이 틀려도 쿠키 계정으로 대신 탈퇴하지 않는다.
     if (bearerToken) {
       const { data, error } = await adminClient.auth.getUser(bearerToken);
       if (!error && data.user) {
         user = data.user;
       }
-    } else {
+    } else if (authorization === null) {
       supabase = await createClient();
       const { data, error } = await supabase.auth.getUser();
       if (!error && data.user) {

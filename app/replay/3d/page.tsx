@@ -31,6 +31,7 @@ import {
 import {
   getActiveDeathTime,
   getReplayMaxTime,
+  matchCarePackageLandings,
   normalizeReplayZoneEvents,
   sampleTerrainHeight,
   shouldMarkPlayerDeadFromHealth,
@@ -525,9 +526,9 @@ function Replay3DContent() {
       const cpLands = events.filter((ev: any) => ev.type === "carepackage_land");
       
       const parsedCarePackages: any[] = [];
+      const cpLandMatches = matchCarePackageLandings(cpSpawns, cpLands);
       cpSpawns.forEach((spawn: any, idx: number) => {
-        // 동일 혹은 가장 가까운 랜드 이벤트를 검색 (약 120초 이내 범위)
-        const land = cpLands.find((l: any) => Math.abs(l.relativeTimeMs - spawn.relativeTimeMs) < 120000);
+        const land: any = cpLandMatches[idx];
         parsedCarePackages.push({
           id: idx,
           spawnTimeMs: spawn.relativeTimeMs,

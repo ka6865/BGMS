@@ -20,7 +20,7 @@ import { MapReplayHandler } from './handlers/MapReplayHandler';
 import { getBenchmarkTier } from './benchmarkScore';
 import { MAP_SIZES } from './constants';
 import { hasObservedBenchmarkMetric, type ObservedBenchmark } from './benchmarkAdapter';
-import { isBotParticipant } from './botShare';
+import { humanDamageRankPct, isBotParticipant } from './botShare';
 import { MatchReportCollector } from './matchReport';
 import { summarizeRescueEpisodes } from './handlers/rescueEpisodes';
 
@@ -379,8 +379,8 @@ export class AnalysisEngine {
     const totalTeamKills = stats.reduce((sum, s) => sum + (s?.kills || 0), 0);
 
     const humanParticipants = participants.filter((p: any) => !isBotParticipant(p));
-    const sortedByDamage = [...humanParticipants].map(p => p.attributes?.stats).filter(Boolean).sort((a, b) => b.damageDealt - a.damageDealt);
-    const damageRank = sortedByDamage.findIndex((s: any) => normalizeName(s.name) === this.state.lowerNickname) + 1 || 1;
+    // 전적 화면 등급과 같은 함수로 딜량 순위를 구한다(동점은 동점자 중 가장 낮은 순위).
+    const damageRankPct = humanDamageRankPct(participants, this.state.lowerNickname);
 
     const observedEliteBenchmark: ObservedBenchmark | null = eliteBenchmark
       && typeof eliteBenchmark === "object"
@@ -639,7 +639,7 @@ export class AnalysisEngine {
       roadKnocks: this.state.roadKnocks,
 
       benchmark: getBenchmarkTier({
-        rankPct: damageRank / Math.max(1, humanParticipants.length),
+        rankPct: damageRankPct,
         survivalTime: myStats.timeSurvived || 0,
         initiativeRate: initiativeRate ?? -1,
         counterLatencyMs: avgReactLat ?? -1,

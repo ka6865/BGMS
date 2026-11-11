@@ -27,6 +27,10 @@ MIGRATIONS=(
   "20260730203000_tighten_service_data_write_policies"
   "20260730204500_discord_room_rate_limit"
   "20260730210000_pubg_response_cache"
+  "20260730220000_weapon_patch_version_tracking"
+  "20260730230000_fix_weapon_patch_revert_applied_at"
+  "20260731050000_fix_rejected_proposal_status"
+  "20260731060000_weapon_patch_removal"
   "20260731100000_prevent_profile_role_escalation"
   "20260804000000_optimize_player_cache_compaction"
   "20260819115023_profile_linked_pubg_auto_sync"
@@ -156,6 +160,8 @@ MIGRATIONS=(
   "20261110120000_daily_ranker_story_display_update"
   "20261111120000_lol_mayhem_combo_tips"
   "20261111150000_lol_mayhem_offer_rules"
+  "20261111200000_restore_weapon_patch_revert_applied_at"
+  "20261111200100_analysis_calculation_v6"
 )
 
 cleanup() {
@@ -265,6 +271,7 @@ for migration in "${MIGRATIONS[@]}"; do
 done
 
 echo "▶ RPC 동작 시나리오 실행"
+"${PSQL[@]}" -f tests/fixtures/migration-check/weapon-patch-revert-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/weapon-meta-alias-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/daily-ranker-stories-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-mayhem-combo-tips-scenarios.sql
@@ -475,6 +482,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v3-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v4-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v5-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v6-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/counter-latency-split-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/first-reply-evidence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/benchmark-cohort-scenarios.sql

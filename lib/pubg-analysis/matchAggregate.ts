@@ -4,7 +4,7 @@
  * AI 전적 요약 라우트와 칭호 기준 재산출 스크립트(scripts/recalibrate_role_reference.ts)가 같은 함수를 쓴다.
  * 라우트에서 옮긴 동작 불변 이동이며, 집계 규칙을 바꾸면 두 소비자가 함께 바뀐다.
  */
-import { ANALYSIS_CALCULATION_VERSION, WEAPON_NAMES } from "./constants";
+import { COMBAT_ATTRIBUTION_CALCULATION_VERSION, WEAPON_NAMES } from "./constants";
 import { firstReplyFailureRate, firstReplyLatencyMs } from "./firstReply";
 
 /** 경기의 모드 문자열(소문자, 공백 제거). 라우트의 모드 분류와 같은 필드 순서를 쓴다. */
@@ -327,7 +327,7 @@ export function aggregateMatches(matches: any[]) {
     }
     totalTeamWipes += coerceNonNegativeNumber(m.tradeStats?.enemyTeamWipes);
     if (Number(m.stats?.winPlace) === 1) totalWins++;
-    if (Number(m.calculationVersion) === ANALYSIS_CALCULATION_VERSION) {
+    if (Number(m.calculationVersion) >= COMBAT_ATTRIBUTION_CALCULATION_VERSION) {
       totalTeamWipesCalc5 += coerceNonNegativeNumber(m.tradeStats?.enemyTeamWipes);
     }
 
