@@ -8,6 +8,10 @@ vi.mock("@/utils/supabase/server", () => ({
   }),
 }));
 
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/lol/champions.server", () => ({ getLolChampions: async () => ({ version: "16.22.1", champions: [{ id: 157, imageId: "Yasuo", name: "야스오" }] }) }));
+vi.mock("@/lib/lol/mayhemTips.server", () => ({ listMayhemTipSitemap: async () => [{ id: 7, kind: "tip", comment_count: 0, created_at: "2026-11-10T00:00:00Z", updated_at: null }] }));
+
 const read = (path: string) => readFileSync(resolve(path), "utf8");
 
 describe("SEO 메타데이터 계약", () => {
@@ -40,5 +44,26 @@ describe("SEO 메타데이터 계약", () => {
     for (const dir of ["test-coordinate", "map-editor"]) {
       expect(read(`app/${dir}/layout.tsx`)).toContain("robots: { index: false, follow: false }");
     }
+  });
+
+  it("LoL 공개 시 증바람 본 화면·챔피언별·제보 글만 사이트맵에 싣는다", async () => {
+    const { default: sitemap } = await import("@/app/sitemap");
+    expect((await sitemap()).map((entry) => new URL(entry.url).pathname).filter((path) => path.startsWith("/lol"))).toEqual([]);
+    vi.stubEnv("LOL_PUBLIC_ENABLED", "true");
+    vi.stubEnv("LOL_MAYHEM_TIPS_ENABLED", "true");
+    try {
+      const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname).filter((path) => path.startsWith("/lol"));
+      expect(urls).toEqual(["/lol/kr/aram-mayhem", "/lol/kr/aram-mayhem/champions/yasuo", "/lol/kr/aram-mayhem/tips/7"]);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it("증바람 메타데이터는 LoL 레이아웃의 검색 제외를 덮어쓰고 답변 없는 질문만 제외한다", async () => {
+    const { mayhemMetadata } = await import("@/lib/lol/mayhemSeo");
+    const meta = mayhemMetadata("t", "d", "/lol/kr/aram-mayhem");
+    expect(meta.robots).toEqual({ index: true, follow: true });
+    expect(meta.alternates?.canonical).toBe("/lol/kr/aram-mayhem");
+    expect(mayhemMetadata("t", "d", "/x", false).robots).toEqual({ index: false, follow: true });
+    expect(read("app/lol/kr/aram-mayhem/tips/[id]/page.tsx")).toContain("!question || tip.comments > 0");
+    expect(read("app/lol/kr/aram-mayhem/tips/[id]/page.tsx")).toContain('.replace(/</g, "\\\\u003c")');
   });
 });

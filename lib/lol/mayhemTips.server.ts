@@ -50,6 +50,22 @@ export async function listMayhemTips(patch: string, champion: number | "common" 
   return { rows: await toTips(data as Row[], viewer), total: count ?? 0 };
 }
 
+// 공개 상세 화면은 패치와 관계없이 게시 중인 글만 보여준다.
+export async function getMayhemTip(id: number): Promise<{ tip: MayhemTip; patch: string } | null> {
+  const { data, error } = await createServiceRoleSupabase().from(table).select(`${columns},client_patch`).eq("id", id).eq("status", "published").abortSignal(signal()).maybeSingle();
+  if (error) throw new Error("mayhem_tips_unavailable");
+  if (!data) return null;
+  return { tip: (await toTips([data as Row], null))[0], patch: (data as { client_patch: string }).client_patch };
+}
+
+// 질문은 답변이 달린 것만 사이트맵에 싣는다.
+export async function listMayhemTipSitemap(limit = 1000): Promise<{ id: number; kind: MayhemTipKind; comment_count: number; created_at: string; updated_at: string | null }[]> {
+  const { data, error } = await createServiceRoleSupabase().from(table).select("id,kind,comment_count,created_at,updated_at").eq("status", "published")
+    .order("created_at", { ascending: false }).limit(limit).abortSignal(signal());
+  if (error) throw new Error("mayhem_tips_unavailable");
+  return data.filter(row => row.kind === "tip" || row.comment_count > 0);
+}
+
 const fields = (input: MayhemTipInput) => ({ kind: input.kind, champion_id: input.championId, augment_ids: input.augmentIds, item_ids: input.itemIds, summary: input.summary, usage: input.usage, anonymous: input.anonymous });
 
 export async function createMayhemTip(userId: string, patch: string, input: MayhemTipInput): Promise<MayhemTip | "daily_limit"> {

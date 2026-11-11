@@ -19,10 +19,10 @@ export function ChampionPortrait({ champion, version, size }: { champion: LolCha
     : <span aria-hidden="true" className="shrink-0 rounded-lg bg-zinc-800" style={{ width: size, height: size }} />;
 }
 
-export default function LolMayhemChampionStats({ enabled = false, patch, champions, catalog, championVersion = null, itemsEnabled = false, championTiers = null }: {
-  enabled?: boolean; patch: string; champions: LolChampion[]; catalog: LolMayhemCatalog; championVersion?: string | null; itemsEnabled?: boolean; championTiers?: MayhemChampionTiers|null;
+export default function LolMayhemChampionStats({ enabled = false, patch, champions, catalog, championVersion = null, itemsEnabled = false, championTiers = null, initialChampionId }: {
+  enabled?: boolean; patch: string; champions: LolChampion[]; catalog: LolMayhemCatalog; championVersion?: string | null; itemsEnabled?: boolean; championTiers?: MayhemChampionTiers|null; initialChampionId?: number;
 }) {
-  const [championId, setChampionId] = useState(String(champions.find(champion => champion.id === 29)?.id ?? champions[0]?.id ?? ""));
+  const [championId, setChampionId] = useState(String(champions.find(champion => champion.id === (initialChampionId ?? 29))?.id ?? champions[0]?.id ?? ""));
   const [detailView, setDetailView] = useState<"augments" | "items" | "history">(enabled ? "augments" : "items");
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerToggle = useRef<HTMLButtonElement>(null);
