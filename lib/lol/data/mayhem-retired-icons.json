@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 1,
+  "clientPatch": "16.21",
+  "source": "arammayhem.com",
+  "capturedAt": "2026-11-05",
+  "images": [
+    {
+      "externalId": "bounce_of_the_poro_king",
+      "name": "포로 왕의 바운스",
+      "pageUrl": "https://arammayhem.com/augments/bounce-of-the-poro-king/",
+      "imageUrl": "https://arammayhem.com/augments/Bounce_of_the_Poro_King_mayhem_augment.webp",
+      "hash": "0f48bdb9bf6383938e3fdfef9827c01780617f9cdb2584662a85bba3bb93a710",
+      "bytes": 8098
+    },
+    {
+      "externalId": "buff_buddies",
+      "name": "쌍버프",
+      "pageUrl": "https://arammayhem.com/augments/buff-buddies/",
+      "imageUrl": "https://arammayhem.com/augments/Buff_Buddies_mayhem_augment.webp",
+      "hash": "ec42aa8c5d1ba1f364320610638954269986b30c6e18d34be5ffe2326f57f4d7",
+      "bytes": 6328
+    },
+    {
+      "externalId": "cerberus",
+      "name": "케르베로스",
+      "pageUrl": "https://arammayhem.com/augments/cerberus/",
+      "imageUrl": "https://arammayhem.com/augments/Cerberus_mayhem_augment.webp",
+      "hash": "bd6d312dadfe405670888dad14a3cb956a0277243a2ee8b79025e89215e4a608",
+      "bytes": 7734
+    },
+    {
+      "externalId": "cheating",
+      "name": "부정 행위",
+      "pageUrl": "https://arammayhem.com/augments/cheating/",
+      "imageUrl": "https://arammayhem.com/augments/Cheating_mayhem_augment.webp",
+      "hash": "fd22b757fab6c0a77aa2af8e9cd418c0d3550919cbb8180779389311eeb4c586",
+      "bytes": 4954
+    },
+    {
+      "externalId": "crack_open_that_egg",
+      "name": "알 깨기",
+      "pageUrl": "https://arammayhem.com/augments/crack-open-that-egg/",
+      "imageUrl": "https://arammayhem.com/augments/Crack_Open_That_Egg_mayhem_augment.webp",
+      "hash": "3be46c75038a3676157132c58344e4def1f3c931e64985723071f8d56c475302",
+      "bytes": 5790
+    },
+    {
+      "externalId": "crit_n_cast",
+      "name": "치명적 가속",
+      "pageUrl": "https://arammayhem.com/augments/crit-n-cast/",
+      "imageUrl": "https://arammayhem.com/augments/Crit_'n_Cast_mayhem_augment.webp",
+      "hash": "a73b488675a5e60b5483cd82b9974fe68c8c3865e32413b89c562308c035a013",
+      "bytes": 6256
+    },
+    {
+      "externalId": "critical_missile",
+      "name": "치명적 미사일",
+      "pageUrl": "https://arammayhem.com/augments/critical-missile/",
+      "imageUrl": "https://arammayhem.com/augments/Critical_Missile_mayhem_augment.webp",
+      "hash": "7db22743048ba14bddde8b479c88f673f69a8a27e9d6bdd2e4297303e521a3b8",
+      "bytes": 5290
+    },
+    {
+      "externalId": "devil_on_your_shoulder",
+      "name": "어깨 위의 악마",
+      "pageUrl": "https://arammayhem.com/augments/devil-on-your-shoulder/",
+      "imageUrl": "https://arammayhem.com/augments/Devil_on_Your_Shoulder_mayhem_augment.webp",
+      "hash": "002018131c38efc2e95fce82ce89a6b39ab3f0894eb86799aaf47dab45340133",
+      "bytes": 6642,
+      "capturedAt": "2026-11-11"
+    },
+    {
+      "externalId": "dropkick",
+      "name": "드롭킥",
+      "pageUrl": "https://arammayhem.com/augments/dropkick/",
+      "imageUrl": "https://arammayhem.com/augments/Dropkick_mayhem_augment.webp",
+      "hash": "d218465cca8fe96e3b19b8d19821591509915a0698235b89ea1c88b0d4278183",
+      "bytes": 5016
+    },
+    {
+      "externalId": "droppybara",
+      "name": "카피바라 폭격",
+      "pageUrl": "https://arammayhem.com/augments/droppybara/",
+      "imageUrl": "https://arammayhem.com/augments/Droppybara_mayhem_augment.webp",
+      "hash": "91cb3e331c6becb060eea6262969fdc3f8e6ce87b8c87892cd4b4cb91206ed98",
+      "bytes": 5874
+    },
+    {
+      "externalId": "executioner",
+      "name": "처형자",
+      "pageUrl": "https://arammayhem.com/augments/executioner/",
+      "imageUrl": "https://arammayhem.com/augments/Executioner_mayhem_augment.webp",
+      "hash": "806964ad5cb0805c38702dd93df2206e7fa4a2b37e9bbcd13e399e45e0fceedb",
+      "bytes": 7020
+    },
+    {
+      "externalId": "fan_the_hammer",
+      "name": "탄환 세례",
+      "pageUrl": "https://arammayhem.com/augments/fan-the-hammer/",
+      "imageUrl": "https://arammayhem.com/augments/Fan_The_Hammer_mayhem_augment.webp",
+      "hash": "87650492f1cca8ff3a26334f1c1ab6f8475261582c0a3e0dd8b7a43ae716acae",
+      "bytes": 6338
+    },
+    {
+      "externalId": "feel_the_burn",
+      "name": "저주의 화염",
+      "pageUrl": "https://arammayhem.com/augments/feel-the-burn/",
+      "imageUrl": "https://arammayhem.com/augments/Feel_the_Burn_mayhem_augment.webp",
+      "hash": "5a225da6ef854facf83bf7d3285374123b79b1d65f8b3a0cee0bf43ad11ab5a5",
+      "bytes": 6092
+    },
+    {
+      "externalId": "final_city_transit",
+      "name": "최후의 도시 대중교통",
+      "pageUrl": "https://arammayhem.com/augments/final-city-transit/",
+      "imageUrl": "https://arammayhem.com/augments/Final_City_Transit_mayhem_augment.webp",
+      "hash": "f967623584ac7f6c5d2e2f83cd859919b77cd6441fa2613ce7cb3441ac482cdb",
+      "bytes": 7212
+    },
+    {
+      "externalId": "gash",
+      "name": "깊은 상처",
+      "pageUrl": "https://arammayhem.com/augments/gash/",
+      "imageUrl": "https://arammayhem.com/augments/Gash_mayhem_augment.webp",
+      "hash": "21573bbb84016156cfb5c32ecb4f0fa2ab230af39fb20b1cb9b063e1dbcf3958",
+      "bytes": 7388
+    },
+    {
+      "externalId": "grandmas_chili_oil",
+      "name": "할머니의 고추기름",
+      "pageUrl": "https://arammayhem.com/augments/grandmas-chili-oil/",
+      "imageUrl": "https://arammayhem.com/augments/Grandma's_Chili_Oil_mayhem_augment.webp",
+      "hash": "ab12d81f2271ba5506aea9c1938932f423133618fde53d84adbfd34a46bebfa1",
+      "bytes": 5654
+    },
+    {
+      "externalId": "guilty_pleasure",
+      "name": "죄책감의 쾌락",
+      "pageUrl": "https://arammayhem.com/augments/guilty-pleasure/",
+      "imageUrl": "https://arammayhem.com/augments/Guilty_Pleasure_mayhem_augment.webp",
+      "hash": "c848984c8785db67cb26af896b46f11ebc00df97533da77640b8c7aab8817ebb",
+      "bytes": 5534
+    },
+    {
+      "externalId": "heads_up_cupcake!",
+      "name": "컵케이크 조심해!",
+      "pageUrl": "https://arammayhem.com/augments/heads-up-cupcake/",
+      "imageUrl": "https://arammayhem.com/augments/Heads_Up_Cupcake!_mayhem_augment.webp",
+      "hash": "4ee0f8e7d654b1e7deab9950d82aee2a6e9b02293c929c01c37c017f491d6b9b",
+      "bytes": 4520
+    },
+    {
+      "externalId": "holy_fire",
+      "name": "신성한 불길",
+      "pageUrl": "https://arammayhem.com/augments/holy-fire/",
+      "imageUrl": "https://arammayhem.com/augments/Holy_Fire_mayhem_augment.webp",
+      "hash": "f54fe5024c7399a91e473ddf47ed7a48e52166b2b7d1126daf28d3ec491c9006",
+      "bytes": 6076
+    },
+    {
+      "externalId": "im_a_baby_kitty_where_is_mama",
+      "name": "엄마 찾는 아기 고양이",
+      "pageUrl": "https://arammayhem.com/augments/im-a-baby-kitty-where-is-mama/",
+      "imageUrl": "https://arammayhem.com/augments/I'm_a_Baby_Kitty_Where_is_Mama_mayhem_augment.webp",
+      "hash": "326240ac67856acf1140c5bd4bf9397918daa14b95adb46dd22c0c1360262370",
+      "bytes": 5662
+    },
+    {
+      "externalId": "lightning_strikes",
+      "name": "벼락",
+      "pageUrl": "https://arammayhem.com/augments/lightning-strikes/",
+      "imageUrl": "https://arammayhem.com/augments/Lightning_Strikes_mayhem_augment.webp",
+      "hash": "868792d557e1c31ce3033a9cba7ee9002dbbe9fdae8172ddd4adb81a2fd0afd7",
+      "bytes": 7350
+    },
+    {
+      "externalId": "orbitallaser",
+      "name": "궤도형 레이저",
+      "pageUrl": "https://arammayhem.com/augments/orbitallaser/",
+      "imageUrl": "https://arammayhem.com/augments/OrbitalLaser_mayhem_augment.webp",
+      "hash": "df82ea6b25cd7f724eee934fc97bfa7bcb2c12016a6d8010d62b401e3bac613f",
+      "bytes": 6978
+    },
+    {
+      "externalId": "perseverance",
+      "name": "인내심",
+      "pageUrl": "https://arammayhem.com/augments/perseverance/",
+      "imageUrl": "https://arammayhem.com/augments/Perseverance_mayhem_augment.webp",
+      "hash": "9d531933e07906a0815316ef7c493909e300fc4fe13f22c14b4d403924615f45",
+      "bytes": 6034
+    },
+    {
+      "externalId": "poro_blaster",
+      "name": "포로 발사기",
+      "pageUrl": "https://arammayhem.com/augments/poro-blaster/",
+      "imageUrl": "https://arammayhem.com/augments/Poro_Blaster_mayhem_augment.webp",
+      "hash": "6fef373cd937cc3f35ee072db0ee6b973f485f5dd4dd659dedef3550b306a9ee",
+      "bytes": 8748
+    },
+    {
+      "externalId": "quantum_computing",
+      "name": "양자 연산",
+      "pageUrl": "https://arammayhem.com/augments/quantum-computing/",
+      "imageUrl": "https://arammayhem.com/augments/Quantum_Computing_mayhem_augment.webp",
+      "hash": "7f828cad9fa2627a642117b81d5592a023e34857f1cb395433993572466c13e2",
+      "bytes": 6352,
+      "capturedAt": "2026-11-11"
+    },
+    {
+      "externalId": "rabble_rousing",
+      "name": "선동",
+      "pageUrl": "https://arammayhem.com/augments/rabble-rousing/",
+      "imageUrl": "https://arammayhem.com/augments/Rabble_Rousing_mayhem_augment.webp",
+      "hash": "49ad8e40f564f674b0f631500cf48cfb73c91b3bb84c3e112f1a53220d3c1542",
+      "bytes": 5918
+    },
+    {
+      "externalId": "red_envelopes",
+      "name": "붉은 봉투",
+      "pageUrl": "https://arammayhem.com/augments/red-envelopes/",
+      "imageUrl": "https://arammayhem.com/augments/Red_Envelopes_mayhem_augment.webp",
+      "hash": "bbed8710e048cd6d69dba7555b8efa1681da85e38779f3b794a9feb430f7f6fc",
+      "bytes": 6406
+    },
+    {
+      "externalId": "restless_restoration",
+      "name": "끊임없는 회복",
+      "pageUrl": "https://arammayhem.com/augments/restless-restoration/",
+      "imageUrl": "https://arammayhem.com/augments/Restless_Restoration_mayhem_augment.webp",
+      "hash": "af046c3528a8b59fc4c33a0f45acb0b4bf829968b6f1c4c6fad5fdeabd70c8e1",
+      "bytes": 6676
+    },
+    {
+      "externalId": "self_destruct",
+      "name": "자폭",
+      "pageUrl": "https://arammayhem.com/augments/self-destruct/",
+      "imageUrl": "https://arammayhem.com/augments/Self_Destruct_mayhem_augment.webp",
+      "hash": "d843548539b23c97672553d1e7b25fffb99410f45614af2e4b1ff9ede6ffd0e2",
+      "bytes": 6938
+    },
+    {
+      "externalId": "slow_and_steady",
+      "name": "천천히, 꾸준히",
+      "pageUrl": "https://arammayhem.com/augments/slow-and-steady/",
+      "imageUrl": "https://arammayhem.com/augments/Slow_And_Steady_mayhem_augment.webp",
+      "hash": "02f1496b4b869a1f144aecd27a8d8ae2a93044207510e92a2a3a235858275699",
+      "bytes": 5918
+    },
+    {
+      "externalId": "slow_cooker",
+      "name": "찜솥",
+      "pageUrl": "https://arammayhem.com/augments/slow-cooker/",
+      "imageUrl": "https://arammayhem.com/augments/Slow_Cooker_mayhem_augment.webp",
+      "hash": "d31d47c9752b385c3ad39c994b4e1828f98ca52b416430db9c7bc5a73568f05d",
+      "bytes": 5608
+    },
+    {
+      "externalId": "snowball_roulette",
+      "name": "눈덩이 룰렛",
+      "pageUrl": "https://arammayhem.com/augments/snowball-roulette/",
+      "imageUrl": "https://arammayhem.com/augments/Snowball_Roulette_mayhem_augment.webp",
+      "hash": "67906956c650bb379cd5adabf62060dfd2ce8468201d7241b4c99522db2a4a09",
+      "bytes": 6224
+    },
+    {
+      "externalId": "snowball_upgrade",
+      "name": "눈덩이 업그레이드",
+      "pageUrl": "https://arammayhem.com/augments/snowball-upgrade/",
+      "imageUrl": "https://arammayhem.com/augments/Snowball_Upgrade_mayhem_augment.webp",
+      "hash": "a527bd79c347420af438807ed4d9463177b9ab1202ef8542ab19e6fc6eddac72",
+      "bytes": 5336,
+      "capturedAt": "2026-11-11"
+    },
+    {
+      "externalId": "speed_demon",
+      "name": "질주하는 악마",
+      "pageUrl": "https://arammayhem.com/augments/speed-demon/",
+      "imageUrl": "https://arammayhem.com/augments/Speed_Demon_mayhem_augment.webp",
+      "hash": "b2d7ed6b8b5bccdd9c44cc7e3300e6c85de2dcb88e58f902c7a740b87ba4698f",
+      "bytes": 6608
+    },
+    {
+      "externalId": "tormentor",
+      "name": "고문자",
+      "pageUrl": "https://arammayhem.com/augments/tormentor/",
+      "imageUrl": "https://arammayhem.com/augments/Tormentor_mayhem_augment.webp",
+      "hash": "64315cc9c4dffcfdd623ebb0ac1cf89308f98159ec3981ccb81e9cf0f9890bfb",
+      "bytes": 8170
+    },
+    {
+      "externalId": "twice_thrice",
+      "name": "두 배 세 배",
+      "pageUrl": "https://arammayhem.com/augments/twice-thrice/",
+      "imageUrl": "https://arammayhem.com/augments/Twice_Thrice_mayhem_augment.webp",
+      "hash": "ff6dcc58b2261cdaf1612afae2dfefc4c9dbb3baf78ac4057cc640ed1e149685",
+      "bytes": 6448
+    },
+    {
+      "externalId": "upgrade_cutlass",
+      "name": "해적검 업그레이드",
+      "pageUrl": "https://arammayhem.com/augments/upgrade-cutlass/",
+      "imageUrl": "https://arammayhem.com/augments/Upgrade_Cutlass_mayhem_augment.webp",
+      "hash": "063ca84005d93244106dda9184c42c8c2e2e8545f0205ab79bbab879bd19e9ce",
+      "bytes": 6384
+    },
+    {
+      "externalId": "upgrade_hubris",
+      "name": "오만 업그레이드",
+      "pageUrl": "https://arammayhem.com/augments/upgrade-hubris/",
+      "imageUrl": "https://arammayhem.com/augments/Upgrade_Hubris_mayhem_augment.webp",
+      "hash": "ab2230321d96193c96919380a5b01008b1d22aae7d161f1be98e87c07a292fe0",
+      "bytes": 5928
+    },
+    {
+      "externalId": "upgrade_thornmail",
+      "name": "가시 갑옷 업그레이드",
+      "pageUrl": "https://arammayhem.com/augments/upgrade-thornmail/",
+      "imageUrl": "https://arammayhem.com/augments/Upgrade_Thornmail_mayhem_augment.webp",
+      "hash": "063ca84005d93244106dda9184c42c8c2e2e8545f0205ab79bbab879bd19e9ce",
+      "bytes": 6384
+    },
+    {
+      "externalId": "vampirism",
+      "name": "흡혈병",
+      "pageUrl": "https://arammayhem.com/augments/vampirism/",
+      "imageUrl": "https://arammayhem.com/augments/Vampirism_mayhem_augment.webp",
+      "hash": "98c008649e0c341eec852634b9dc69d5eaf851b6a886b9e3c964c80065bb826d",
+      "bytes": 5602,
+      "capturedAt": "2026-11-11"
+    },
+    {
+      "externalId": "void_immolation",
+      "name": "이케시아의 몰락",
+      "pageUrl": "https://arammayhem.com/augments/void-immolation/",
+      "imageUrl": "https://arammayhem.com/augments/Void_Immolation_mayhem_augment.webp",
+      "hash": "9a9f73538a1a74980a56a44257c44f77ad79cc7eda9ce4122f93c9ffbbf18556",
+      "bytes": 5982
+    },
+    {
+      "externalId": "void_rift",
+      "name": "공허 균열",
+      "pageUrl": "https://arammayhem.com/augments/void-rift/",
+      "imageUrl": "https://arammayhem.com/augments/Void_Rift_mayhem_augment.webp",
+      "hash": "5d26ed280ac6e37724e467f3c8a289c8f6e4a00e962773b8add62fa7c8ff1d19",
+      "bytes": 7844
+    },
+    {
+      "externalId": "weighted_popoffs",
+      "name": "중량 폭주",
+      "pageUrl": "https://arammayhem.com/augments/weighted-popoffs/",
+      "imageUrl": "https://arammayhem.com/augments/Weighted_Popoffs_mayhem_augment.webp",
+      "hash": "5bafd0e263bee635b10e901e349ceaadd69285dcd4fee6fdba962858a565ffe8",
+      "bytes": 6444
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import type { LolAugmentRarity } from "./augments/catalog";
+import retiredIcons from "./data/mayhem-retired-icons.json";
 export const MAYHEM_AVAILABILITY = ["active", "disabled", "removed", "unverified"] as const;
 export type MayhemAvailability = typeof MAYHEM_AVAILABILITY[number];
 export const MAYHEM_AVAILABILITY_LABELS = { active: "사용 중", disabled: "비활성", removed: "삭제", unverified: "확인 중" } as const;
@@ -7,8 +8,12 @@ export type ArchiveCombo = { id: number; championId: number; augments: string[];
 export type MayhemArchive = { schemaVersion: 1; patch: string; augments: ArchiveAugment[]; combos: ArchiveCombo[] };
 export type AvailabilityCounts = Record<MayhemAvailability, number>;
 export type ArchiveSummary = { augments: AvailabilityCounts; combos: AvailabilityCounts; sourceRates: number; sourceCombos: number };
-export type ArchiveComboRow = Omit<ArchiveCombo, "augments"> & { augments: Pick<ArchiveAugment, "key" | "officialId" | "name" | "nameEn" | "status">[] };
-export type MayhemArchivePage = { patch: string; publishedAt: string; counts: AvailabilityCounts; total: number; offset: number; pageSize: number } & ({ kind: "augments"; rows: ArchiveAugment[] } | { kind: "combos"; rows: ArchiveComboRow[]; typeCounts: Record<string, number> });
+// 공식 카탈로그에서 빠진 삭제 증강은 보존해 둔 그림 경로를 붙인다. 삭제 기록은 이후 패치에도 남으므로 패치와 무관하게 외부 ID로 찾는다.
+const RETIRED_ART = new Map(retiredIcons.images.map(i => [i.externalId, `/lol/augment-art/${i.hash}.webp`]));
+export const retiredAugmentArt = (externalIds: string[]) => externalIds.map(id => RETIRED_ART.get(id)).find(Boolean) ?? null;
+export type ArchiveAugmentRow = ArchiveAugment & { art: string | null };
+export type ArchiveComboRow = Omit<ArchiveCombo, "augments"> & { augments: (Pick<ArchiveAugment, "key" | "officialId" | "name" | "nameEn" | "status"> & { art: string | null })[] };
+export type MayhemArchivePage = { patch: string; publishedAt: string; counts: AvailabilityCounts; total: number; offset: number; pageSize: number } & ({ kind: "augments"; rows: ArchiveAugmentRow[] } | { kind: "combos"; rows: ArchiveComboRow[]; typeCounts: Record<string, number> });
 export const availabilityCounts = (rows: { status: MayhemAvailability }[]): AvailabilityCounts => Object.fromEntries(MAYHEM_AVAILABILITY.map(status => [status, rows.filter(row => row.status === status).length])) as AvailabilityCounts;
 export const comboAvailability = (statuses: MayhemAvailability[]): MayhemAvailability => (["removed", "disabled", "unverified"] as const).find(status => statuses.includes(status)) ?? "active";
 export const isMayhemAvailability = (value: unknown): value is MayhemAvailability => typeof value === "string" && MAYHEM_AVAILABILITY.includes(value as MayhemAvailability);
@@ -54,7 +59,7 @@ export function archivePage(archive: MayhemArchive, options: { kind: "augments" 
   if (options.kind === "augments") {
     const all = archive.augments.filter(a => !q || matches(a));
     const filtered = all.filter(a => options.status === "all" || a.status === options.status);
-    return { ...base, kind: "augments", counts: availabilityCounts(all), total: filtered.length, rows: filtered.slice(options.offset, options.offset + pageSize) };
+    return { ...base, kind: "augments", counts: availabilityCounts(all), total: filtered.length, rows: filtered.slice(options.offset, options.offset + pageSize).map(a => ({ ...a, art: retiredAugmentArt(a.externalIds) })) };
   }
   const all = archive.combos.filter(c => (!options.championId || c.championId === options.championId) && (!q || c.augments.some(key => matches(names.get(key)!))));
   const inStatus = all.filter(c => options.status === "all" || c.status === options.status);
@@ -62,5 +67,5 @@ export function archivePage(archive: MayhemArchive, options: { kind: "augments" 
   for (const c of inStatus) for (const t of c.types) typeCounts[t] = (typeCounts[t] ?? 0) + 1;
   const filtered = options.type ? inStatus.filter(c => c.types.includes(options.type!)) : inStatus;
   return { ...base, kind: "combos", counts: availabilityCounts(all), typeCounts, total: filtered.length,
-    rows: filtered.slice(options.offset, options.offset + pageSize).map(c => ({ ...c, augments: c.augments.map(key => { const { officialId, name, nameEn, status } = names.get(key)!; return { key, officialId, name, nameEn, status }; }) })) };
+    rows: filtered.slice(options.offset, options.offset + pageSize).map(c => ({ ...c, augments: c.augments.map(key => { const { officialId, name, nameEn, status, externalIds } = names.get(key)!; return { key, officialId, name, nameEn, status, art: retiredAugmentArt(externalIds) }; }) })) };
 }
