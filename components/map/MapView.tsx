@@ -19,7 +19,7 @@ import ReportForm from "./ReportForm";
 import HotDropLayer from "./HotDropLayer";
 import { supabase } from "../../lib/supabase";
 import { MAP_DIMENSIONS } from "../../lib/map_config";
-import { leafletToHeightmapPixel } from "../../lib/heightmapCoords";
+import { heightmapElevationMeters, heightmapUrl, leafletToHeightmapPixel } from "../../lib/heightmapCoords";
 import { toast } from "sonner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
@@ -283,8 +283,7 @@ const MapView = memo(
       if (typeof window === "undefined") return;
 
       const mapId = activeMapId;
-      // 손상된 PNG를 우회하여 정상 JPG 하이트맵을 모든 맵에서 일관되게 사용
-      const imageUrl = `/assets/map/${mapId}_HeightMap.jpg`;
+      const imageUrl = heightmapUrl(mapId);
       const supportedMaps = [
         "Erangel", "Miramar", "Vikendi", "Taego", "Deston", "Rondo"
       ];
@@ -341,7 +340,7 @@ const MapView = memo(
         try {
           const imgData = ctx.getImageData(pixel.x, pixel.y, 1, 1).data;
           if (imgData[3] === 0) return 0;
-          return (imgData[0] - 128) * 2.048;
+          return heightmapElevationMeters(imgData[0]);
         } catch (e) {
           console.error("Failed to read elevation pixel data", e);
           return 0;

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState, Suspense } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -30,18 +30,27 @@ import {
 } from "@/lib/replay/mapCapabilities";
 import {
   getActiveDeathTime,
+  createBuildingIndex,
+  findWaypointSegment,
+  getHeadingAt,
   getReplayMaxTime,
+  interpolateSmooth,
+  isGroggyAt,
+  joinVehicleCluster,
+  lowerBoundByTime,
   matchCarePackageLandings,
   normalizeReplayZoneEvents,
   sampleTerrainHeight,
   shouldMarkPlayerDeadFromHealth,
   type ReplayZoneEvent,
   type TerrainGrid,
+  type VehicleCluster,
 } from "@/lib/replay/replay3dHelpers";
-import { threeToHeightmapPixel } from "@/lib/heightmapCoords";
+import { heightmapElevationMeters, heightmapUrl, threeToHeightmapPixel } from "@/lib/heightmapCoords";
 import { MAX_POSITION_INTERPOLATION_GAP_MS } from "@/lib/pubg-analysis/telemetryContract";
 import { isCombatDamageCause } from "@/lib/pubg-analysis/replayEventKinds";
 import { SQUAD_COLORS, enemyTeamColor } from "@/lib/replay/squadColors";
+import { metersPerUnit } from "@/lib/replay/replayCamera";
 
 // PUBG 맵 크기 상수 (cm)
 const THREE_MAP_SIZE = 100; // Three.js 공간 상의 가로세로 크기
@@ -51,12 +60,36 @@ const DESKTOP_TERRAIN_SEGMENTS = 256;
 const MOBILE_RENDER_FPS = 30;
 const DESKTOP_RENDER_FPS = 60;
 const UI_TIME_UPDATE_INTERVAL_MS = 120;
+// 마커·라벨은 화면 크기 고정(sizeAttenuation false) 스프라이트라 값은 화면 높이 비율에 가깝다.
+const TEAM_MARKER_SIZE = 0.024;
+const ENEMY_MARKER_SIZE = 0.015;
+const LABEL_HEIGHT = 0.024;
+const CARE_PACKAGE_MARKER_SIZE = 0.02;
+// 따라가는 선수 주변의 적만 이름을 띄워 화면이 이름표로 덮이지 않게 한다.
+const ENEMY_LABEL_RANGE_M = 300;
+const TRACER_POOL_SIZE = 48;
+const TRACER_DURATION_MS = 400;
+// 배속이 높아도 명중선이 화면에 이만큼(실제 시간)은 남도록 경기 시간 기준 유지 시간을 늘린다.
+const TRACER_SCREEN_MS = 500;
+// 이보다 빠른 위치 변화(약 200m/s, 8km 맵 기준)는 순간이동으로 보고 곡선 보간에 쓰지 않는다.
+const SMOOTHING_MAX_UNITS_PER_MS = 0.2;
+// 카메라가 따라가는 대상과 이 거리(Three 단위) 넘게 떨어지면 부드럽게 옮기지 않고 바로 맞춘다.
+const FOLLOW_SNAP_DISTANCE = 15;
+const FOLLOW_SMOOTHING_MS = 160;
+// 따라갈 선수를 바꾸면 이 시간 동안 부드럽게 시점을 옮긴다.
+const FOLLOW_ENTRY_MS = 1800;
+// 건물 안에서 지면보다 이만큼(m) 높으면 옥상·위층으로 보고 지면에 붙이지 않는다. 선수 위치는 지면보다 약 1m 위다.
+const STRUCTURE_MIN_HEIGHT_M = 2;
+// 끌어서 이동한 거리가 이만큼(Three 단위, 약 40m) 쌓여야 따라가기를 끈다. 모바일 두 손가락 확대의 미세 이동은 무시한다.
+const FOLLOW_RELEASE_DISTANCE = 0.5;
+// 자기장은 경계만 알 수 있게 낮은 벽으로 둔다. 높으면 시야를 가린다.
+const BLUE_WALL = { bottom: -1, top: 3 };
+const WHITE_WALL = { bottom: -1, top: 1.5 };
 
 type RenderProfile = {
   terrainSegments: number;
   maxPixelRatio: number;
   antialias: boolean;
-  shadows: boolean;
   textureAnisotropy: number;
   targetFps: number;
 };
@@ -67,7 +100,6 @@ const getRenderProfile = (): RenderProfile => {
       terrainSegments: DESKTOP_TERRAIN_SEGMENTS,
       maxPixelRatio: 2,
       antialias: true,
-      shadows: true,
       textureAnisotropy: 8,
       targetFps: DESKTOP_RENDER_FPS
     };
@@ -78,66 +110,122 @@ const getRenderProfile = (): RenderProfile => {
     terrainSegments: isMobile ? MOBILE_TERRAIN_SEGMENTS : DESKTOP_TERRAIN_SEGMENTS,
     maxPixelRatio: isMobile ? 1.25 : 2,
     antialias: !isMobile,
-    shadows: !isMobile,
     textureAnisotropy: isMobile ? 2 : 8,
     targetFps: isMobile ? MOBILE_RENDER_FPS : DESKTOP_RENDER_FPS
   };
 };
 
-
-
-
 const convertTo3D = (x: number, y: number, z: number = 0, altitudeScale: number = 0.02) => {
   const threeX = (x / 8192) * THREE_MAP_SIZE - THREE_MAP_SIZE / 2;
   const threeZ = (y / 8192) * THREE_MAP_SIZE - THREE_MAP_SIZE / 2;
   // 고도(z) 미터 단위를 altitudeScale 비율로 축소 적용하여 붕 떠 있는 괴리감 해결
-  const threeY = z * altitudeScale; 
+  const threeY = z * altitudeScale;
   return new THREE.Vector3(threeX, threeY, threeZ);
 };
 
-// 닉네임 3D 빌보드 스프라이트 라벨 생성 함수
-const createNicknameSprite = (text: string, color: string): THREE.Sprite => {
+type MarkerShape = "foot" | "vehicle" | "plane" | "groggy" | "dead" | "carePackage";
+
+// 상태별 마커 아이콘. 도보는 원, 차량은 둥근 사각형, 비행기는 삼각형, 기절은 주황 원, 사망은 회색 X, 보급 상자는 마름모.
+const drawMarkerTexture = (shape: MarkerShape, color: string): THREE.CanvasTexture => {
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
+  canvas.width = 64;
   canvas.height = 64;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    // 둥근 사각형 네온 테두리 반투명 어두운 배경 박스
-    ctx.fillStyle = "rgba(10, 15, 25, 0.75)";
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "#ffffff";
+    ctx.fillStyle = color;
     ctx.beginPath();
-    // roundRect 폴백 또는 기본 메소드 활용
-    if (typeof (ctx as any).roundRect === "function") {
-      (ctx as any).roundRect(4, 4, 248, 56, 12);
+    if (shape === "vehicle") {
+      ctx.roundRect(10, 10, 44, 44, 10);
+    } else if (shape === "carePackage") {
+      ctx.moveTo(32, 4);
+      ctx.lineTo(60, 32);
+      ctx.lineTo(32, 60);
+      ctx.lineTo(4, 32);
+      ctx.closePath();
+    } else if (shape === "plane") {
+      ctx.moveTo(32, 6);
+      ctx.lineTo(58, 56);
+      ctx.lineTo(6, 56);
+      ctx.closePath();
+    } else if (shape === "dead") {
+      ctx.lineCap = "round";
+      ctx.lineWidth = 14;
+      ctx.strokeStyle = "rgba(10, 14, 20, 0.85)";
+      ctx.moveTo(16, 16); ctx.lineTo(48, 48);
+      ctx.moveTo(48, 16); ctx.lineTo(16, 48);
+      ctx.stroke();
+      ctx.lineWidth = 7;
+      ctx.strokeStyle = "#9ca3af";
+      ctx.stroke();
     } else {
-      ctx.rect(4, 4, 248, 56);
+      ctx.arc(32, 32, 22, 0, Math.PI * 2);
     }
-    ctx.fill();
-    ctx.stroke();
+    if (shape !== "dead") {
+      if (shape === "groggy") {
+        ctx.fillStyle = "#ff7a1a";
+        ctx.strokeStyle = color;
+      }
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+};
 
-    // 텍스트 스타일링
-    ctx.font = "bold 22px sans-serif";
+const getMarkerTexture = (cache: Map<string, THREE.Texture>, shape: MarkerShape, color: string): THREE.Texture => {
+  const key = `${shape}|${color}`;
+  let texture = cache.get(key);
+  if (!texture) {
+    texture = drawMarkerTexture(shape, color);
+    cache.set(key, texture);
+  }
+  return texture;
+};
+
+const createScreenSprite =(texture: THREE.Texture, size: number, aspect = 1): THREE.Sprite => {
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture,
+    sizeAttenuation: false,
+    // 산 뒤에 있어도 위치를 놓치지 않도록 지형에 가리지 않는다.
+    depthTest: false,
+    depthWrite: false
+  }));
+  sprite.scale.set(size * aspect, size, 1);
+  return sprite;
+};
+
+// 닉네임 라벨. 마커 위에 뜨도록 스프라이트 기준점을 아래로 내린다.
+const createNicknameSprite = (text: string, color: string): THREE.Sprite => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 48;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.font = "bold 26px sans-serif";
+    const maxLen = 14;
+    const displayText = text.length > maxLen ? text.slice(0, maxLen - 2) + ".." : text;
+    const boxWidth = Math.min(252, ctx.measureText(displayText).width + 24);
+    const left = (256 - boxWidth) / 2;
+    ctx.fillStyle = "rgba(10, 14, 20, 0.78)";
+    ctx.beginPath();
+    ctx.roundRect(left, 4, boxWidth, 40, 8);
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.fillRect(left, 4, 5, 40);
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    
-    // 닉네임 글자수 제한
-    const maxLen = 14;
-    const displayText = text.length > maxLen ? text.slice(0, maxLen - 2) + ".." : text;
-    ctx.fillText(displayText, 128, 32);
+    ctx.fillText(displayText, 128 + 2, 25);
   }
-
   const texture = new THREE.CanvasTexture(canvas);
-  const material = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    depthTest: true,
-    depthWrite: false
-  });
-  
-  const sprite = new THREE.Sprite(material);
-  sprite.scale.set(1.4, 0.35, 1.0); // 콤팩트한 텍스트 비율 조정
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = createScreenSprite(texture, LABEL_HEIGHT, 256 / 48);
+  sprite.center.set(0.5, -0.45);
   return sprite;
 };
 
@@ -194,6 +282,42 @@ async function buildHighResTileTexture(mapName: string): Promise<HTMLCanvasEleme
   return canvas;
 }
 
+// 차량 모형. 실제(약 4m)보다 크게 잡아 기본 시점에서 차종 대신 "차량"으로 읽히게 한다. 앞쪽이 +Z다.
+const createVehicleModel = (color: string): THREE.Group => {
+  const model = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1f242c, roughness: 0.8 });
+  const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.55), body);
+  chassis.position.y = 0.1;
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.1, 0.26), dark);
+  cabin.position.set(0, 0.2, -0.04);
+  model.add(chassis, cabin);
+  [[-0.15, 0.17], [0.15, 0.17], [-0.15, -0.17], [0.15, -0.17]].forEach(([x, z]) => {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.05, 10), dark);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(x, 0.06, z);
+    model.add(wheel);
+  });
+  model.scale.setScalar(1.5);
+  return model;
+};
+
+// 수송기 모형. 앞쪽이 +Z다.
+const createPlaneModel = (): THREE.Group => {
+  const model = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ color: 0xaab2bc, roughness: 0.5, metalness: 0.2 });
+  const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.07, 1.6, 10), material);
+  fuselage.rotation.x = Math.PI / 2;
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.03, 0.3), material);
+  wing.position.set(0, 0.04, 0.1);
+  const tailplane = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.03, 0.18), material);
+  tailplane.position.set(0, 0.04, -0.7);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.28, 0.22), material);
+  fin.position.set(0, 0.16, -0.7);
+  model.add(fuselage, wing, tailplane, fin);
+  return model;
+};
+
 // 비상호출 수송 비행기 판정 헬퍼 함수
 const isAirplane = (vehicleId: string | null | undefined): boolean => {
   if (!vehicleId) return false;
@@ -201,26 +325,21 @@ const isAirplane = (vehicleId: string | null | undefined): boolean => {
   return lower.includes("emergency") || lower.includes("plane") || lower.includes("flight") || lower.includes("air");
 };
 
-// 차량/비행기 내의 동승 좌석 오프셋 반환 헬퍼 함수 (로컬 좌표계 기준)
-const getSeatOffset = (index: number, isPlane: boolean): THREE.Vector3 => {
-  if (isPlane) {
-    // 비행기의 경우 동체 중앙선을 따라 앞뒤 일렬로 나열 배치
-    return new THREE.Vector3(0, 0.12, 0.4 - index * 0.25);
-  }
-  // 일반 차량의 경우 (0: 운전석 앞좌, 1: 조수석 앞우, 2: 뒷좌석 좌, 3: 뒷좌석 우)
-  switch (index) {
-    case 0: return new THREE.Vector3(-0.16, 0.22, 0.12);
-    case 1: return new THREE.Vector3(0.16, 0.22, 0.12);
-    case 2: return new THREE.Vector3(-0.16, 0.22, -0.18);
-    case 3: return new THREE.Vector3(0.16, 0.22, -0.18);
-    default:
-      // 4인 초과 정원일 경우 점차 뒷열로 밀려 배치
-      return new THREE.Vector3(0, 0.22, -0.2 - (index - 4) * 0.15);
-  }
+const disposeObject = (object: THREE.Object3D) => {
+  object.traverse((child) => {
+    if (child instanceof THREE.Sprite) {
+      // Sprite 지오메트리는 three.js 전역 공유라 재질과 텍스처만 정리한다.
+      child.material.map?.dispose();
+      child.material.dispose();
+    } else if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
+      // InstancedMesh는 인스턴스 행렬 버퍼를 따로 해제해야 한다.
+      if (child instanceof THREE.InstancedMesh) child.dispose();
+      child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach((material) => material.dispose());
+    }
+  });
 };
-
-
-
 
 function Replay3DContent() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -266,7 +385,6 @@ function Replay3DContent() {
   const [showTrajectories, setShowTrajectories] = useState(true);
   const [isMapLoading, setIsMapLoading] = useState(false);
   const [altitudeScale, setAltitudeScale] = useState(0.015);
-  const [showEnemies] = useState(true);
   // 플레이어별 개별 표시 토글 (이름 Set)
   const [hiddenPlayers, setHiddenPlayers] = useState<Set<string>>(new Set());
   // 현재 카메라가 고정 추적 중인 플레이어 닉네임
@@ -288,6 +406,8 @@ function Replay3DContent() {
     height: number;
   } | null>(null);
   const terrainGridRef = useRef<TerrainGrid | null>(null);
+  // 맵 좌표가 건물 안인지 묻는 함수. 옥상 선수를 지면에 붙이지 않는 데 쓴다.
+  const buildingIndexRef = useRef<((x: number, y: number) => boolean) | null>(null);
   const sceneGenerationRef = useRef(0);
   const currentTimeRef = useRef(0);
   const renderStateVersionRef = useRef(0);
@@ -298,15 +418,19 @@ function Replay3DContent() {
   const updateReplaySceneRef = useRef<(frameTimeMs: number) => void>(() => {});
 
   // 마커 및 라인 씬 객체 캐시
-  const playerMeshesRef = useRef<Record<string, THREE.Mesh>>({});
+  const playerMeshesRef = useRef<Record<string, THREE.Group>>({});
   const playerLinesRef = useRef<Record<string, THREE.Line>>({});
-  const playerDropLinesRef = useRef<Record<string, THREE.LineSegments>>({});
+  const playerDropLinesRef = useRef<Record<string, THREE.Line>>({});
   const bluezoneMeshRef = useRef<THREE.Mesh | null>(null);
   const whitezoneMeshRef = useRef<THREE.Mesh | null>(null);
-  const borderLineRef = useRef<THREE.LineSegments | null>(null);
-  const tracerPoolRef = useRef<THREE.Mesh[]>([]);
-  const impactPoolRef = useRef<THREE.Mesh[]>([]); // 탄착 지점 임팩트 구체 풀
-  const carePackageMeshesRef = useRef<Record<number, THREE.Group>>({});
+  const tracerPoolRef = useRef<THREE.Line[]>([]);
+  const carePackageMeshesRef = useRef<Record<number, THREE.Sprite>>({});
+  const markerTexturesRef = useRef<Map<string, THREE.Texture> | null>(null);
+  // 카메라가 따라갈 현재 위치. 렌더 루프가 이 값으로 부드럽게 옮긴다.
+  const followTargetRef = useRef<THREE.Vector3 | null>(null);
+  const followEntryRef = useRef<{ from: THREE.Vector3; startedAt: number } | null>(null);
+  // 직전 프레임에 각 탑승자가 묶였던 차량 기준 선수. 같은 차량이 한 대·두 대로 번갈아 보이지 않게 한다.
+  const vehicleAnchorsRef = useRef<Map<string, string>>(new Map());
   const {
     begin: beginRequest,
     cancel: cancelRequest,
@@ -380,7 +504,7 @@ function Replay3DContent() {
   useEffect(() => {
     currentTimeRef.current = currentTimeMs;
     renderStateVersionRef.current += 1;
-  }, [currentTimeMs, players, zones, showBluezone, showTrajectories, altitudeScale, showEnemies, damageEvents, carePackages, trackingPlayer, hiddenPlayers, showNames]);
+  }, [currentTimeMs, players, zones, showBluezone, showTrajectories, altitudeScale, damageEvents, carePackages, trackingPlayer, hiddenPlayers, showNames]);
 
   // 1. 실시간 텔레메트리 API 호출 및 파싱
   const fetchTelemetryData = useCallback(async (
@@ -552,7 +676,14 @@ function Replay3DContent() {
       setDamageEvents(parsedDamageEvs);
       setCarePackages(parsedCarePackages);
       setMaxTimeMs(finalMaxTime);
-      
+      // 검색한 선수를 기본으로 따라간다.
+      const lowerNickname = targetNickname.trim().toLowerCase();
+      setTrackingPlayer(
+        parsedPlayers.find((p) => p.name.toLowerCase() === lowerNickname)?.name
+          ?? parsedPlayers.find((p) => p.isTeam)?.name
+          ?? null,
+      );
+
     } catch (error: unknown) {
       if (!isCurrent(request)) return;
       setErrorMsg(error instanceof Error ? error.message : "텔레메트리 요청에 실패했습니다.");
@@ -599,23 +730,23 @@ function Replay3DContent() {
   }, [cancelRequest, qMatchId, qNickname, qPlatform, resetReplayState, startTelemetryRequest]);
 
   // 특정 X, Z 월드 좌표에서 하이트맵 고도 데이터를 기반으로 실제 지형 높이 Y를 계산하는 헬퍼 함수
+  // 고해상도 하이트맵의 해발 높이(m). 하이트맵이 없으면 null이다.
+  const getGroundMeters = useCallback((threeX: number, threeZ: number): number | null => {
+    const data = heightmapDataRef.current;
+    if (!data) return null;
+    const pixel = threeToHeightmapPixel(threeX, threeZ, THREE_MAP_SIZE, data.width, data.height);
+    return heightmapElevationMeters(data.pixels[(pixel.y * data.width + pixel.x) * 4]);
+  }, []);
+
   const getTerrainHeight = useCallback((threeX: number, threeZ: number): number => {
     // 1) 3D 지형 메쉬와 동일한 격자 기준의 이중 선형 보간 캐시가 있는 경우 우선 사용
     if (terrainGridRef.current) {
       return sampleTerrainHeight(terrainGridRef.current, threeX, threeZ, THREE_MAP_SIZE);
     }
-
     // 2) 폴백: 캐시가 아직 로드되지 않은 경우 하이트맵 픽셀을 직접 쿼리
-    const data = heightmapDataRef.current;
-    if (!data) return 0.05;
-
-    const pixel = threeToHeightmapPixel(threeX, threeZ, THREE_MAP_SIZE, data.width, data.height);
-    const pixelIdx = (pixel.y * data.width + pixel.x) * 4;
-    const R = data.pixels[pixelIdx];
-    // PUBG 인게임 표준 8비트 고도 변환 공식: R=128 기준 ±262m 범위
-    const elevation = (R - 128) * 2.048;
-    return elevation * altitudeScale;
-  }, [altitudeScale]);
+    const ground = getGroundMeters(threeX, threeZ);
+    return ground === null ? 0.05 : ground * altitudeScale;
+  }, [altitudeScale, getGroundMeters]);
 
   // 2. 플레이어 위치 및 차량 탑승 상태 보간 계산 함수
   type InterpolatedPlayerState = {
@@ -623,6 +754,7 @@ function Replay3DContent() {
     vehicleId: string | null;
     // 탑승자 묶기에 쓰는 키. 차량 인스턴스 ID가 없으면 차종 이름을 쓴다.
     vehicleKey: string | null;
+    vehicleUniqueId: string | null;
     health: number;
     healthSampleTimeMs: number | null;
   };
@@ -634,6 +766,7 @@ function Replay3DContent() {
         position: new THREE.Vector3(0, 0, 0),
         vehicleId: null,
         vehicleKey: null,
+        vehicleUniqueId: null,
         health: 100,
         healthSampleTimeMs: null,
       };
@@ -643,6 +776,7 @@ function Replay3DContent() {
         position: convertTo3D(pts[0].x, pts[0].y, pts[0].z, altitudeScale),
         vehicleId: pts[0].vehicleId || null,
         vehicleKey: pts[0].vehicleUniqueId || pts[0].vehicleId || null,
+        vehicleUniqueId: pts[0].vehicleUniqueId || null,
         health: pts[0].health ?? 100,
         healthSampleTimeMs: pts[0].t,
       };
@@ -653,37 +787,41 @@ function Replay3DContent() {
         position: convertTo3D(last.x, last.y, last.z, altitudeScale),
         vehicleId: last.vehicleId || null,
         vehicleKey: last.vehicleUniqueId || last.vehicleId || null,
+        vehicleUniqueId: last.vehicleUniqueId || null,
         health: last.health ?? 100,
         healthSampleTimeMs: last.t,
       };
     }
 
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p1 = pts[i];
-      const p2 = pts[i + 1];
-      if (time >= p1.t && time <= p2.t) {
-        // 재배치 같은 긴 공백은 2D 리플레이와 같은 기준으로 잇지 않고 이전 위치에 머문다.
-        const ratio = p2.t - p1.t > MAX_POSITION_INTERPOLATION_GAP_MS && time < p2.t ? 0 : (time - p1.t) / (p2.t - p1.t);
-        const x = p1.x + (p2.x - p1.x) * ratio;
-        const y = p1.y + (p2.y - p1.y) * ratio;
-        const z = p1.z + (p2.z - p1.z) * ratio;
-        // Health is an observation, not a continuously interpolated value.
-        // Use the most recent sample at or before the current frame so a
-        // pre-redeploy zero cannot bleed into the next life.
-        const healthSample = time >= p2.t ? p2 : p1;
-        return {
-          position: convertTo3D(x, y, z, altitudeScale),
-          vehicleId: (ratio >= 0.5 ? p2.vehicleId : p1.vehicleId) || null,
-          vehicleKey: (ratio >= 0.5 ? (p2.vehicleUniqueId || p2.vehicleId) : (p1.vehicleUniqueId || p1.vehicleId)) || null,
-          health: healthSample.health ?? 100,
-          healthSampleTimeMs: healthSample.t,
-        };
-      }
+    const i = findWaypointSegment(pts, time);
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    if (p2) {
+      // 재배치 같은 긴 공백은 2D 리플레이와 같은 기준으로 잇지 않고 이전 위치에 머문다.
+      // 수송기 탑승도 순간이동이라 대기 장소에서 수송기까지 잇지 않는다.
+      const isBoarding = !isAirplane(p1.vehicleId) && isAirplane(p2.vehicleId);
+      const ratio = (p2.t - p1.t > MAX_POSITION_INTERPOLATION_GAP_MS || isBoarding) && time < p2.t ? 0 : (time - p1.t) / (p2.t - p1.t);
+      const { x, y, z } = ratio === 0
+        ? p1
+        : interpolateSmooth(pts, i, time, MAX_POSITION_INTERPOLATION_GAP_MS, SMOOTHING_MAX_UNITS_PER_MS);
+      // Health is an observation, not a continuously interpolated value.
+      // Use the most recent sample at or before the current frame so a
+      // pre-redeploy zero cannot bleed into the next life.
+      const healthSample = time >= p2.t ? p2 : p1;
+      return {
+        position: convertTo3D(x, y, z, altitudeScale),
+        vehicleId: (ratio >= 0.5 ? p2.vehicleId : p1.vehicleId) || null,
+        vehicleKey: (ratio >= 0.5 ? (p2.vehicleUniqueId || p2.vehicleId) : (p1.vehicleUniqueId || p1.vehicleId)) || null,
+        vehicleUniqueId: (ratio >= 0.5 ? p2.vehicleUniqueId : p1.vehicleUniqueId) || null,
+        health: healthSample.health ?? 100,
+        healthSampleTimeMs: healthSample.t,
+      };
     }
     return {
       position: convertTo3D(pts[0].x, pts[0].y, pts[0].z, altitudeScale),
       vehicleId: pts[0].vehicleId || null,
       vehicleKey: pts[0].vehicleUniqueId || pts[0].vehicleId || null,
+      vehicleUniqueId: pts[0].vehicleUniqueId || null,
       health: pts[0].health ?? 100,
       healthSampleTimeMs: pts[0].t,
     };
@@ -728,6 +866,7 @@ function Replay3DContent() {
     // Do not let a previous map's height data snap the new scene while assets load.
     heightmapDataRef.current = null;
     terrainGridRef.current = null;
+    buildingIndexRef.current = null;
 
     const renderProfile = getRenderProfile();
     const width = containerRef.current.clientWidth;
@@ -735,14 +874,12 @@ function Replay3DContent() {
 
     // [A] Scene 설정
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#05070c");
-    // 우주/전술 작전실 분위기의 안개(Fog) 추가
-    scene.fog = new THREE.FogExp2("#05070c", 0.009);
+    scene.background = new THREE.Color("#0b1018");
     sceneRef.current = scene;
 
-    // [B] Camera 설정
+    // [B] Camera 설정. 첫 프레임에 따라가는 선수 위치로 옮겨지므로 기준점에서의 거리·각도만 정한다.
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    camera.position.set(0, 65, 85);
+    camera.position.set(0, 12, 16);
 
     // [C] WebGLRenderer 설정
     const renderer = new THREE.WebGLRenderer({
@@ -752,46 +889,23 @@ function Replay3DContent() {
     });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, renderProfile.maxPixelRatio));
-    renderer.shadowMap.enabled = renderProfile.shadows;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     rendererRef.current = renderer;
 
     // [D] OrbitControls 연동
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.maxPolarAngle = Math.PI / 2 - 0.05;
-    controls.minDistance = 5;
-    controls.maxDistance = 220;
+    controls.dampingFactor = 0.08;
+    controls.maxPolarAngle = Math.PI * 0.45;
+    controls.minDistance = 2;
+    controls.maxDistance = 160;
+    controls.screenSpacePanning = false;
     controlsRef.current = controls;
 
-    // [E] 조명 배치
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
-    scene.add(ambientLight);
-
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    dirLight.position.set(30, 80, 40);
-    dirLight.castShadow = renderProfile.shadows;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
+    // [E] 조명 배치. 위성 지도 색이 그대로 보이도록 밝은 환경광 위주로 둔다.
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 1.6));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+    dirLight.position.set(-30, 60, 20);
     scene.add(dirLight);
-
-    // [F] Grid 가이드 데코레이션 배치
-    // 지형 메쉬가 불투명하게 렌더링되므로, 산 등의 지형 아래에 깔린 격자는 깊이 테스트에 의해 올바르게 가려집니다.
-    const gridHelper = new THREE.GridHelper(THREE_MAP_SIZE, 40, 0x1f2937, 0x111827);
-    gridHelper.position.y = 0.01;
-    if (Array.isArray(gridHelper.material)) {
-      gridHelper.material.forEach((mat) => {
-        mat.transparent = false;
-        mat.depthWrite = true;
-        mat.depthTest = true;
-      });
-    } else {
-      gridHelper.material.transparent = false;
-      gridHelper.material.depthWrite = true;
-      gridHelper.material.depthTest = true;
-    }
-    scene.add(gridHelper);
 
     // [G] 지형 고도(Heightmap)를 반영한 입체 지형 메쉬 생성
     const segments = renderProfile.terrainSegments;
@@ -813,6 +927,7 @@ function Replay3DContent() {
         // GPU가 지원하는 최대 이방성 필터링 적용 (경사 뷰에서 텍스처 선명도 유지)
         texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), renderProfile.textureAnisotropy);
         texture.needsUpdate = true;
+        renderStateVersionRef.current += 1;
         setIsMapLoading(false);
       })
       .catch(() => {
@@ -834,6 +949,7 @@ function Replay3DContent() {
             }
             (mapMesh.material as THREE.MeshStandardMaterial).map = txt;
             (mapMesh.material as THREE.MeshStandardMaterial).needsUpdate = true;
+            renderStateVersionRef.current += 1;
             setIsMapLoading(false);
           },
           undefined,
@@ -843,21 +959,18 @@ function Replay3DContent() {
         );
       });
 
-    // 지형 메쉬의 재질을 불투명하게 변경하여 하위 바닥에 있는 GridHelper가
-    // 깊이 판정을 뚫고 지상 위로 오버레이 렌더링(붕 뜨는 착시 현상)되는 현상을 해결합니다.
+    // 금속성을 빼고 무광으로 두어 지도가 어둡게 반사되지 않게 한다.
     const planeMat = new THREE.MeshStandardMaterial({
       map: texture,
       side: THREE.DoubleSide,
-      roughness: 0.45,
-      metalness: 0.4,
-      transparent: false
+      roughness: 1,
+      metalness: 0
     });
 
     const terrainMesh = new THREE.Mesh(planeGeo, planeMat);
     mapMesh = terrainMesh;
     terrainMesh.rotation.x = -Math.PI / 2;
     terrainMesh.position.y = 0;
-    terrainMesh.receiveShadow = true;
     scene.add(terrainMesh);
     mapMeshRef.current = terrainMesh;
 
@@ -868,8 +981,7 @@ function Replay3DContent() {
       const heightmapImg = new Image();
       heightmapImage = heightmapImg;
       heightmapImg.crossOrigin = "anonymous";
-      // 손상된 PNG를 우회하여 정상 JPG 하이트맵을 모든 맵에서 일관되게 사용
-      heightmapImg.src = `/assets/map/${selectedMap}_HeightMap.jpg`;
+      heightmapImg.src = heightmapUrl(selectedMap);
       heightmapImg.onload = () => {
         if (!isSceneCurrent()) return;
         const tempCanvas = document.createElement("canvas");
@@ -881,7 +993,7 @@ function Replay3DContent() {
           try {
             const imgData = tempCtx.getImageData(0, 0, heightmapImg.width, heightmapImg.height);
             const pixels = imgData.data;
-            
+
             // 3D 지형 실시간 역산용 레퍼런스 업데이트
             heightmapDataRef.current = {
               pixels,
@@ -893,9 +1005,6 @@ function Replay3DContent() {
             const count = posAttr.count;
             const grid: number[][] = Array.from({ length: segments }, () => new Array(segments).fill(0));
 
-            // 전체 지형 중 최저 고도를 수집하기 위한 변수
-            let minElevation = 0;
-
             for (let i = 0; i < count; i++) {
               const x = posAttr.getX(i); // Local X coordinate (-50 to 50)
               const y = posAttr.getY(i); // Local Y coordinate (-50 to 50)
@@ -905,29 +1014,19 @@ function Replay3DContent() {
               const pixelIdx = (pixel.y * heightmapImg.width + pixel.x) * 4;
               let finalElevation = 0;
               if (pixels[pixelIdx + 3] !== 0) { // Skip transparent pixels if any
-                const R = pixels[pixelIdx];
-                // PUBG 인게임 표준 8비트 고도 변환 공식: R=128 기준 ±262m 범위
-                const elevation = (R - 128) * 2.048;
-                finalElevation = elevation * altitudeScale;
+                finalElevation = heightmapElevationMeters(pixels[pixelIdx]) * altitudeScale;
                 posAttr.setZ(i, finalElevation);
               }
-              
+
               const ix = i % segments;
               const iy = Math.floor(i / segments);
               grid[iy][ix] = finalElevation;
-
-              // 최저 고도 최신화
-              if (finalElevation < minElevation) {
-                minElevation = finalElevation;
-              }
             }
             terrainGridRef.current = { grid, size: segments };
             posAttr.needsUpdate = true;
             planeGeo.computeVertexNormals();
-
-            // 격자의 Y 위치를 지형의 최저 고도보다 아주 조금 더 아래(예: -0.05m)로 내려줍니다.
-            // 이를 통해 격자가 지상의 특정 저지대(음수 고도 지역) 위로 뚫고 나오는 공중 붕뜸 현상을 종식합니다.
-            gridHelper.position.y = minElevation - 0.05;
+            placeBuildings();
+            renderStateVersionRef.current += 1;
           } catch {
             if (isSceneCurrent()) setIsMapLoading(false);
           }
@@ -938,441 +1037,166 @@ function Replay3DContent() {
       };
     }
 
-    // 홀로그램 전술 보드판 테두리 네온 라인 추가
-    const borderGeo = new THREE.BoxGeometry(THREE_MAP_SIZE, THREE_MAP_SIZE, 0.05);
-    const edges = new THREE.EdgesGeometry(borderGeo);
-    const borderMat = new THREE.LineBasicMaterial({
-      color: 0x00d2ff, // 청록색(Cyan)의 네온 빛
-      transparent: true,
-      opacity: 0.8
-    });
-    const borderLine = new THREE.LineSegments(edges, borderMat);
-    borderLine.rotation.x = -Math.PI / 2;
-    borderLine.position.y = 0.02; // 지도 바로 위에 살짝 얹음
-    scene.add(borderLine);
-    borderLineRef.current = borderLine;
+    // [G-2] 건물. 하이트맵에서 뽑은 건물 사각형(맵 좌표 중심·폭·길이·회전·높이)을 상자 하나로 일괄 그린다.
+    // 바닥 높이는 지형 격자에서 구하므로 지형이 준비된 뒤에 배치한다.
+    const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
+    const buildingMat = new THREE.MeshStandardMaterial({ color: 0xd5d9df, roughness: 0.9, metalness: 0 });
+    let buildingData: number[][] | null = null;
+    let buildingsPlaced = false;
+    function placeBuildings() {
+      const terrain = terrainGridRef.current;
+      if (!buildingData || !terrain || buildingsPlaced || !isSceneCurrent()) return;
+      buildingsPlaced = true;
+      const unit = THREE_MAP_SIZE / 8192;
+      // 경사면에서 바닥이 뜨지 않도록 지면 아래로 조금 묻는다.
+      const sink = 3 * altitudeScale;
+      const mesh = new THREE.InstancedMesh(buildingGeo, buildingMat, buildingData.length);
+      const matrix = new THREE.Matrix4();
+      const rotation = new THREE.Quaternion();
+      const position = new THREE.Vector3();
+      const size = new THREE.Vector3();
+      const up = new THREE.Vector3(0, 1, 0);
+      buildingData.forEach(([x, y, width, length, angleDeg, heightM], index) => {
+        const centerX = x * unit - THREE_MAP_SIZE / 2;
+        const centerZ = y * unit - THREE_MAP_SIZE / 2;
+        const base = sampleTerrainHeight(terrain, centerX, centerZ, THREE_MAP_SIZE);
+        const height = heightM * altitudeScale;
+        position.set(centerX, base + (height - sink) / 2, centerZ);
+        // 이미지 좌표(y 아래)의 시계 방향 각도라 Three.js Y축 회전은 부호가 반대다.
+        rotation.setFromAxisAngle(up, (-angleDeg * Math.PI) / 180);
+        size.set(width * unit, height + sink, length * unit);
+        mesh.setMatrixAt(index, matrix.compose(position, rotation, size));
+      });
+      scene.add(mesh);
+      renderStateVersionRef.current += 1;
+    }
+    fetch(`/assets/map/${selectedMap}_Buildings.json`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((json: { buildings?: number[][] } | null) => {
+        if (!isSceneCurrent() || !Array.isArray(json?.buildings)) return;
+        buildingData = json.buildings;
+        buildingIndexRef.current = createBuildingIndex(json.buildings);
+        placeBuildings();
+        renderStateVersionRef.current += 1;
+      })
+      // 건물은 보조 레이어라 받지 못하면 지형만 보여 준다.
+      .catch(() => {});
 
-    // [H] 3D 자기장 실린더 메쉬 배치
-    const cylinderGeo = new THREE.CylinderGeometry(1, 1, 40, 64, 1, true);
-    const bluezoneMat = new THREE.MeshBasicMaterial({
-      color: 0x0066ff,
-      transparent: true,
-      opacity: 0.22,
-      side: THREE.DoubleSide,
-      depthWrite: false
-    });
-    const bluezoneMesh = new THREE.Mesh(cylinderGeo, bluezoneMat);
-    bluezoneMesh.position.y = 20;
-    scene.add(bluezoneMesh);
-    bluezoneMeshRef.current = bluezoneMesh;
+    // [H] 자기장 벽. 높이 1짜리 원통을 반지름·벽 높이로 늘려 쓴다.
+    const cylinderGeo = new THREE.CylinderGeometry(1, 1, 1, 96, 1, true);
+    const createZoneWall = (color: number, opacity: number, wall: { bottom: number; top: number }) => {
+      const mesh = new THREE.Mesh(cylinderGeo, new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      }));
+      mesh.position.y = (wall.bottom + wall.top) / 2;
+      mesh.visible = false;
+      scene.add(mesh);
+      return mesh;
+    };
+    bluezoneMeshRef.current = createZoneWall(0x2f6bff, 0.25, BLUE_WALL);
+    whitezoneMeshRef.current = createZoneWall(0xffffff, 0.35, WHITE_WALL);
 
-    const whitezoneMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.13,
-      side: THREE.DoubleSide,
-      depthWrite: false
-    });
-    const whitezoneMesh = new THREE.Mesh(cylinderGeo, whitezoneMat);
-    whitezoneMesh.position.y = 20;
-    scene.add(whitezoneMesh);
-    whitezoneMeshRef.current = whitezoneMesh;
-
-    // [I-Tracer] 총탄 트레이서 빔 풀 사전 생성 (최대 15개 동시 표현)
-    // 빔의 두께를 대폭 두껍게 하고(0.02 ~ 0.08) 꼬리가 가늘어지는 원뿔대 형태로 입체감 구현
-    const tracerGeo = new THREE.CylinderGeometry(0.02, 0.08, 1, 6);
-    const tracerPool: THREE.Mesh[] = [];
-    for (let i = 0; i < 15; i++) {
-      const tracerMat = new THREE.MeshBasicMaterial({
-        color: 0xffaa00,
+    // [I-Tracer] 명중선 풀. 공격자 위치에서 피해자 위치까지 짧게 그렸다가 사라진다.
+    const tracerPool: THREE.Line[] = [];
+    for (let i = 0; i < TRACER_POOL_SIZE; i++) {
+      const tracerGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+      const tracer = new THREE.Line(tracerGeo, new THREE.LineBasicMaterial({
         transparent: true,
         opacity: 0,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-      });
-      const tracer = new THREE.Mesh(tracerGeo, tracerMat);
+        depthTest: false,
+        depthWrite: false
+      }));
+      tracer.renderOrder = 5;
       tracer.visible = false;
+      tracer.frustumCulled = false;
       scene.add(tracer);
       tracerPool.push(tracer);
     }
     tracerPoolRef.current = tracerPool;
 
-    // [I-Impact] 탄착 지점 타격 네온 스파크 구체 풀 사전 생성 (최대 15개 동시 표현)
-    const impactGeo = new THREE.SphereGeometry(0.35, 12, 12);
-    const impactPool: THREE.Mesh[] = [];
-    for (let i = 0; i < 15; i++) {
-      const impactMat = new THREE.MeshBasicMaterial({
-        color: 0xff3300,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-      });
-      const impact = new THREE.Mesh(impactGeo, impactMat);
-      impact.visible = false;
-      scene.add(impact);
-      impactPool.push(impact);
-    }
-    impactPoolRef.current = impactPool;
-
-    // [I] 동적 플레이어 그룹 마커 및 궤적 라인 렌더
+    // [I] 선수 마커와 이동 경로
+    const markerTextures = new Map<string, THREE.Texture>();
+    markerTexturesRef.current = markerTextures;
     playerMeshesRef.current = {};
     playerLinesRef.current = {};
     playerDropLinesRef.current = {};
 
     players.forEach((player) => {
-      // 플레이어 마커를 감싸는 상위 Group 생성
       const group = new THREE.Group();
       group.name = player.name;
-      group.visible = player.isTeam ? true : showEnemies; // 적군은 showEnemies 상태에 따라 초기 가시성 설정
 
-      // 1-1) 도보 모드용 3D 홀로그램 마네킹 피규어 조각 (Sphere 대체, 방법 B)
-      const mannequin = new THREE.Group();
-      mannequin.name = "walkSphere"; // 기존 바인딩 호환용 name 유지
+      const marker = createScreenSprite(
+        getMarkerTexture(markerTextures, "foot", player.color),
+        player.isTeam ? TEAM_MARKER_SIZE : ENEMY_MARKER_SIZE,
+      );
+      marker.name = "marker";
+      marker.userData.shape = "foot";
+      group.add(marker);
 
-      const mScale = player.isTeam ? 0.58 : 0.42;
-      const mannequinMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(player.color),
-        emissive: new THREE.Color(player.color),
-        emissiveIntensity: player.isTeam ? 0.55 : 0.35,
-        roughness: 0.15,
-        metalness: 0.85
-      });
+      const vehicleModel = createVehicleModel(player.color);
+      vehicleModel.name = "vehicleModel";
+      vehicleModel.visible = false;
+      const planeModel = createPlaneModel();
+      planeModel.name = "planeModel";
+      planeModel.visible = false;
+      group.add(vehicleModel, planeModel);
 
-      // 머리 (Sphere)
-      const headGeo = new THREE.SphereGeometry(0.11 * mScale, 12, 12);
-      const head = new THREE.Mesh(headGeo, mannequinMat);
-      head.position.y = 0.46 * mScale;
-      head.castShadow = true;
-      mannequin.add(head);
-
-      // 시선 바이저/포인터 (Cone) - 머리 전면에 뾰족하게 부착해 방향성을 연출
-      const visorGeo = new THREE.ConeGeometry(0.04 * mScale, 0.08 * mScale, 4);
-      const visorMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const visor = new THREE.Mesh(visorGeo, visorMat);
-      visor.rotation.x = Math.PI / 2;
-      visor.position.set(0, 0.46 * mScale, 0.12 * mScale);
-      mannequin.add(visor);
-
-      // 몸통 (Cylinder)
-      const bodyGeo = new THREE.CylinderGeometry(0.05 * mScale, 0.08 * mScale, 0.28 * mScale, 12);
-      const body = new THREE.Mesh(bodyGeo, mannequinMat);
-      body.position.y = 0.26 * mScale;
-      body.castShadow = true;
-      mannequin.add(body);
-
-      // 스탠드 베이스 받침 (Cylinder)
-      const baseGeo = new THREE.CylinderGeometry(0.12 * mScale, 0.14 * mScale, 0.05 * mScale, 12);
-      const base = new THREE.Mesh(baseGeo, mannequinMat);
-      base.position.y = 0.03 * mScale;
-      base.castShadow = true;
-      mannequin.add(base);
-
-      // 오른팔 + 총기 그룹 (사격 시 앞으로 들어올리는 연출용)
-      const gunArmGroup = new THREE.Group();
-      gunArmGroup.name = "gunArm";
-      // 팔뚝 (얇은 Cylinder)
-      const armGeo = new THREE.CylinderGeometry(0.025 * mScale, 0.025 * mScale, 0.22 * mScale, 6);
-      const armMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(player.color),
-        emissive: new THREE.Color(player.color),
-        emissiveIntensity: player.isTeam ? 0.45 : 0.3,
-        roughness: 0.2,
-        metalness: 0.8
-      });
-      const armMesh = new THREE.Mesh(armGeo, armMat);
-      // 그립(손잡이): CylinderGeometry 기본 축이 Y이므로 배소 0 = 수직 아래 구현 OK
-      armMesh.position.set(0, -0.11 * mScale, 0); // 그립 중심이 어깨 아래로 0.11
-      gunArmGroup.add(armMesh);
-      // 배럴(총신): BoxGeometry가 기본적으로 Z축 방향으로 론간이 없으면 X·Y 단면이 도드라지 안되므로
-      // 어걸리하지 않고 배럴은 단면 사각형 + 걸이 Z충 방향
-      const gunGeo = new THREE.BoxGeometry(0.04 * mScale, 0.04 * mScale, 0.34 * mScale);
-      const gunMat = new THREE.MeshStandardMaterial({
-        color: 0x1a1a2e,
-        emissive: new THREE.Color(player.color),
-        emissiveIntensity: 0.6,
-        roughness: 0.1,
-        metalness: 0.95
-      });
-      const gunMesh = new THREE.Mesh(gunGeo, gunMat);
-      // 배럴은 그립 상단(어깨 높이)에서 앞으로 반바른 수평으로 뜨 있음
-      gunMesh.position.set(0, 0, 0.17 * mScale); // y=0 = 어깨와 같은 높이, z= 앞으로
-      gunArmGroup.add(gunMesh);
-      // 총구 플래시 — 배럴 끝단 (크기 조정 및 depthWrite 방지)
-      const muzzleGeo = new THREE.SphereGeometry(0.08 * mScale, 8, 8);
-      const muzzleMat = new THREE.MeshBasicMaterial({
-        color: 0xffd700,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false, // 렌더링 depth 꼬임 방지
-        blending: THREE.AdditiveBlending
-      });
-      const muzzleFlash = new THREE.Mesh(muzzleGeo, muzzleMat);
-      muzzleFlash.name = "muzzleFlash";
-      muzzleFlash.position.set(0, 0, 0.34 * mScale); // 배럴 끝단
-      muzzleFlash.visible = false; // 기본 상태 비활성화
-      gunArmGroup.add(muzzleFlash);
-
-      // 기본 자세: rotation.x=0 → 그립 수직 아래, 배럴 어깨 높이에서 앞으로 뜨음
-      gunArmGroup.position.set(0.12 * mScale, 0.32 * mScale, 0.0);
-      gunArmGroup.rotation.x = 0;
-      mannequin.add(gunArmGroup);
-
-      group.add(mannequin);
-
-      // 1-1-c) 닉네임 빌보드 스프라이트 라벨 추가
       const nameSprite = createNicknameSprite(player.name, player.color);
       nameSprite.name = "nicknameSprite";
-      nameSprite.position.set(0, 0.62 * mScale + 0.15, 0); // 머리 바로 위로 오프셋 조정
+      nameSprite.renderOrder = 13;
       group.add(nameSprite);
 
-      // 1-1-b) 3D 묘비 메쉬 조각 (완전 사망 시 그 자리에 소환)
-      const tombstoneGroup = new THREE.Group();
-      tombstoneGroup.name = "tombstone";
-
-      const tombScale = player.isTeam ? 1.0 : 0.7;
-      const stoneMat = new THREE.MeshStandardMaterial({
-        color: 0x5a606b,
-        roughness: 0.9,
-        metalness: 0.1
-      });
-
-      // 기둥
-      const postGeo = new THREE.BoxGeometry(0.11 * tombScale, 0.44 * tombScale, 0.1 * tombScale);
-      const post = new THREE.Mesh(postGeo, stoneMat);
-      post.position.y = 0.22 * tombScale;
-      post.castShadow = true;
-      tombstoneGroup.add(post);
-
-      // 가로장 (십자가)
-      const barGeo = new THREE.BoxGeometry(0.3 * tombScale, 0.1 * tombScale, 0.1 * tombScale);
-      const bar = new THREE.Mesh(barGeo, stoneMat);
-      bar.position.set(0, 0.28 * tombScale, 0);
-      bar.castShadow = true;
-      tombstoneGroup.add(bar);
-
-      tombstoneGroup.visible = false;
-      group.add(tombstoneGroup);
-
-      // 1-2) 차량 탑승용 3D 미니 전술 차량 메쉬 그룹 생성 (귀여운 전술 자동차 형상 조각)
-      const carGroup = new THREE.Group();
-      carGroup.name = "vehicleBox"; // 기존 바인딩 유지용 name
-
-      const chassisScale = player.isTeam ? 0.52 : 0.38;
-      
-      // 차체 (Chassis)
-      const chassisGeo = new THREE.BoxGeometry(0.85 * chassisScale, 0.26 * chassisScale, 0.48 * chassisScale);
-      const chassisMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(player.color),
-        emissive: new THREE.Color(player.color),
-        emissiveIntensity: player.isTeam ? 0.65 : 0.4,
-        roughness: 0.15,
-        metalness: 0.85
-      });
-      const chassis = new THREE.Mesh(chassisGeo, chassisMat);
-      chassis.position.y = 0.08 * chassisScale;
-      chassis.castShadow = true;
-      carGroup.add(chassis);
-
-      // 캐빈 (Cabin)
-      const cabinGeo = new THREE.BoxGeometry(0.45 * chassisScale, 0.24 * chassisScale, 0.38 * chassisScale);
-      const cabinMat = new THREE.MeshStandardMaterial({
-        color: 0x1a2130, // 어두운 유리창 유광 플라스틱
-        emissive: new THREE.Color(player.color),
-        emissiveIntensity: 0.18,
-        roughness: 0.05,
-        metalness: 0.95
-      });
-      const cabin = new THREE.Mesh(cabinGeo, cabinMat);
-      cabin.position.set(0.02 * chassisScale, 0.3 * chassisScale, 0);
-      cabin.castShadow = true;
-      carGroup.add(cabin);
-
-      // 바퀴 4개 (Cylinder)
-      const wheelGeo = new THREE.CylinderGeometry(0.14 * chassisScale, 0.14 * chassisScale, 0.08 * chassisScale, 8);
-      const wheelMat = new THREE.MeshStandardMaterial({
-        color: 0x1f232b,
-        roughness: 0.8,
-        metalness: 0.2
-      });
-
-      const wheelOffsets = [
-        [-0.26 * chassisScale, -0.02 * chassisScale, 0.24 * chassisScale],
-        [0.26 * chassisScale, -0.02 * chassisScale, 0.24 * chassisScale],
-        [-0.26 * chassisScale, -0.02 * chassisScale, -0.24 * chassisScale],
-        [0.26 * chassisScale, -0.02 * chassisScale, -0.24 * chassisScale]
-      ];
-
-      wheelOffsets.forEach((offset) => {
-        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-        wheel.rotation.x = Math.PI / 2; // 바퀴가 축 방향을 보게 회전
-        wheel.position.set(offset[0], offset[1], offset[2]);
-        wheel.castShadow = true;
-        carGroup.add(wheel);
-      });
-
-      carGroup.visible = false; // 기본값 숨김
-      group.add(carGroup);
-
-      // 1-3) 비상호출/수송 비행기 3D 메쉬 그룹 생성 (수송기 모양 조각)
-      const planeGroup = new THREE.Group();
-      planeGroup.name = "airplaneBox";
-
-      const planeScale = player.isTeam ? 0.7 : 0.5;
-      // 동체 (Fuselage)
-      const fuseGeo = new THREE.CylinderGeometry(0.12 * planeScale, 0.08 * planeScale, 1.5 * planeScale, 8);
-      const fuseMat = new THREE.MeshStandardMaterial({
-        color: 0x8b949e,
-        emissive: new THREE.Color(player.color),
-        emissiveIntensity: 0.25,
-        metalness: 0.9,
-        roughness: 0.1
-      });
-      const fuse = new THREE.Mesh(fuseGeo, fuseMat);
-      fuse.rotation.x = Math.PI / 2; // 앞뒤 수평 방향 눕힘
-      fuse.castShadow = true;
-      planeGroup.add(fuse);
-
-      // 주날개 (Wings)
-      const wingGeo = new THREE.BoxGeometry(1.8 * planeScale, 0.03 * planeScale, 0.28 * planeScale);
-      const wingMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(player.color),
-        emissive: new THREE.Color(player.color),
-        emissiveIntensity: player.isTeam ? 0.55 : 0.35,
-        metalness: 0.8,
-        roughness: 0.2
-      });
-      const wing = new THREE.Mesh(wingGeo, wingMat);
-      wing.position.set(0, 0.02 * planeScale, 0.1 * planeScale); // 동체 중간 얹음
-      wing.castShadow = true;
-      planeGroup.add(wing);
-
-      // 꼬리날개 (Tail fin)
-      const tailGeo = new THREE.BoxGeometry(0.02 * planeScale, 0.32 * planeScale, 0.22 * planeScale);
-      const tail = new THREE.Mesh(tailGeo, wingMat);
-      tail.position.set(0, 0.16 * planeScale, -0.55 * planeScale);
-      tail.castShadow = true;
-      planeGroup.add(tail);
-
-      planeGroup.visible = false; // 기본값 숨김
-      group.add(planeGroup);
-
-      // 1-4) 성능 과부하 및 Three.js 조명 제한 방지를 위해 포인트 라이트는 아군 스쿼드(isTeam)에만 부착
-      if (player.isTeam) {
-        const pointLight = new THREE.PointLight(new THREE.Color(player.color), 4.5, 12, 0.45);
-        pointLight.position.set(0, 0.8, 0);
-        group.add(pointLight);
-      }
-
       scene.add(group);
-      playerMeshesRef.current[player.name] = group as any;
+      playerMeshesRef.current[player.name] = group;
 
-      // 2) 수직 드롭 가이드 라인 (지도 지면 Y=0과 공중 마커를 연결해 주는 수직 점선)
-      const dropPoints = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0)];
-      const dropLineGeo = new THREE.BufferGeometry().setFromPoints(dropPoints);
-      const dropLineMat = new THREE.LineDashedMaterial({
-        color: new THREE.Color(player.color),
-        dashSize: player.isTeam ? 0.4 : 0.2,
-        gapSize: player.isTeam ? 0.25 : 0.15,
-        transparent: true,
-        opacity: player.isTeam ? 0.6 : 0.25
-      });
-      const dropLine = new THREE.LineSegments(dropLineGeo, dropLineMat);
-      dropLine.computeLineDistances();
-      dropLine.visible = player.isTeam ? showTrajectories : (showTrajectories && showEnemies);
+      // 공중(낙하산·비행기)일 때 지면 위치를 알려 주는 수직선과 지나온 경로는 아군만 그린다.
+      if (!player.isTeam || player.waypoints.length === 0) return;
+
+      const dropLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0)]),
+        new THREE.LineBasicMaterial({ color: new THREE.Color(player.color), transparent: true, opacity: 0.6 })
+      );
+      dropLine.frustumCulled = false;
+      dropLine.visible = false;
       scene.add(dropLine);
       playerDropLinesRef.current[player.name] = dropLine;
 
-      // 3) 궤적 전체 라인 (시각적 과부하 방지를 위해 아군 스쿼드만 드로잉!)
-      if (player.isTeam && player.waypoints && player.waypoints.length > 0) {
-        const points = player.waypoints.map(wp => convertTo3D(wp.x, wp.y, wp.z, altitudeScale));
-        const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
-        const lineMat = new THREE.LineBasicMaterial({
-          color: new THREE.Color(player.color),
-          linewidth: 2.5,
-          transparent: true,
-          opacity: 0.75
-        });
-        const line = new THREE.Line(lineGeo, lineMat);
-        scene.add(line);
-        playerLinesRef.current[player.name] = line;
-      }
+      // 마지막 꼭짓점 하나를 현재 위치로 덮어 경로 끝이 마커에 붙도록 원본 좌표를 따로 둔다.
+      const points = player.waypoints.map(wp => convertTo3D(wp.x, wp.y, wp.z, altitudeScale));
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+      lineGeo.setDrawRange(0, 0);
+      const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({
+        color: new THREE.Color(player.color),
+        transparent: true,
+        opacity: 0.85
+      }));
+      line.userData.original = Float32Array.from(lineGeo.attributes.position.array);
+      line.userData.headIndex = -1;
+      line.frustumCulled = false;
+      scene.add(line);
+      playerLinesRef.current[player.name] = line;
     });
 
-    // [I-CarePackage] 보급 상자 및 연기 메쉬 사전 배치
+    // [I-CarePackage] 보급 상자 마커
     carePackageMeshesRef.current = {};
     carePackages.forEach((cp) => {
-      const cpGroup = new THREE.Group();
-      cpGroup.name = "carepackage_" + cp.id;
-
-      // 1) 보급 박스 몸체 (빨간색 상자)
-      const boxGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
-      const boxMat = new THREE.MeshStandardMaterial({
-        color: 0xd92b2b,
-        roughness: 0.4,
-        metalness: 0.6
-      });
-      const box = new THREE.Mesh(boxGeo, boxMat);
-      box.position.y = 0.4;
-      box.castShadow = true;
-      cpGroup.add(box);
-
-      // 2) 보급 상자 지붕 천막 (파란색 지붕)
-      const tarpGeo = new THREE.BoxGeometry(0.85, 0.12, 0.85);
-      const tarpMat = new THREE.MeshStandardMaterial({
-        color: 0x1d4ed8,
-        roughness: 0.6,
-        metalness: 0.1
-      });
-      const tarp = new THREE.Mesh(tarpGeo, tarpMat);
-      tarp.position.y = 0.84;
-      tarp.castShadow = true;
-      cpGroup.add(tarp);
-
-      // 3) 낙하산 메쉬 (반구체)
-      const chuteGeo = new THREE.SphereGeometry(0.65, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-      const chuteMat = new THREE.MeshStandardMaterial({
-        color: 0xe5e7eb,
-        transparent: true,
-        opacity: 0.9,
-        side: THREE.DoubleSide
-      });
-      const chute = new THREE.Mesh(chuteGeo, chuteMat);
-      chute.name = "chute";
-      chute.position.y = 1.6;
-      chute.castShadow = true;
-      cpGroup.add(chute);
-
-      // 4) 네온 연기 기둥 (반투명 빨간 실린더)
-      const smokeGeo = new THREE.CylinderGeometry(0.12, 0.6, 50, 16, 1, true);
-      const smokeMat = new THREE.MeshBasicMaterial({
-        color: 0xef4444,
-        transparent: true,
-        opacity: 0, // 기본값 투명
-        side: THREE.DoubleSide,
-        depthWrite: false
-      });
-      const smoke = new THREE.Mesh(smokeGeo, smokeMat);
-      smoke.name = "smoke";
-      smoke.position.y = 25; // 높이 50의 절반
-      smoke.visible = false;
-      cpGroup.add(smoke);
-
-      cpGroup.visible = false; // 기본적으론 숨겨둠
-      scene.add(cpGroup);
-      carePackageMeshesRef.current[cp.id] = cpGroup;
+      const sprite = createScreenSprite(getMarkerTexture(markerTextures, "carePackage", "#e5484d"), CARE_PACKAGE_MARKER_SIZE);
+      sprite.renderOrder = 9;
+      sprite.visible = false;
+      scene.add(sprite);
+      carePackageMeshesRef.current[cp.id] = sprite;
     });
 
-    // 카메라 원점 초점 조정
-    if (players.length > 0 && players[0].waypoints.length > 0) {
-      const firstWp = players[0].waypoints[0];
-      const startPos3D = convertTo3D(firstWp.x, firstWp.y, firstWp.z, altitudeScale);
-      controls.target.set(startPos3D.x, 0, startPos3D.z);
-      controls.update();
-    }
+    // 정지 중에는 바뀐 것이 있을 때만 다시 그린다.
+    let needsRender = true;
 
     // [J] 창 크기 조절 콜백
     const handleResize = () => {
+      needsRender = true;
       if (!containerRef.current || !renderer || !camera) return;
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
@@ -1385,10 +1209,39 @@ function Replay3DContent() {
     // [K] 렌더 프레임 루프 기동
     let lastRenderTime = 0;
     const frameInterval = 1000 / renderProfile.targetFps;
+    const followStep = new THREE.Vector3();
+    const targetBeforeUpdate = new THREE.Vector3();
+    let userPanDistance = 0;
+    const projected = new THREE.Vector3();
+    const labels = Object.values(playerMeshesRef.current)
+      .map((group) => group.getObjectByName("nicknameSprite"))
+      .filter((label): label is THREE.Object3D => !!label);
+    const placedLabels: { x: number; y: number }[] = [];
+
+    // 이름표가 화면에서 겹치면 우선순위(따라가는 선수, 아군, 적) 낮은 쪽을 숨긴다.
+    const declutterLabels = () => {
+      const { clientWidth: w, clientHeight: h } = renderer.domElement;
+      const labelHeightPx = LABEL_HEIGHT * camera.projectionMatrix.elements[5] * h / 2;
+      const labelWidthPx = labelHeightPx * 3.5;
+      placedLabels.length = 0;
+      labels.sort((a, b) => (a.userData.priority ?? 3) - (b.userData.priority ?? 3));
+      labels.forEach((label) => {
+        label.visible = false;
+        if (!label.userData.wanted || !label.parent) return;
+        projected.copy(label.parent.position).project(camera);
+        if (projected.z > 1) return;
+        const x = projected.x * w / 2;
+        const y = projected.y * h / 2 + (label.userData.seat ?? 0) * 1.1 * labelHeightPx;
+        if (placedLabels.some((p) => Math.abs(p.x - x) < labelWidthPx && Math.abs(p.y - y) < labelHeightPx)) return;
+        placedLabels.push({ x, y });
+        label.visible = true;
+      });
+    };
 
     const animate = (now: number) => {
       animationFrameIdRef.current = requestAnimationFrame(animate);
-      if (now - lastRenderTime < frameInterval) {
+      const elapsed = now - lastRenderTime;
+      if (elapsed < frameInterval) {
         return;
       }
       lastRenderTime = now;
@@ -1396,47 +1249,51 @@ function Replay3DContent() {
       if (isPlayingRef.current || renderStateVersionRef.current > 0) {
         updateReplaySceneRef.current(currentTimeRef.current);
         renderStateVersionRef.current = 0;
+        needsRender = true;
       }
 
-      controls.update();
-
-      // 차량에 탄 캐릭터의 마커의 바퀴 회전 및 상하 바운싱 모션 부여 (SF 홀로그램 서스펜션 느낌)
-      players.forEach((player) => {
-        const group = playerMeshesRef.current[player.name];
-        if (group) {
-          const car = group.getObjectByName("vehicleBox");
-          if (car && car.visible) {
-            // 미세한 부유식 위아래 흔들림 (자전 대신 서스펜션 흔들림)
-            car.position.y = Math.sin(performance.now() * 0.012) * 0.04;
-            
-            // 바퀴 메쉬 회전
-            car.children.forEach((child) => {
-              if (child instanceof THREE.Mesh && child.geometry instanceof THREE.CylinderGeometry) {
-                child.rotation.y += 0.2; // 실시간 휠 스핀
-              }
-            });
-          }
-
-          const plane = group.getObjectByName("airplaneBox");
-          if (plane && plane.visible) {
-            // 비행기 공중 부양식 미세 고도 흔들림 및 좌우 기우뚱 롤링 모션 추가
-            plane.position.y = Math.sin(performance.now() * 0.006) * 0.08;
-            plane.rotation.z = Math.sin(performance.now() * 0.003) * 0.12;
+      // 따라가기: 시점 거리·각도는 그대로 두고 초점과 카메라를 함께 옮긴다.
+      const followTarget = followTargetRef.current;
+      if (followTarget) {
+        const entry = followEntryRef.current;
+        if (entry) {
+          // 대상을 바꾼 직후에는 출발점에서 움직이는 선수까지 ease-in-out으로 옮긴다.
+          const progress = Math.min(1, (now - entry.startedAt) / FOLLOW_ENTRY_MS);
+          const eased = progress < 0.5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
+          followStep.lerpVectors(entry.from, followTarget, eased).sub(controls.target);
+          if (progress >= 1) followEntryRef.current = null;
+        } else {
+          followStep.subVectors(followTarget, controls.target);
+          if (followStep.length() < FOLLOW_SNAP_DISTANCE) {
+            followStep.multiplyScalar(1 - Math.exp(-Math.min(elapsed, 100) / FOLLOW_SMOOTHING_MS));
           }
         }
-      });
-
-      // 보급 상자 안착 후 연기 기둥 자전 회전 애니메이션
-      Object.keys(carePackageMeshesRef.current).forEach((key) => {
-        const cp = carePackageMeshesRef.current[Number(key)];
-        if (cp && cp.visible) {
-          const smoke = cp.getObjectByName("smoke");
-          if (smoke && smoke.visible) {
-            smoke.rotation.y += 0.005; // 부드럽게 기둥 자전 회전
-          }
+        if (followStep.lengthSq() > 1e-10) {
+          controls.target.add(followStep);
+          camera.position.add(followStep);
+          needsRender = true;
         }
-      });
+      }
 
+      // 사용자가 지도를 끌어 초점이 움직이면 따라가기를 끈다(회전·확대는 초점을 바꾸지 않는다).
+      targetBeforeUpdate.copy(controls.target);
+      if (controls.update()) needsRender = true;
+      if (!followTarget) {
+        userPanDistance = 0;
+      } else {
+        const panStep = targetBeforeUpdate.distanceTo(controls.target);
+        // 끌기가 멈추면(관성까지 끝나면) 누적을 비워 여러 번의 작은 조작이 쌓이지 않게 한다.
+        userPanDistance = panStep < 1e-6 ? 0 : userPanDistance + panStep;
+        if (userPanDistance > FOLLOW_RELEASE_DISTANCE) {
+          userPanDistance = 0;
+          followEntryRef.current = null;
+          setTrackingPlayer(null);
+        }
+      }
+
+      if (!needsRender) return;
+      needsRender = false;
+      declutterLabels();
       renderer.render(scene, camera);
     };
     animationFrameIdRef.current = requestAnimationFrame(animate);
@@ -1457,131 +1314,37 @@ function Replay3DContent() {
       if (sceneGenerationRef.current === sceneGeneration) {
         heightmapDataRef.current = null;
         terrainGridRef.current = null;
+        buildingIndexRef.current = null;
       }
-      
+
       controls.dispose();
       renderer.dispose();
-      
-      planeGeo.dispose();
-      planeMat.dispose();
-      if (texture) texture.dispose();
+
+      texture.dispose();
       if (fallbackTexture) fallbackTexture.dispose();
-
-      borderGeo.dispose();
-      edges.dispose();
-      borderMat.dispose();
-
-      // 격자 가이드 자원 수거 (메모리 누수 및 옛날 격자가 씬에 중첩 잔존하여 붕 뜨는 결함 해결)
-      if (gridHelper) {
-        gridHelper.geometry.dispose();
-        if (Array.isArray(gridHelper.material)) {
-          gridHelper.material.forEach((m) => m.dispose());
-        } else {
-          gridHelper.material.dispose();
-        }
-        scene.remove(gridHelper);
-      }
-
       cylinderGeo.dispose();
-      bluezoneMat.dispose();
-      whitezoneMat.dispose();
+      buildingGeo.dispose();
+      buildingMat.dispose();
+      // 마커 텍스처는 여러 스프라이트가 공유하므로 씬을 정리한 뒤 한 번에 해제한다.
+      disposeObject(scene);
+      markerTextures.forEach((markerTexture) => markerTexture.dispose());
+      scene.clear();
 
-      // 사격 트레이서 풀 자원 수거
-      tracerGeo.dispose();
-      tracerPoolRef.current.forEach((t) => {
-        if (Array.isArray(t.material)) {
-          t.material.forEach(m => m.dispose());
-        } else {
-          t.material.dispose();
-        }
-        scene.remove(t);
-      });
       tracerPoolRef.current = [];
-
-      // 탄착 임팩트 풀 자원 수거
-      impactGeo.dispose();
-      impactPoolRef.current.forEach((im) => {
-        if (Array.isArray(im.material)) {
-          im.material.forEach(m => m.dispose());
-        } else {
-          im.material.dispose();
-        }
-        scene.remove(im);
-      });
-      impactPoolRef.current = [];
-
-      // 보급 상자 메쉬들 자원 수거
-      Object.keys(carePackageMeshesRef.current).forEach((key) => {
-        const cpGroup = carePackageMeshesRef.current[Number(key)];
-        if (cpGroup) {
-          cpGroup.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              child.geometry.dispose();
-              if (Array.isArray(child.material)) {
-                child.material.forEach(m => m.dispose());
-              } else {
-                child.material.dispose();
-              }
-            }
-          });
-          scene.remove(cpGroup);
-        }
-      });
       carePackageMeshesRef.current = {};
-
-      players.forEach((player) => {
-        const group = playerMeshesRef.current[player.name];
-        if (group) {
-          // 자식 자원들 완벽 수거
-          group.traverse((child) => {
-            if (child instanceof THREE.Light) {
-              child.dispose();
-            }
-            if (child instanceof THREE.Mesh) {
-              child.geometry.dispose();
-              if (Array.isArray(child.material)) {
-                child.material.forEach(m => m.dispose());
-              } else {
-                child.material.dispose();
-              }
-            }
-          });
-          scene.remove(group);
-        }
-        const dropLine = playerDropLinesRef.current[player.name];
-        if (dropLine) {
-          dropLine.geometry.dispose();
-          if (Array.isArray(dropLine.material)) {
-            dropLine.material.forEach(m => m.dispose());
-          } else {
-            dropLine.material.dispose();
-          }
-          scene.remove(dropLine);
-        }
-        const line = playerLinesRef.current[player.name];
-        if (line) {
-          line.geometry.dispose();
-          if (Array.isArray(line.material)) {
-            line.material.forEach(m => m.dispose());
-          } else {
-            line.material.dispose();
-          }
-          scene.remove(line);
-        }
-      });
       playerMeshesRef.current = {};
       playerDropLinesRef.current = {};
       playerLinesRef.current = {};
       bluezoneMeshRef.current = null;
       whitezoneMeshRef.current = null;
-      borderLineRef.current = null;
+      if (markerTexturesRef.current === markerTextures) markerTexturesRef.current = null;
       if (mapTextureRef.current === texture) mapTextureRef.current = null;
       if (mapMeshRef.current === mapMesh) mapMeshRef.current = null;
       if (rendererRef.current === renderer) rendererRef.current = null;
       if (sceneRef.current === scene) sceneRef.current = null;
       if (controlsRef.current === controls) controlsRef.current = null;
     };
-  }, [players, selectedMap, altitudeScale, showEnemies, showTrajectories, carePackages]);
+  }, [players, selectedMap, altitudeScale, carePackages]);
 
   // 5. 재생 시간 경과 틱 관리
   useEffect(() => {
@@ -1615,509 +1378,270 @@ function Replay3DContent() {
     return () => cancelAnimationFrame(animationId);
   }, [isPlaying]);
 
+  // 선수별 기절 시각과 기절을 끝내는 시각(부활·사망·재배치)을 한 번만 모아 둔다.
+  const knockTimeline = useMemo(() => {
+    const timeline: Record<string, { groggy: number[]; ends: number[] }> = {};
+    players.forEach((player) => {
+      timeline[player.name] = {
+        groggy: [],
+        ends: [...(player.deathTimes ?? []), ...(player.redeployTimes ?? [])],
+      };
+    });
+    damageEvents.forEach((ev) => {
+      const entry = timeline[ev.victim];
+      if (!entry) return;
+      if (ev.type === "groggy") entry.groggy.push(ev.relativeTimeMs);
+      else if (ev.type === "revive") entry.ends.push(ev.relativeTimeMs);
+    });
+    return timeline;
+  }, [players, damageEvents]);
+
   // 6. 시간에 따른 실시간 마커 및 자기장 위치 갱신 동기화
   const updateReplayScene = useCallback((frameTimeMs: number) => {
     const currentTimeMs = frameTimeMs;
-    // 1) 모든 플레이어의 현재 프레임 보간 상태 계산 및 vehicleId별 그룹핑
-    const playerStates: Record<string, {
-      position: THREE.Vector3;
-      vehicleId: string | null;
-      vehicleKey: string | null;
-      health: number;
-      isDead: boolean;
-      deathTimeMs: number | null;
-      isInVehicle: boolean;
-      isPlane: boolean;
-    }> = {};
+    const markerTextures = markerTexturesRef.current;
+    const followedPlayer = trackingPlayer ? players.find((p) => p.name === trackingPlayer) : undefined;
+    let followedPos: THREE.Vector3 | null = null;
+    const enemyLabelRange = (ENEMY_LABEL_RANGE_M / (metersPerUnit(selectedMap) * 8192)) * THREE_MAP_SIZE;
 
-    const vehicleGroups: Record<string, string[]> = {};
+    // 1) 선수마다 현재 위치·상태를 구한다. 따라가는 선수를 먼저 처리해 적 이름표 거리 계산에 쓴다.
+    // 같은 차량 탑승자 묶음. 모형을 한 대만 그리고 이름표를 위로 쌓는 데 쓴다.
+    const vehicleClusters: VehicleCluster[] = [];
+    const nextVehicleAnchors = new Map<string, string>();
+    const orderedPlayers = followedPlayer
+      ? [followedPlayer, ...players.filter((p) => p !== followedPlayer)]
+      : players;
 
-    players.forEach((player) => {
+    orderedPlayers.forEach((player) => {
+      const group = playerMeshesRef.current[player.name];
+      if (!group) return;
       const state = getInterpolatedState(player, currentTimeMs, altitudeScale);
-      
+
       // 다중 사망 및 블루칩 부활 기록을 종합한 실시간 사망 판정
-      const deathTimeMs = getActiveDeathTime(
-        player.deathTimes,
-        player.redeployTimes,
-        currentTimeMs,
-      );
-      let isDead = deathTimeMs !== null;
-      if (shouldMarkPlayerDeadFromHealth(
+      const deathTimeMs = getActiveDeathTime(player.deathTimes, player.redeployTimes, currentTimeMs);
+      const isDead = deathTimeMs !== null || shouldMarkPlayerDeadFromHealth(
         player.deathTimes,
         player.redeployTimes,
         currentTimeMs,
         state.health,
         state.healthSampleTimeMs,
-      )) {
-        isDead = true;
+      );
+      const isInVehicle = !isDead && !!state.vehicleId;
+      const isFlying = isInVehicle && isAirplane(state.vehicleId);
+      const knock = knockTimeline[player.name];
+      const isGroggy = !isDead && !!knock && isGroggyAt(knock.groggy, knock.ends, currentTimeMs);
+
+      // 사망한 선수는 사망 시점 위치에 고정한다.
+      const position = isDead && deathTimeMs !== null
+        ? getInterpolatedState(player, deathTimeMs, altitudeScale).position
+        : state.position.clone();
+
+      // 지상 선수 높이: 고해상도 하이트맵 기준 지면 위 높이를 구해 화면의 지형 메쉬 위에 그만큼 올린다.
+      // 건물 안에서 지면보다 높으면 옥상·위층이므로 그대로 두고, 그 밖의 작은 차이(도보 8m, 차량 25m)는 지면에 붙인다.
+      const groundM = isFlying ? null : getGroundMeters(position.x, position.z);
+      if (groundM !== null) {
+        const aboveGroundM = position.y / altitudeScale - groundM;
+        const mapX = ((position.x + THREE_MAP_SIZE / 2) / THREE_MAP_SIZE) * 8192;
+        const mapY = ((position.z + THREE_MAP_SIZE / 2) / THREE_MAP_SIZE) * 8192;
+        const isOnStructure = aboveGroundM > STRUCTURE_MIN_HEIGHT_M && !!buildingIndexRef.current?.(mapX, mapY);
+        const shownAboveM = isOnStructure || aboveGroundM > (isInVehicle ? 25 : 8) ? aboveGroundM : 0;
+        position.y = getTerrainHeight(position.x, position.z) + shownAboveM * altitudeScale;
+      }
+      const isHidden = hiddenPlayers.has(player.name);
+      group.visible = !isHidden;
+
+      // 위치 표본이 드물어 뛰어내린 뒤에도 다음 표본까지 수송기 상태가 남으므로,
+      // 구간 양 끝이 모두 수송기일 때만 탑승 중으로 본다.
+      const segmentIndex = findWaypointSegment(player.waypoints, currentTimeMs);
+      const nextWaypoint = player.waypoints[segmentIndex + 1];
+      const isAboard = isFlying && isAirplane(player.waypoints[segmentIndex]?.vehicleId)
+        && (!nextWaypoint || isAirplane(nextWaypoint.vehicleId));
+      const isRiding = isAboard || (isInVehicle && !isFlying);
+      let seat = 0;
+      // 숨긴 선수는 그룹째 안 보이므로 묶음에서 빼서, 보이는 동승자가 차량 모형을 갖게 한다.
+      if (isRiding && !isHidden) {
+        const joined = joinVehicleCluster(vehicleClusters, {
+          name: player.name,
+          vehicleId: state.vehicleId ?? "",
+          uniqueId: state.vehicleUniqueId,
+          x: position.x,
+          z: position.z,
+          previousAnchor: vehicleAnchorsRef.current.get(player.name),
+        });
+        seat = joined.seat;
+        nextVehicleAnchors.set(player.name, joined.cluster.anchor);
+        // 동승자는 기준 탑승자 위치에 붙여 한 대로 움직이게 한다.
+        if (seat > 0) {
+          position.x = joined.cluster.x;
+          position.z = joined.cluster.z;
+          position.y = playerMeshesRef.current[joined.cluster.anchor]?.position.y ?? position.y;
+        }
+      }
+      group.position.copy(position);
+      if (player.name === trackingPlayer) followedPos = position;
+
+      // 같은 차량에는 첫 탑승자(따라가는 선수 우선)의 모형 하나만 그린다.
+      const showsModel = isRiding && seat === 0;
+      const vehicleModel = group.getObjectByName("vehicleModel");
+      const planeModel = group.getObjectByName("planeModel");
+      if (vehicleModel) vehicleModel.visible = showsModel && !isFlying;
+      if (planeModel) planeModel.visible = showsModel && isAboard;
+      if (showsModel) {
+        const heading = getHeadingAt(player.waypoints, currentTimeMs);
+        if (heading !== null) {
+          if (vehicleModel) vehicleModel.rotation.y = heading;
+          if (planeModel) planeModel.rotation.y = heading;
+        }
       }
 
-      const isInVehicle = !isDead && state.vehicleId !== null && state.vehicleId !== undefined && state.vehicleId !== "";
-      const isPlane = isInVehicle ? isAirplane(state.vehicleId) : false;
+      const shape: MarkerShape = isDead ? "dead" : isGroggy ? "groggy" : isAboard ? "plane" : isRiding ? "vehicle" : "foot";
+      const marker = group.getObjectByName("marker") as THREE.Sprite | undefined;
+      if (marker) {
+        marker.renderOrder = player.name === trackingPlayer ? 14 : player.isTeam ? 12 : 10;
+        // 탑승 중에는 아이콘을 모형 위로 띄운다.
+        marker.center.y = isRiding ? -0.6 : 0.5;
+      }
+      if (marker && markerTextures && marker.userData.shape !== shape) {
+        marker.material.map = getMarkerTexture(markerTextures, shape, player.color);
+        marker.material.needsUpdate = true;
+        marker.userData.shape = shape;
+      }
 
-      playerStates[player.name] = {
-        position: state.position,
-        vehicleId: state.vehicleId,
-        vehicleKey: state.vehicleKey,
-        health: state.health,
-        isDead,
-        deathTimeMs,
-        isInVehicle,
-        isPlane
-      };
+      const nameSprite = group.getObjectByName("nicknameSprite") as THREE.Sprite | undefined;
+      if (nameSprite) {
+        // 탑승자 순서만큼 이름표를 쌓고, 탑승 중이면 띄운 아이콘 높이만큼 더 올린다.
+        const labelLift = seat + (isRiding ? 1 : 0);
+        nameSprite.center.y = -0.45 - labelLift * 1.1;
+        const isNearFollowed = followedPos !== null && followedPos !== position
+          && Math.hypot(position.x - followedPos.x, position.z - followedPos.z) <= enemyLabelRange;
+        // 실제 표시는 렌더 루프가 화면에서 겹치는지 보고 정한다.
+        nameSprite.userData.wanted = !isHidden && showNames && !isDead
+          && (player.isTeam || player.name === trackingPlayer || isNearFollowed);
+        nameSprite.userData.seat = labelLift;
+        nameSprite.userData.priority = player.name === trackingPlayer ? 0 : player.isTeam ? 1 : 2;
+      }
 
-      if (isInVehicle && !isDead) {
-        const vId = state.vehicleKey ?? state.vehicleId!;
-        if (!vehicleGroups[vId]) {
-          vehicleGroups[vId] = [];
+      // 공중에 있을 때만 지면까지 수직선을 내린다.
+      const dropLine = playerDropLinesRef.current[player.name];
+      if (dropLine) {
+        const terrainHeight = getTerrainHeight(position.x, position.z);
+        const heightGap = position.y - terrainHeight;
+        dropLine.visible = showTrajectories && !isHidden && !isDead && heightGap > 0.3;
+        dropLine.position.set(position.x, terrainHeight, position.z);
+        const dropAttr = dropLine.geometry.attributes.position;
+        dropAttr.setY(1, Math.max(0, heightGap));
+        dropAttr.needsUpdate = true;
+      }
+
+      // 지나온 경로만 그리고, 마지막 꼭짓점을 현재 위치로 옮겨 경로 끝을 마커에 붙인다.
+      const line = playerLinesRef.current[player.name];
+      if (line) {
+        line.visible = showTrajectories && !isHidden;
+        const original = line.userData.original as Float32Array;
+        const lineAttr = line.geometry.attributes.position;
+        const array = lineAttr.array as Float32Array;
+        const previousHead = line.userData.headIndex as number;
+        if (previousHead >= 0) array.set(original.subarray(previousHead * 3, previousHead * 3 + 3), previousHead * 3);
+        const segment = findWaypointSegment(player.waypoints, isDead && deathTimeMs !== null ? deathTimeMs : currentTimeMs);
+        const headIndex = Math.min(segment + 1, player.waypoints.length - 1);
+        if (currentTimeMs < player.waypoints[0].t) {
+          line.geometry.setDrawRange(0, 0);
+          line.userData.headIndex = -1;
+        } else {
+          array[headIndex * 3] = position.x;
+          array[headIndex * 3 + 1] = position.y;
+          array[headIndex * 3 + 2] = position.z;
+          line.userData.headIndex = headIndex;
+          line.geometry.setDrawRange(0, headIndex + 1);
         }
-        vehicleGroups[vId].push(player.name);
+        lineAttr.needsUpdate = true;
       }
     });
 
-    // 2) 플레이어 마커, 기절(DBNO), 사망(Tombstone) 및 수직 드롭 라인 업데이트
-    players.forEach((player) => {
-      const state = playerStates[player.name];
-      if (!state) return;
+    followTargetRef.current = followedPos;
+    vehicleAnchorsRef.current = nextVehicleAnchors;
 
-      const currentPos = state.position;
-      const isInVehicle = state.isInVehicle;
-      const isDead = state.isDead;
-      
-      const group = playerMeshesRef.current[player.name];
-      const finalWpOffset = new THREE.Vector3(0, 0, 0);
-
-      // 플레이어 이동 방향 자전 각도 계산
-      let moveAngle = 0;
-      const pts = player.waypoints;
-      if (pts.length > 1) {
-        let idx = 0;
-        for (let i = 0; i < pts.length - 1; i++) {
-          if (currentTimeMs >= pts[i].t && currentTimeMs <= pts[i + 1].t) {
-            idx = i;
-            break;
-          }
-        }
-        if (currentTimeMs > pts[pts.length - 1].t) idx = pts.length - 2;
-        const p1 = pts[idx];
-        const p2 = pts[idx + 1];
-        if (p2) {
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-          if (dx !== 0 || dy !== 0) {
-            moveAngle = Math.atan2(dx, dy); // XZ 평면에서의 자전 각도
-          }
-        }
-      }
-
-      // 기절(DBNO) 여부 판정
-      let isGroggy = false;
-      const myGroggyEvs = damageEvents.filter(ev => ev.type === "groggy" && ev.victim === player.name);
-      const myReviveEvs = damageEvents.filter(ev => ev.type === "revive" && ev.victim === player.name);
-      const myRedeploys = player.redeployTimes || [];
-      const myDeaths = player.deathTimes || [];
-      
-      myGroggyEvs.forEach((g) => {
-        const gTime = g.relativeTimeMs;
-        if (currentTimeMs >= gTime) {
-          // 기절 이후에 현재 프레임 전까지 부활이 완료되었는지 확인
-          const nextRevive = myReviveEvs.find(r => r.relativeTimeMs >= gTime && r.relativeTimeMs <= currentTimeMs);
-          // 기절 이후에 현재 프레임 전까지 사망이 완료되었는지 확인
-          const nextDeath = myDeaths.find(d => d >= gTime && d <= currentTimeMs);
-          // 기절 이후에 현재 프레임 전까지 블루칩 부활이 일어났는지 확인
-          const nextRedeploy = myRedeploys.find(r => r >= gTime && r <= currentTimeMs);
-          
-          if (!nextRevive && !nextDeath && !nextRedeploy) {
-            isGroggy = true;
-          }
-        }
-      });
-
-      const finalPos = currentPos.clone();
-
-      if (group) {
-        // 지상 캐릭터 지형 높이 스냅 보정 (묻힘 및 산정상 붕뜸 현상 해결)
-        if (heightmapDataRef.current && !isDead) {
-          const isPlaneState = state.isPlane;
-          const vehicleId = state.vehicleId;
-          const isEmergency = vehicleId ? isAirplane(vehicleId) : false;
-          const terrainHeight = getTerrainHeight(finalPos.x, finalPos.z);
-          
-          // 실측 고도와 지형 높이의 차이 (미터 단위)
-          const diffM = (finalPos.y - terrainHeight) / altitudeScale;
-          const isFlying = isPlaneState || isEmergency;
-
-          if (!isFlying) {
-            // 1) 캐릭터가 지형 아래로 파묻히는 비주얼 버그 전면 차단 (지하 매몰 방지)
-            if (diffM < 0.0) {
-              finalPos.y = terrainHeight;
-            } else {
-              // 2) 일반 차량은 비행할 수 없으므로 25m 완화 스냅 적용, 도보는 옥상 분리를 위해 8m 스냅 적용
-              const snapLimit = isInVehicle ? 25.0 : 8.0;
-              if (diffM <= snapLimit) {
-                finalPos.y = terrainHeight;
-              }
-            }
-          }
-        }
-
-        // 사망 여부에 따라 그룹 위치를 사망 시점 좌표에 고정하거나 보간 위치로 갱신
-        if (isDead && state.deathTimeMs != null) {
-          // 사망 시점의 좌표를 계산하여 묘비를 해당 위치에 고정 (매 프레임 갱신 금지)
-          const deathState = getInterpolatedState(player, state.deathTimeMs, altitudeScale);
-          const finalDeathPos = deathState.position.clone();
-          if (heightmapDataRef.current) {
-            const terrainHeight = getTerrainHeight(finalDeathPos.x, finalDeathPos.z);
-            finalDeathPos.y = Math.max(terrainHeight, finalDeathPos.y);
-          }
-          finalPos.copy(finalDeathPos);
-          group.position.copy(finalPos);
-        } else {
-          group.position.copy(finalPos);
-        }
-
-        // 묘비 노출 분기: 사망했고, 적군인 경우 showEnemies 스위치 준수
-        const tombstone = group.getObjectByName("tombstone");
-        const sphere = group.getObjectByName("walkSphere");
-        const vehicleBox = group.getObjectByName("vehicleBox");
-        const airplaneBox = group.getObjectByName("airplaneBox");
-
-        // 닉네임 스프라이트 가시성 제어
-        const nameSprite = group.getObjectByName("nicknameSprite");
-        if (nameSprite) {
-          const isHidden = hiddenPlayers.has(player.name);
-          nameSprite.visible = showNames && !isHidden && !isDead;
-        }
-
-        if (isDead) {
-          group.visible = player.isTeam ? true : showEnemies;
-          if (tombstone) tombstone.visible = true;
-          if (sphere) sphere.visible = false;
-          if (vehicleBox) vehicleBox.visible = false;
-          if (airplaneBox) airplaneBox.visible = false;
-        } else {
-          group.visible = player.isTeam ? true : showEnemies;
-          if (tombstone) tombstone.visible = false;
-          if (sphere) sphere.visible = true;
-
-          // 도보 이동 중 방향(자전) 정합
-          if (sphere && !isInVehicle) {
-            sphere.rotation.y = moveAngle;
-          }
-
-          if (isGroggy) {
-            // 기절 상태 연출: 마네킹을 90도 눕히고 네온 주황색으로 고동 점멸
-            if (sphere) {
-              sphere.rotation.x = Math.PI / 2;
-              sphere.position.y = 0.05;
-              const pulse = Math.sin(performance.now() * 0.015) * 0.4 + 0.6;
-              sphere.traverse((child) => {
-                if (child instanceof THREE.Mesh && child.material && 'emissiveIntensity' in child.material) {
-                  (child.material as any).emissiveIntensity = pulse;
-                  (child.material as any).color.setHex(0xff6600); // 네온 주황색 강제화
-                }
-              });
-            }
-            if (vehicleBox) vehicleBox.visible = false;
-            if (airplaneBox) airplaneBox.visible = false;
-          } else {
-            // 정상 상태 복원
-            if (sphere) {
-              sphere.rotation.x = 0;
-              sphere.position.y = 0;
-              sphere.traverse((child) => {
-                if (child instanceof THREE.Mesh && child.material && 'emissiveIntensity' in child.material) {
-                  (child.material as any).emissiveIntensity = player.isTeam ? 0.55 : 0.35;
-                  (child.material as any).color.copy(new THREE.Color(player.color));
-                }
-              });
-            }
-
-            // 사격 연출: 이 플레이어가 400ms 이내에 공격자인 damage 이벤트 존재 시 총기 팔 들어올리기
-            const gunArm = sphere ? sphere.getObjectByName("gunArm") : null;
-            const recentShot = damageEvents.find(
-              ev => ev.attackerName === player.name &&
-                    currentTimeMs >= ev.relativeTimeMs &&
-                    currentTimeMs <= ev.relativeTimeMs + 400
-            );
-            if (gunArm) {
-              if (recentShot && !isInVehicle) {
-                // 사격 리코일: 배럴이 위로 살짝 들려 올라가는 반동 (최대 30도)
-                const shotProgress = (currentTimeMs - recentShot.relativeTimeMs) / 400;
-                // 빠르게 들리고(0~20%) 천천히 복귀(20~100%)
-                const raiseAngle = shotProgress < 0.2
-                  ? -(Math.PI / 6) * (shotProgress / 0.2)            // 빠르게 반동
-                  : -(Math.PI / 6) * (1 - (shotProgress - 0.2) / 0.8); // 천천히 복귀
-                gunArm.rotation.x = raiseAngle;
-
-                // 총구 플래시 — 지속시간과 크기를 확대
-                const muzzle = gunArm.getObjectByName("muzzleFlash") as THREE.Mesh | undefined;
-                if (muzzle && muzzle.material) {
-                  const isActive = shotProgress < 0.3;
-                  muzzle.visible = isActive;
-                  if (isActive) {
-                    (muzzle.material as any).opacity = (1 - shotProgress / 0.3) * 0.95;
-                    const mS = 1.0 + (1 - shotProgress) * 0.6; // 번쩍일 때 펑 커지도록 스케일링
-                    muzzle.scale.set(mS, mS, mS);
-                  } else {
-                    (muzzle.material as any).opacity = 0;
-                  }
-                }
-              } else {
-                // 비사격 시 팔 수직으로 복귀
-                gunArm.rotation.x = 0;
-                const muzzle = gunArm.getObjectByName("muzzleFlash") as THREE.Mesh | undefined;
-                if (muzzle) {
-                  muzzle.visible = false;
-                  if (muzzle.material) {
-                    (muzzle.material as any).opacity = 0;
-                  }
-                }
-              }
-            }
-
-            // 차량 탑승 상태 처리
-            if (isInVehicle) {
-              const vId = state.vehicleKey ?? state.vehicleId!;
-              const groupMembers = vehicleGroups[vId] || [];
-              const myIndex = groupMembers.indexOf(player.name);
-
-              const isPlane = state.isPlane;
-              const isDriver = myIndex === 0;
-
-              const seatOffset = getSeatOffset(myIndex >= 0 ? myIndex : 0, isPlane);
-              finalWpOffset.copy(seatOffset);
-
-              if (sphere) {
-                const sphereScale = player.isTeam ? 0.82 : 0.78;
-                sphere.scale.set(sphereScale, sphereScale, sphereScale);
-                sphere.position.copy(seatOffset);
-              }
-
-              if (isDriver) {
-                if (vehicleBox) vehicleBox.visible = !isPlane;
-                if (airplaneBox) airplaneBox.visible = isPlane;
-                if (vehicleBox) vehicleBox.position.set(0, 0, 0);
-                if (airplaneBox) airplaneBox.position.set(0, 0, 0);
-              } else {
-                if (vehicleBox) vehicleBox.visible = false;
-                if (airplaneBox) airplaneBox.visible = false;
-              }
-            } else {
-              // 도보 상태
-              if (sphere) {
-                sphere.scale.set(1.0, 1.0, 1.0);
-                sphere.position.set(0, 0, 0);
-              }
-              if (vehicleBox) vehicleBox.visible = false;
-              if (airplaneBox) airplaneBox.visible = false;
-            }
-          }
-        }
-      }
-
-      // 최종 월드 좌표 연산 및 드롭라인 적용
-      // 스냅 보정이 반영된 finalPos를 참조하도록 수정하여 캐릭터 마커와 수직선 위치를 1:1 동기화
-      const finalWorldPos = finalPos.clone().add(finalWpOffset);
-
-      const dropLineMesh = playerDropLinesRef.current[player.name];
-      if (dropLineMesh) {
-        // 사망 시 수직 드롭라인은 제거하여 시각 깔끔화
-        if (isDead) {
-          dropLineMesh.visible = false;
-        } else {
-          dropLineMesh.visible = player.isTeam ? showTrajectories : (showTrajectories && showEnemies);
-        }
-        // 해당 캐릭터 X, Z 좌표의 실제 지면 고도 쿼리
-        const terrainHeight = getTerrainHeight(finalWorldPos.x, finalWorldPos.z);
-        // 드롭라인의 시작점을 실제 지면 높이로 밀착
-        dropLineMesh.position.set(finalWorldPos.x, terrainHeight, finalWorldPos.z);
-        
-        const posAttr = dropLineMesh.geometry.attributes.position;
-        // 캐릭터 마커 고도와 지면 고도의 실질적 차이만큼 가이드라인 크기(갭) 설정
-        const heightGap = Math.max(0, finalWorldPos.y - terrainHeight);
-        posAttr.setY(1, heightGap);
-        posAttr.needsUpdate = true;
-        dropLineMesh.computeLineDistances();
-      }
-      
-      const lineMesh = playerLinesRef.current[player.name];
-      if (lineMesh) {
-        lineMesh.visible = showTrajectories;
-      }
-    });
-
-    // 3) 총탄 트레이서 빔 및 탄착 임팩트 실시간 매칭 드로잉
-    const activeDamageEvs = damageEvents.filter(ev => 
-      currentTimeMs >= ev.relativeTimeMs && 
-      currentTimeMs <= ev.relativeTimeMs + 400
-    );
-
+    // 2) 명중선: 최근 피해 이벤트를 공격자에서 피해자까지 잠깐 그린다.
     const tracerPool = tracerPoolRef.current;
-    const impactPool = impactPoolRef.current;
+    const tracerDurationMs = Math.max(TRACER_DURATION_MS, TRACER_SCREEN_MS * playbackSpeedRef.current);
+    let tracerIndex = 0;
+    for (
+      let index = lowerBoundByTime(damageEvents, currentTimeMs - tracerDurationMs, (ev) => ev.relativeTimeMs);
+      index < damageEvents.length && tracerIndex < tracerPool.length;
+      index++
+    ) {
+      const ev = damageEvents[index];
+      const elapsed = currentTimeMs - ev.relativeTimeMs;
+      if (elapsed < 0) break;
+      if (ev.type !== "damage") continue;
+      if (hiddenPlayers.has(ev.attackerName) && hiddenPlayers.has(ev.victimName)) continue;
+      const tracer = tracerPool[tracerIndex++];
+      const tracerAttr = tracer.geometry.attributes.position;
+      const from = convertTo3D(ev.attackerX, ev.attackerY, ev.attackerZ || 0, altitudeScale);
+      const to = convertTo3D(ev.x, ev.y, ev.z || 0, altitudeScale);
+      tracerAttr.setXYZ(0, from.x, from.y + 0.15, from.z);
+      tracerAttr.setXYZ(1, to.x, to.y + 0.15, to.z);
+      tracerAttr.needsUpdate = true;
+      const material = tracer.material as THREE.LineBasicMaterial;
+      material.color.setHex(players.find((p) => p.name === ev.attackerName)?.isTeam ? 0x3ee6c8 : 0xffb020);
+      material.opacity = 1 - elapsed / tracerDurationMs;
+      tracer.visible = true;
+    }
+    for (let i = tracerIndex; i < tracerPool.length; i++) tracerPool[i].visible = false;
 
-    tracerPool.forEach((t) => { t.visible = false; }); 
-    impactPool.forEach((im) => { im.visible = false; });
-
-    activeDamageEvs.slice(0, 15).forEach((ev, idx) => {
-      const tracer = tracerPool[idx];
-      const impact = impactPool[idx];
-      if (!tracer || !impact) return;
-
-      const attPos = convertTo3D(ev.attackerX, ev.attackerY, ev.attackerZ || 0, altitudeScale);
-      const vicPos = convertTo3D(ev.x, ev.y, ev.z || 0, altitudeScale);
-
-      const direction = new THREE.Vector3().subVectors(vicPos, attPos);
-      const length = direction.length();
-
-      if (length > 0.05) {
-        const elapsed = currentTimeMs - ev.relativeTimeMs;
-        const progress = elapsed / 400;
-        const opacity = Math.max(0, 1.0 - progress);
-
-        // 1. 트레이서 빔 업데이트
-        tracer.position.copy(attPos).addScaledVector(direction, 0.5);
-        tracer.scale.set(1, length, 1);
-        tracer.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize());
-
-        const tMat = tracer.material as any;
-        tMat.opacity = opacity * 0.95;
-
-        const isTeamAttacker = players.find(p => p.name === ev.attackerName)?.isTeam;
-        tMat.color.setHex(isTeamAttacker ? 0x00ffcc : 0xffaa00); 
-        tracer.visible = true;
-
-        // 2. 탄착 지점 네온 스파크 구체 업데이트 (진동 팽창 타격감 연출)
-        impact.position.copy(vicPos);
-        const imScale = 0.6 + progress * 1.6;
-        impact.scale.set(imScale, imScale, imScale);
-
-        const imMat = impact.material as any;
-        imMat.opacity = opacity * 0.95;
-        
-        const isVictimTeam = players.find(p => p.name === ev.victimName)?.isTeam;
-        imMat.color.setHex(isVictimTeam ? 0xff3300 : 0xffaa00);
-        impact.visible = true;
-      }
-    });
-
-    // 4) 보급 상자 낙하 및 연기 기둥 기동 제어
+    // 3) 보급 상자: 투하부터 착지까지 위치를 잇고, 착지 후에는 그 자리에 둔다.
     carePackages.forEach((cp) => {
-      const cpGroup = carePackageMeshesRef.current[cp.id];
-      if (!cpGroup) return;
-
+      const sprite = carePackageMeshesRef.current[cp.id];
+      if (!sprite) return;
+      sprite.visible = currentTimeMs >= cp.spawnTimeMs;
+      if (!sprite.visible) return;
+      const ratio = Math.min(1, (currentTimeMs - cp.spawnTimeMs) / Math.max(1, cp.landTimeMs - cp.spawnTimeMs));
       const spawnPos = convertTo3D(cp.spawnX, cp.spawnY, cp.spawnZ, altitudeScale);
       const landPos = convertTo3D(cp.landX, cp.landY, cp.landZ, altitudeScale);
-
-      if (currentTimeMs < cp.spawnTimeMs) {
-        cpGroup.visible = false;
-      } else if (currentTimeMs >= cp.spawnTimeMs && currentTimeMs < cp.landTimeMs) {
-        // 낙하 연출
-        const ratio = (currentTimeMs - cp.spawnTimeMs) / (cp.landTimeMs - cp.spawnTimeMs);
-        const currentPos = new THREE.Vector3().lerpVectors(spawnPos, landPos, ratio);
-
-        cpGroup.position.copy(currentPos);
-        cpGroup.visible = true;
-
-        const chute = cpGroup.getObjectByName("chute");
-        if (chute) chute.visible = true;
-        const smoke = cpGroup.getObjectByName("smoke");
-        if (smoke) smoke.visible = false;
-      } else {
-        // 안착 완료 연출
-        cpGroup.position.copy(landPos);
-        cpGroup.visible = true;
-
-        const chute = cpGroup.getObjectByName("chute");
-        if (chute) chute.visible = false;
-
-        const smoke = cpGroup.getObjectByName("smoke");
-        if (smoke) {
-          smoke.visible = true;
-          // 안착 연기 서서히 솟아나면서 출렁거리는 네온 연기 오파시티 고동
-          const smokePulse = Math.sin(performance.now() * 0.003) * 0.12 + 0.38;
-          const sMat = (smoke as THREE.Mesh).material as any;
-          sMat.opacity = smokePulse;
-        }
-      }
+      sprite.position.lerpVectors(spawnPos, landPos, ratio);
+      if (ratio >= 1) sprite.position.y = Math.max(sprite.position.y, getTerrainHeight(landPos.x, landPos.z));
     });
 
-    // 5) 자기장 수축 감지 경고 점멸 효과 적용
+    // 4) 자기장: 수축 중에는 파란 벽을 조금 진하게 표시한다.
     const zone = getInterpolatedZone(currentTimeMs);
-    const futureZone = getInterpolatedZone(currentTimeMs + 2000); // 2초 뒤 상황 예측
-    const isShrinking = zone.blueRadius > futureZone.blueRadius;
-
-    // 파란 자기장 (Bluezone)
+    const isShrinking = zone.blueRadius > getInterpolatedZone(currentTimeMs + 2000).blueRadius;
+    const applyZone = (
+      mesh: THREE.Mesh | null,
+      radius: number,
+      x: number,
+      y: number,
+      wall: { bottom: number; top: number },
+    ) => {
+      if (!mesh) return;
+      mesh.visible = showBluezone && radius > 0;
+      if (!mesh.visible) return;
+      const scaledRadius = (radius / 8192) * THREE_MAP_SIZE;
+      const center = convertTo3D(x, y, 0, altitudeScale);
+      mesh.scale.set(scaledRadius, wall.top - wall.bottom, scaledRadius);
+      mesh.position.set(center.x, (wall.top + wall.bottom) / 2, center.z);
+    };
+    applyZone(bluezoneMeshRef.current, zone.blueRadius, zone.blueX, zone.blueY, BLUE_WALL);
+    applyZone(whitezoneMeshRef.current, zone.whiteRadius, zone.whiteX, zone.whiteY, WHITE_WALL);
     if (bluezoneMeshRef.current) {
-      if (showBluezone && zone.blueRadius > 0) {
-        bluezoneMeshRef.current.visible = true;
-        const scaleRadiusX = (zone.blueRadius / 8192) * THREE_MAP_SIZE;
-        const scaleRadiusZ = (zone.blueRadius / 8192) * THREE_MAP_SIZE;
-        bluezoneMeshRef.current.scale.set(scaleRadiusX, 1, scaleRadiusZ);
-
-        const centerPos = convertTo3D(zone.blueX, zone.blueY, 0, altitudeScale);
-        bluezoneMeshRef.current.position.set(centerPos.x, 17.5, centerPos.z);
-
-        // 자기장 수축 중일 때 투명도 깜빡임 경고 모션
-        const bMat = bluezoneMeshRef.current.material as any;
-        if (isShrinking) {
-          bMat.opacity = Math.sin(performance.now() * 0.01) * 0.12 + 0.28;
-        } else {
-          bMat.opacity = 0.22;
-        }
-      } else {
-        bluezoneMeshRef.current.visible = false;
-      }
+      (bluezoneMeshRef.current.material as THREE.MeshBasicMaterial).opacity = isShrinking ? 0.38 : 0.25;
     }
-
-    // 안전구역 (Whitezone)
-    if (whitezoneMeshRef.current) {
-      if (showBluezone && zone.whiteRadius > 0) {
-        whitezoneMeshRef.current.visible = true;
-        const scaleRadiusX = (zone.whiteRadius / 8192) * THREE_MAP_SIZE;
-        const scaleRadiusZ = (zone.whiteRadius / 8192) * THREE_MAP_SIZE;
-        whitezoneMeshRef.current.scale.set(scaleRadiusX, 1, scaleRadiusZ);
-
-        const centerPos = convertTo3D(zone.whiteX, zone.whiteY, 0, altitudeScale);
-        whitezoneMeshRef.current.position.set(centerPos.x, 17.5, centerPos.z);
-      } else {
-        whitezoneMeshRef.current.visible = false;
-      }
-    }
-
-    // 작전판 외곽선 네온 경고 컬러 동적 변환
-    if (borderLineRef.current) {
-      const borderMat = borderLineRef.current.material as any;
-      if (isShrinking) {
-        // 수축 시 긴박감을 주기 위해 노란색/빨간색 고동 변환
-        const flashColor = Math.sin(performance.now() * 0.01) > 0 ? 0xff3300 : 0xffaa00;
-        borderMat.color.setHex(flashColor);
-      } else {
-        borderMat.color.setHex(0x00d2ff); // 평상시 하이테크 청록
-      }
-    }
-
-    // 6) 카메라 실시간 트래킹 추적 고정 (카메라 시점 거리/각도를 유지하며 평행 이동 추적)
-    if (trackingPlayer && controlsRef.current) {
-      const trackedState = playerStates[trackingPlayer];
-      if (trackedState) {
-        const currentTarget = controlsRef.current.target.clone();
-        const newTarget = trackedState.position.clone();
-        
-        // 이전 좌표와 현재 플레이어 좌표 간의 이동 3D 변위(차이 벡터)
-        const delta = new THREE.Vector3().subVectors(newTarget, currentTarget);
-        
-        // 카메라의 물리 위치와 타겟 초점을 동시에 변위만큼 평행 이동
-        controlsRef.current.object.position.add(delta);
-        controlsRef.current.target.copy(newTarget);
-        controlsRef.current.update();
-      }
-    }
-  }, [players, showBluezone, showTrajectories, altitudeScale, showEnemies, damageEvents, carePackages, trackingPlayer, hiddenPlayers, showNames, getInterpolatedZone, getTerrainHeight, getInterpolatedState]);
+  }, [players, selectedMap, showBluezone, showTrajectories, altitudeScale, damageEvents, carePackages, trackingPlayer, hiddenPlayers, showNames, knockTimeline, getInterpolatedZone, getTerrainHeight, getGroundMeters, getInterpolatedState]);
 
   useEffect(() => {
     updateReplaySceneRef.current = updateReplayScene;
   }, [updateReplayScene]);
+
+  // 따라갈 선수가 바뀌면 현재 초점에서 새 선수까지 진입 애니메이션을 시작한다.
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!trackingPlayer) {
+      followTargetRef.current = null;
+      followEntryRef.current = null;
+      return;
+    }
+    if (controls) followEntryRef.current = { from: controls.target.clone(), startedAt: performance.now() };
+    renderStateVersionRef.current += 1;
+  }, [trackingPlayer, selectedMap]);
 
   useEffect(() => {
     updateReplayScene(currentTimeMs);
@@ -2172,9 +1696,15 @@ function Replay3DContent() {
     }
 
     const state = getInterpolatedState(player, currentTimeMs, altitudeScale);
-    if (controlsRef.current) {
-      controlsRef.current.target.set(state.position.x, 0, state.position.z);
-      controlsRef.current.update();
+    const controls = controlsRef.current;
+    if (controls) {
+      // 시점 거리·각도를 유지한 채 초점만 옮긴다.
+      const delta = state.position.clone().sub(controls.target);
+      controls.target.add(delta);
+      controls.object.position.add(delta);
+      controls.update();
+      // 정지 중에는 바뀐 것이 있어야 다시 그리므로 직접 알린다.
+      renderStateVersionRef.current += 1;
     }
     setTrackingPlayer(null); // 단일 클릭 시 트래킹은 해제
   };
@@ -2195,6 +1725,11 @@ function Replay3DContent() {
 
     setTrackingPlayer(prev => (prev === name ? null : name));
   };
+
+  const lowerNickname = nickname.trim().toLowerCase();
+  const defaultFollowName = players.find((p) => p.name.toLowerCase() === lowerNickname)?.name
+    ?? players.find((p) => p.isTeam)?.name
+    ?? null;
 
   // 생존자 수 계산 (사망 시간 기준)
   const aliveCount = players.filter(p =>
@@ -2285,6 +1820,8 @@ function Replay3DContent() {
             formatTime={formatTime}
             isSidebarOpen={isSidebarOpen}
             onToggleSidebar={() => setIsSidebarOpen(o => !o)}
+            followName={trackingPlayer}
+            onToggleFollow={() => setTrackingPlayer(trackingPlayer ? null : defaultFollowName)}
           />
         )}
 
