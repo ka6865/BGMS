@@ -61,6 +61,15 @@
       "bytes": 5290
     },
     {
+      "externalId": "devil_on_your_shoulder",
+      "name": "어깨 위의 악마",
+      "pageUrl": "https://arammayhem.com/augments/devil-on-your-shoulder/",
+      "imageUrl": "https://arammayhem.com/augments/Devil_on_Your_Shoulder_mayhem_augment.webp",
+      "hash": "002018131c38efc2e95fce82ce89a6b39ab3f0894eb86799aaf47dab45340133",
+      "bytes": 6642,
+      "capturedAt": "2026-11-11"
+    },
+    {
       "externalId": "dropkick",
       "name": "드롭킥",
       "pageUrl": "https://arammayhem.com/augments/dropkick/",
@@ -189,6 +198,15 @@
       "bytes": 8748
     },
     {
+      "externalId": "quantum_computing",
+      "name": "양자 연산",
+      "pageUrl": "https://arammayhem.com/augments/quantum-computing/",
+      "imageUrl": "https://arammayhem.com/augments/Quantum_Computing_mayhem_augment.webp",
+      "hash": "7f828cad9fa2627a642117b81d5592a023e34857f1cb395433993572466c13e2",
+      "bytes": 6352,
+      "capturedAt": "2026-11-11"
+    },
+    {
       "externalId": "rabble_rousing",
       "name": "선동",
       "pageUrl": "https://arammayhem.com/augments/rabble-rousing/",
@@ -245,6 +263,15 @@
       "bytes": 6224
     },
     {
+      "externalId": "snowball_upgrade",
+      "name": "눈덩이 업그레이드",
+      "pageUrl": "https://arammayhem.com/augments/snowball-upgrade/",
+      "imageUrl": "https://arammayhem.com/augments/Snowball_Upgrade_mayhem_augment.webp",
+      "hash": "a527bd79c347420af438807ed4d9463177b9ab1202ef8542ab19e6fc6eddac72",
+      "bytes": 5336,
+      "capturedAt": "2026-11-11"
+    },
+    {
       "externalId": "speed_demon",
       "name": "질주하는 악마",
       "pageUrl": "https://arammayhem.com/augments/speed-demon/",
@@ -291,6 +318,15 @@
       "imageUrl": "https://arammayhem.com/augments/Upgrade_Thornmail_mayhem_augment.webp",
       "hash": "063ca84005d93244106dda9184c42c8c2e2e8545f0205ab79bbab879bd19e9ce",
       "bytes": 6384
+    },
+    {
+      "externalId": "vampirism",
+      "name": "흡혈병",
+      "pageUrl": "https://arammayhem.com/augments/vampirism/",
+      "imageUrl": "https://arammayhem.com/augments/Vampirism_mayhem_augment.webp",
+      "hash": "98c008649e0c341eec852634b9dc69d5eaf851b6a886b9e3c964c80065bb826d",
+      "bytes": 5602,
+      "capturedAt": "2026-11-11"
     },
     {
       "externalId": "void_immolation",
