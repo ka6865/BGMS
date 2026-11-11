@@ -975,6 +975,42 @@ describeBrowser("stats browser smoke", () => {
     });
   }, 60_000);
 
+  it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('match verdict and open flow without extra clicks at $width x $height', async (viewport) => {
+    await withStatsBrowserPage({ browser, baseUrl, scenarioName: 'ready', clock, viewport,
+      run: async ({ page, dispatcher }) => {
+        const log = attachRuntimeLog(page);
+        await goToPlayer(page, dispatcher, baseUrl, 'steam', 'FixturePlayer');
+        await waitForSummarySuccess(dispatcher, 'FixturePlayer', 'steam');
+        await page.click('[data-compact-match-id="match-fixture-1"] button[aria-label="매치 상세 펼치기"]');
+        await waitForDetailSuccess(dispatcher, 'FixturePlayer', 'steam');
+        await waitForStatsSelector({ dispatcher, page, selector: '[data-testid="match-verdict"]' });
+        const verdict = await page.$eval('[data-testid="match-verdict"]', (root) => {
+          const box = root.getBoundingClientRect();
+          const overflow = Array.from(root.querySelectorAll('*')).filter((node) => {
+            const rect = node.getBoundingClientRect();
+            return rect.width > 0 && (rect.left < box.left - 1 || rect.right > box.right + 1);
+          }).length;
+          const flow = Array.from(document.querySelectorAll('button[aria-expanded]')).find((node) => node.textContent?.startsWith('경기 흐름'));
+          return { text: root.textContent, overflow, flowExpanded: flow?.getAttribute('aria-expanded'),
+            hasMap: Boolean(document.querySelector('[data-testid="match-tactical-map"]')) };
+        });
+        expect(verdict.text).toContain('사망 23:25');
+        expect(verdict.text).toContain('S 티어 · 82 / 100점');
+        expect(verdict.text).toContain('좋았던 점전투 34 / 40점');
+        expect(verdict.overflow).toBe(0);
+        expect(verdict.flowExpanded).toBe('true');
+        expect(verdict.hasMap).toBe(false);
+        await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label="교전1 리플레이에서 보기"]' });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.$eval('[data-testid="match-verdict"]', (root) => root.scrollIntoView({ block: 'start' }));
+        await page.screenshot({ path: screenshotPath('match-verdict', viewport) });
+        await recordScenarioEvidence('match-verdict', viewport, dispatcher, log);
+        dispatcher.ledger.assertNoUnexpected();
+        dispatcher.ledger.assertNoUnauthenticatedAi();
+      },
+    });
+  }, 60_000);
+
   it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('phase1 glossary definitions at $width x $height', async (viewport) => {
     await withStatsBrowserPage({browser,baseUrl,scenarioName:'ready',clock,viewport,
       run:async ({page,dispatcher})=>{
