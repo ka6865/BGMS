@@ -617,6 +617,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                     <button
                       key={crate.id}
                       onClick={() => {
+                        // 이미 개봉한 카드의 보상은 전환 전에 현재 상자 기준으로 정산한다(전환하면 카드 목록이 비워진다).
+                        collectRemainingCards();
                         setSelectedCrateId(crate.id);
                         setDrawnCards([]);
                         setSelectedInventoryItem(crate.type === "loot_crate" ? "loot_crate" : "coupon");
@@ -1024,7 +1026,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                                   <Coins className="w-4 h-4 text-amber-500" />
                                   <span>{(activeCrate.price_gcoin || 250).toLocaleString()} G코인</span>
                                 </div>
-                                <span className="text-[10px] text-pink-500 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_single || 10)}</span>
+                                <span className="text-[10px] text-pink-500 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_single ?? 10)}</span>
                               </button>
 
                               {/* G-Coin 10회 열기 */}
@@ -1038,7 +1040,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                                   <Coins className="w-4 h-4 text-slate-950" />
                                   <span className="font-black">{(activeCrate.bundle_price_gcoin || 2500).toLocaleString()} G코인</span>
                                 </div>
-                                <span className="text-[10px] text-red-950 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_bundle || 100)}</span>
+                                <span className="text-[10px] text-red-950 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_bundle ?? 100)}</span>
                               </button>
 
                               {/* 티켓 1회 열기 */}
@@ -1099,7 +1101,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                                     <Ticket className="w-4 h-4 text-pink-400" />
                                     <span>화물 티켓 1장 (보유 {crateTickets.toLocaleString()}장)</span>
                                   </div>
-                                  <span className="text-[10px] text-pink-400 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_single || 10)}</span>
+                                  <span className="text-[10px] text-pink-400 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_single ?? 10)}</span>
                                 </button>
                                 <button
                                   onClick={() => handleOpenInventoryCrates("ten")}
@@ -1111,7 +1113,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                                     <Ticket className="w-4 h-4" />
                                     <span>화물 티켓 10장</span>
                                   </div>
-                                  <span className="text-[10px] text-pink-100 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_bundle || 100)}</span>
+                                  <span className="text-[10px] text-pink-100 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_bundle ?? 100)}</span>
                                 </button>
                               </div>
                             )}
@@ -1127,7 +1129,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                                   <Coins className="w-4 h-4 text-amber-500" />
                                   <span>{(activeCrate.price_gcoin || 250).toLocaleString()} G코인</span>
                                 </div>
-                                <span className="text-[10px] text-pink-500 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_single || 10)}</span>
+                                <span className="text-[10px] text-pink-500 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_single ?? 10)}</span>
                               </button>
 
                               {/* G-Coin 10회 열기 */}
@@ -1141,7 +1143,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                                   <Coins className="w-4 h-4 text-slate-950" />
                                   <span className="font-black">{(activeCrate.bundle_price_gcoin || 2500).toLocaleString()} G코인</span>
                                 </div>
-                                <span className="text-[10px] text-red-950 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_bundle || 100)}</span>
+                                <span className="text-[10px] text-red-950 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_bundle ?? 100)}</span>
                               </button>
                             </div>
 

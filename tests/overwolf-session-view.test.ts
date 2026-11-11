@@ -444,7 +444,9 @@ describe("적재 라우트의 타임라인 전달", () => {
   });
 
   it("정규화된 타임라인을 RPC 인자로 넘긴다", async () => {
+    // 호출원 쿼터 → 세션 쿼터 → 저장 순서로 호출한다.
     mockRpc
+      .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: true, error: null });
 
@@ -467,7 +469,7 @@ describe("적재 라우트의 타임라인 전달", () => {
 
     expect(response.status).toBe(200);
     expect(mockRpc).toHaveBeenNthCalledWith(
-      2,
+      3,
       "record_overwolf_session_event",
       expect.objectContaining({
         p_event_timeline: [

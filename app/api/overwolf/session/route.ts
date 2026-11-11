@@ -7,13 +7,16 @@
  *
  * 보안 메모:
  *  - 클라이언트는 service role key 를 갖지 않는다. 이 라우트만 service role 로 DB 에 접근한다.
- *  - 익명 공개 엔드포인트이므로 payload 크기 제한, 필드 화이트리스트, 세션 단위 쿼터로 방어한다.
+ *  - 익명 공개 엔드포인트이므로 payload 크기 제한, 필드 화이트리스트, 호출원·세션 단위 쿼터로 방어한다.
  *  - session_id 기준 idempotent 처리로 중복 matchEnd 를 흡수한다.
  */
 
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
+import { extractClientIp } from "@/lib/board/ipUtils";
 import {
+  CALLER_QUOTA_MAX_EVENTS,
   MAX_SESSION_PAYLOAD_BYTES,
   SESSION_QUOTA_MAX_EVENTS,
   SESSION_QUOTA_WINDOW_SECONDS,
@@ -41,8 +44,13 @@ export async function POST(request: Request) {
     return jsonResponse({ error: "세션 payload가 너무 큽니다." }, 413);
   }
 
-  const body = await request.json().catch(() => null);
-  const normalized = normalizeSessionPayload(body);
+  // Content-Length가 없거나 틀린 요청도 실제로 읽은 바이트 수로 다시 제한한다.
+  const text = await readBodyWithinLimit(request, MAX_SESSION_PAYLOAD_BYTES);
+  if (text === null) {
+    return jsonResponse({ error: "세션 payload가 너무 큽니다." }, 413);
+  }
+
+  const normalized = normalizeSessionPayload(parseJson(text));
 
   if (!normalized.ok) {
     if (normalized.reason === "blocked_field") {
@@ -61,20 +69,27 @@ export async function POST(request: Request) {
   const requestHost = getRequestHost(request);
   const environment = getServerEnvironment();
 
-  const { data: quotaAccepted, error: quotaError } = await supabaseAdmin.rpc(
-    "consume_overwolf_session_quota",
-    {
-      p_quota_key: normalized.value.session_id,
-      p_max_events: SESSION_QUOTA_MAX_EVENTS,
-      p_window_seconds: SESSION_QUOTA_WINDOW_SECONDS
-    }
-  );
+  // session_id는 요청자가 바꿀 수 있으므로 플랫폼이 넣어 주는 호출원 IP 기준 총량을 먼저 소비한다.
+  const quotaChecks = [
+    { key: callerQuotaKey(request), maxEvents: CALLER_QUOTA_MAX_EVENTS },
+    { key: normalized.value.session_id, maxEvents: SESSION_QUOTA_MAX_EVENTS }
+  ];
+  for (const quota of quotaChecks) {
+    const { data: quotaAccepted, error: quotaError } = await supabaseAdmin.rpc(
+      "consume_overwolf_session_quota",
+      {
+        p_quota_key: quota.key,
+        p_max_events: quota.maxEvents,
+        p_window_seconds: SESSION_QUOTA_WINDOW_SECONDS
+      }
+    );
 
-  if (quotaError) {
-    return jsonResponse({ error: "세션 전송 제한을 확인하지 못했습니다." }, 503);
-  }
-  if (!quotaAccepted) {
-    return jsonResponse({ error: "세션 전송 빈도가 너무 높습니다." }, 429);
+    if (quotaError) {
+      return jsonResponse({ error: "세션 전송 제한을 확인하지 못했습니다." }, 503);
+    }
+    if (!quotaAccepted) {
+      return jsonResponse({ error: "세션 전송 빈도가 너무 높습니다." }, 429);
+    }
   }
 
   const { data: inserted, error: insertError } = await supabaseAdmin.rpc(
@@ -104,6 +119,38 @@ export async function POST(request: Request) {
     duplicate: !inserted,
     session_id: normalized.value.session_id
   }, 200);
+}
+
+async function readBodyWithinLimit(request: Request, maxBytes: number): Promise<string | null> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+// session_id 문자 집합([a-zA-Z0-9._-])에 없는 ':'로 구분해 세션 키와 겹치지 않게 하고, IP 원문은 저장하지 않는다.
+function callerQuotaKey(request: Request) {
+  const digest = createHash("sha256").update(extractClientIp(request)).digest("hex");
+  return `caller:${digest}`;
 }
 
 function jsonResponse(payload: Record<string, unknown>, status: number) {

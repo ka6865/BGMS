@@ -1,6 +1,7 @@
 import { BaseHandler } from './BaseHandler';
 import { normalizeName, calcDist3D } from '../utils';
 import { normalizeTelemetryLocation } from '../telemetryContract';
+import { DEATH_CONTEXT_MAX_LOCATION_AGE_MS } from '../deathContext';
 
 export class PositionHandler extends BaseHandler {
   private readonly accountIdsByName = new Map<string, string>();
@@ -72,7 +73,7 @@ export class PositionHandler extends BaseHandler {
       // 기존 고립도 샘플링 (탈것에 타지 않았을 때만)
       if (!isInVehicle && ts - this.state.lastIsolationSampleTime >= 5000) {
         this.state.lastIsolationSampleTime = ts;
-        const iso = this.calculateIsolationData();
+        const iso = this.calculateIsolationData(ts);
         if (iso) {
           this.state.isolationData = {
             ...iso,
@@ -136,7 +137,14 @@ export class PositionHandler extends BaseHandler {
     update(e.reviver);
   }
 
-  private calculateIsolationData() {
+  // [계산 6] 위치는 선수별 약 10초 간격 샘플이다. 사건 시점 근접 거리와 같은 기준으로 오래된 샘플은 현재 위치로 보지 않는다.
+  private isFreshLocation(key: string | undefined, ts: number) {
+    if (!key) return false;
+    const at = this.state.playerLocationTs.get(key);
+    return at !== undefined && ts - at >= 0 && ts - at <= DEATH_CONTEXT_MAX_LOCATION_AGE_MS;
+  }
+
+  private calculateIsolationData(ts: number) {
     const charLoc = this.state.playerLocations.get(this.state.lowerNickname) || this.state.playerLocations.get(this.state.myAccountId);
     if (!charLoc || (this.state.playerAliveStatus.get(this.state.lowerNickname) === false && this.state.playerAliveStatus.get(this.state.myAccountId) === false)) return null;
 
@@ -149,8 +157,9 @@ export class PositionHandler extends BaseHandler {
       const tAccountId = this.accountIdsByName.get(tName);
       const status = this.state.playerAliveStatus.get(tName) ?? (tAccountId ? this.state.playerAliveStatus.get(tAccountId) : undefined);
       if (tName !== this.state.lowerNickname && status !== false && status !== "groggy") {
-        const tLoc = this.state.playerLocations.get(tName) || (tAccountId ? this.state.playerLocations.get(tAccountId) : null);
-        if (tLoc) {
+        const tKey = this.state.playerLocations.has(tName) ? tName : tAccountId;
+        const tLoc = tKey ? this.state.playerLocations.get(tKey) : undefined;
+        if (tLoc && this.isFreshLocation(tKey, ts)) {
           const d = calcDist3D(charLoc, tLoc) / 100; // [V47.0] cm -> m 변환
           if (d > 0.01) {
             totalDistToTeammates += d;
@@ -168,7 +177,8 @@ export class PositionHandler extends BaseHandler {
     this.state.playerLocations.forEach((loc, name) => {
       if (this.accountAliases.has(name)) return; // Same player, not a second enemy observation.
       const rId = this.state.teamMapping.get(name);
-      if (rId && rId !== this.state.myRosterId && this.state.playerAliveStatus.get(name) !== false && this.state.playerAliveStatus.get(name) !== "groggy") {
+      if (rId && rId !== this.state.myRosterId && this.state.playerAliveStatus.get(name) !== false && this.state.playerAliveStatus.get(name) !== "groggy"
+        && this.isFreshLocation(name, ts)) {
         const d = calcDist3D(charLoc, loc) / 100; // [V47.0] cm -> m 변환
         if (d > 0.01 && d < minEnemyDist) minEnemyDist = d;
       }
@@ -176,6 +186,8 @@ export class PositionHandler extends BaseHandler {
 
     // [V14] 유효성 검사 강화: 아군이 없거나 거리가 비상식적(2km 이상)이면 무효 처리
     if (aliveTeammateCount === 0 || minDist > 2000) return null;
+    // [계산 6] 최근 관측된 적 위치가 없으면 고립 지수를 잴 수 없다. 먼 적(낮은 고립)으로 간주해 0을 만들지 않는다.
+    if (minEnemyDist === 999999) return null;
 
     // 고립 지수 산출 (v18): 아군과의 평균 거리 / 적과의 최소 거리
     // 적이 멀리 있으면(안전하면) 고립도가 낮아지고, 적이 가까운데 아군이 멀면 고립도가 급증함

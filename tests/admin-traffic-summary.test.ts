@@ -6,7 +6,7 @@ import {
   TRAFFIC_EVENT_ROW_LIMIT
 } from "@/lib/admin-agent/traffic-summary";
 
-function createSupabaseMock(rows: any[], profiles: any[] = []) {
+function createSupabaseMock(rows: any[], profiles: any[] = [], profilesError: { message: string } | null = null) {
   const analyticsLimit = vi.fn(async (filteredRows: any[], limit?: number) => ({ data: filteredRows.slice(0, limit ?? filteredRows.length), error: null }));
   return {
     analyticsLimit,
@@ -15,7 +15,7 @@ function createSupabaseMock(rows: any[], profiles: any[] = []) {
         if (table === "profiles") {
           const chain: any = {
             select: vi.fn(() => chain),
-            in: vi.fn(async () => ({ data: profiles, error: null }))
+            in: vi.fn(async () => (profilesError ? { data: null, error: profilesError } : { data: profiles, error: null }))
           };
           return chain;
         }
@@ -52,6 +52,21 @@ function event(overrides: Record<string, unknown> = {}) {
 }
 
 describe("admin traffic summary", () => {
+  it("profiles 조회가 실패하면 관리자 활동이 섞인 수치를 ready로 내지 않는다", async () => {
+    const { client } = createSupabaseMock(
+      [event({ session_id: "admin-session", user_id: "admin-1" })],
+      [],
+      { message: "profiles timeout" }
+    );
+
+    const summary = await buildTrafficSummary(client, 24);
+
+    expect(summary.status).toBe("unavailable");
+    expect(summary.error).toContain("profiles timeout");
+    expect(summary.current.totalEvents).toBe(0);
+    expect(summary.current.memberSessions).toBe(0);
+  });
+
   it("내부(is_internal=true) 이벤트를 운영 지표에서 빼고 제외 건수를 따로 보고한다", async () => {
     const { client } = createSupabaseMock([
       event({ session_id: "prod-1" }),

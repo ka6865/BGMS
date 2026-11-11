@@ -8,11 +8,12 @@ import {
   CALCULATION_5_BENCHMARK_KEYS,
   CALCULATION_5_COMPARISON_METRIC_IDS,
   countPriorCalculationMatches,
+  countPriorPositionCalculationMatches,
   parseSummaryCards,
   type SummaryEvidenceContext,
   type SummaryEvidenceInput,
 } from "../lib/pubg-analysis/aiSummaryCards";
-import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import { ANALYSIS_CALCULATION_VERSION, COMBAT_ATTRIBUTION_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
 
 const mocks = vi.hoisted(() => ({
   withAuthGuard: vi.fn(),
@@ -141,10 +142,26 @@ describe("계산 5 비교 지표의 이전 계산 경기 가드", () => {
     it("이전 계산 경기와 누락 버전을 세고 현재 계산 경기만 있으면 0을 반환한다", () => {
       expect(countPriorCalculationMatches([
         { calculationVersion: ANALYSIS_CALCULATION_VERSION },
-        { calculationVersion: ANALYSIS_CALCULATION_VERSION - 1 },
+        { calculationVersion: COMBAT_ATTRIBUTION_CALCULATION_VERSION - 1 },
         {},
       ])).toBe(2);
       expect(countPriorCalculationMatches([{ calculationVersion: ANALYSIS_CALCULATION_VERSION }])).toBe(0);
+    });
+
+    it("계산 6 배포 뒤에도 계산 5 경기는 계산 5 지표의 이전 계산으로 세지 않는다", () => {
+      expect(countPriorCalculationMatches([{ calculationVersion: 5 }, { calculationVersion: 6 }])).toBe(0);
+      expect(countPriorPositionCalculationMatches([{ calculationVersion: 5 }, { calculationVersion: 6 }, {}])).toBe(2);
+    });
+
+    it("고립 지수는 계산 6 이전 경기가 섞이면 비교 평균을 떼고, 계산 5 지표는 그대로 비교한다", () => {
+      const isolationRow = damageRow({
+        metricId: "isolation_average", label: "평균 고립 지수", userValue: "1.2", benchmarkValue: "1.5",
+        userNumericValue: 1.2, benchmarkNumericValue: 1.5, benchmarkLabel: "동일 티어 평균 고립 지수",
+      });
+      const guarded = applyCalculationVersionGuard([initiativeRow(), isolationRow], 0, 3);
+      expect(guarded[0]).toMatchObject({ metricId: "initiative_rate", benchmarkValue: "35%", sampleCount: 30 });
+      expect(guarded[0]).not.toHaveProperty("legacyCalculationMatchCount");
+      expect(guarded[1]).toMatchObject({ metricId: "isolation_average", benchmarkValue: null, sampleCount: null, legacyCalculationMatchCount: 3 });
     });
 
     it("계산 5 비교 지표는 이전 계산 경기가 섞이면 비교 평균을 떼고 개인 값과 경기 수를 남긴다", () => {
@@ -347,7 +364,7 @@ describe("계산 5 비교 지표의 이전 계산 경기 가드", () => {
     });
 
     const mixedMatches = () => [
-      createSummaryMatch("mixed-v4", { calculationVersion: ANALYSIS_CALCULATION_VERSION - 1, initiative_rate: 34.5, initiativeSampleCount: 3 }),
+      createSummaryMatch("mixed-v4", { calculationVersion: COMBAT_ATTRIBUTION_CALCULATION_VERSION - 1, initiative_rate: 34.5, initiativeSampleCount: 3 }),
       createSummaryMatch("mixed-v5", { initiative_rate: 100, initiativeSampleCount: 3 }),
     ];
     const v5Matches = () => [
@@ -411,7 +428,7 @@ describe("계산 5 비교 지표의 이전 계산 경기 가드", () => {
     const trendMatches = (priorIndex?: number) => Array.from({ length: 10 }, (_, index) => createSummaryMatch(`trend-${index}`, {
       createdAt: new Date(Date.now() - (index + 1) * 3_600_000).toISOString(),
       duelStats: index < 5 ? { wins: 3, losses: 0 } : { wins: 0, losses: 3 },
-      ...(index === priorIndex ? { calculationVersion: ANALYSIS_CALCULATION_VERSION - 1 } : {}),
+      ...(index === priorIndex ? { calculationVersion: COMBAT_ATTRIBUTION_CALCULATION_VERSION - 1 } : {}),
     }));
 
     it("이전 계산 경기가 한 창에라도 섞이면 교전 승률 추세와 창별 승률을 내지 않고 딜량 추세는 유지한다", async () => {
@@ -441,7 +458,7 @@ describe("계산 5 비교 지표의 이전 계산 경기 가드", () => {
 
     it("이전 계산 경기가 섞이면 visuals의 백업 판정과 비교 표본 수에 계산 5 백업 기준을 쓰지 않는다", async () => {
       const matches = [
-        createSummaryMatch("backup-prior", { calculationVersion: ANALYSIS_CALCULATION_VERSION - 1, tradeStats: slowBackupStats }),
+        createSummaryMatch("backup-prior", { calculationVersion: COMBAT_ATTRIBUTION_CALCULATION_VERSION - 1, tradeStats: slowBackupStats }),
         createSummaryMatch("backup-v5", { tradeStats: slowBackupStats }),
       ];
       mockWithAuth(createSupabaseMock(matches, slowBackupTier));

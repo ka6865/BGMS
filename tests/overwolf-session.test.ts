@@ -113,17 +113,22 @@ describe("POST /api/overwolf/session", () => {
   it("정상 payload는 세션을 저장하고 stored=true를 반환한다", async () => {
     mockRpc
       .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: true, error: null });
 
-    const response = await POST(buildRequest(validPayload()));
+    const response = await POST(buildRequest(validPayload(), { "x-forwarded-for": "203.0.113.7" }));
     const json = await response.json();
 
     expect(response.status).toBe(200);
     expect(json).toMatchObject({ success: true, stored: true, duplicate: false });
-    expect(mockRpc).toHaveBeenNthCalledWith(1, "consume_overwolf_session_quota", expect.objectContaining({
+    const callerKey = mockRpc.mock.calls[0][1].p_quota_key as string;
+    expect(mockRpc.mock.calls[0][0]).toBe("consume_overwolf_session_quota");
+    expect(callerKey).toMatch(/^caller:[0-9a-f]{64}$/);
+    expect(callerKey).not.toContain("203.0.113.7");
+    expect(mockRpc).toHaveBeenNthCalledWith(2, "consume_overwolf_session_quota", expect.objectContaining({
       p_quota_key: "bgms-abc-123"
     }));
-    expect(mockRpc).toHaveBeenNthCalledWith(2, "record_overwolf_session_event", expect.objectContaining({
+    expect(mockRpc).toHaveBeenNthCalledWith(3, "record_overwolf_session_event", expect.objectContaining({
       p_session_id: "bgms-abc-123",
       p_match_id: "match-1"
     }));
@@ -131,6 +136,7 @@ describe("POST /api/overwolf/session", () => {
 
   it("중복 세션은 duplicate=true로 성공 처리한다", async () => {
     mockRpc
+      .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: false, error: null });
 
@@ -141,13 +147,38 @@ describe("POST /api/overwolf/session", () => {
     expect(json).toMatchObject({ success: true, stored: false, duplicate: true });
   });
 
-  it("쿼터를 초과하면 429를 반환하고 저장하지 않는다", async () => {
+  it("호출원 쿼터를 초과하면 session_id를 바꿔도 429를 반환하고 저장하지 않는다", async () => {
     mockRpc.mockResolvedValueOnce({ data: false, error: null });
+
+    const response = await POST(buildRequest(validPayload({ session_id: "bgms-fresh-999" })));
+
+    expect(response.status).toBe(429);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc.mock.calls[0][1].p_quota_key).toMatch(/^caller:/);
+  });
+
+  it("같은 IP의 서로 다른 session_id는 같은 호출원 쿼터 키를 쓴다", async () => {
+    mockRpc.mockResolvedValue({ data: true, error: null });
+
+    await POST(buildRequest(validPayload({ session_id: "bgms-a" }), { "x-forwarded-for": "198.51.100.4" }));
+    await POST(buildRequest(validPayload({ session_id: "bgms-b" }), { "x-forwarded-for": "198.51.100.4" }));
+
+    const callerKeys = mockRpc.mock.calls
+      .filter(([name, args]) => name === "consume_overwolf_session_quota" && String(args.p_quota_key).startsWith("caller:"))
+      .map(([, args]) => args.p_quota_key);
+    expect(callerKeys).toHaveLength(2);
+    expect(callerKeys[0]).toBe(callerKeys[1]);
+  });
+
+  it("세션 쿼터를 초과하면 429를 반환하고 저장하지 않는다", async () => {
+    mockRpc
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: false, error: null });
 
     const response = await POST(buildRequest(validPayload()));
 
     expect(response.status).toBe(429);
-    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledTimes(2);
   });
 
   it("금지 필드가 오면 422를 반환하고 DB를 호출하지 않는다", async () => {
@@ -161,6 +192,30 @@ describe("POST /api/overwolf/session", () => {
     const response = await POST(buildRequest(validPayload({ session_id: "" })));
 
     expect(response.status).toBe(400);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it("Content-Length가 없어도 실제 본문이 크기 제한을 넘으면 413을 반환한다", async () => {
+    const oversized = JSON.stringify(validPayload({ client_environment: { app: "x".repeat(17 * 1024) } }));
+    const encoded = new TextEncoder().encode(oversized);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoded);
+        controller.close();
+      }
+    });
+    const request = new Request("https://bgms.kr/api/overwolf/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", host: "bgms.kr" },
+      body,
+      // @ts-expect-error Node fetch는 스트림 본문에 duplex 지정이 필요하다.
+      duplex: "half"
+    });
+    expect(request.headers.get("content-length")).toBeNull();
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(413);
     expect(mockRpc).not.toHaveBeenCalled();
   });
 
@@ -182,6 +237,7 @@ describe("POST /api/overwolf/session", () => {
 
   it("저장 실패는 500을 반환한다", async () => {
     mockRpc
+      .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: true, error: null })
       .mockResolvedValueOnce({ data: null, error: { message: "boom" } });
 

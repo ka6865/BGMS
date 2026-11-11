@@ -2407,8 +2407,8 @@ describe("AI cache route stabilization", () => {
     expect(secondResponse.status).toBe(200);
     expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
     expect(summaryCache.upsert).toHaveBeenCalledTimes(2);
-    // 요청마다 지원 계산 버전(2·3·4·5) 수만큼 비교 표본을 조회한다.
-    expect(tierBenchmarks.maybeSingle).toHaveBeenCalledTimes(8);
+    // 요청마다 지원 계산 버전(2·3·4·5·6) 수만큼 비교 표본을 조회한다.
+    expect(tierBenchmarks.maybeSingle).toHaveBeenCalledTimes(10);
   });
 
   it("ai-summary 이전 형식(v1) 캐시 응답은 읽을 때 근거 없는 판단 문구를 정리한다", async () => {

@@ -14,8 +14,8 @@ BEGIN
   next_benchmark := old_benchmark||'{"calculation_version":5,"team_wipes":1}';
   BEGIN
     PERFORM public.upgrade_analysis_calculation('calc-v5-paired','steam','player_a',old_data,old_benchmark,
-      jsonb_set(next_result,'{calculationVersion}','6'),jsonb_set(next_benchmark,'{calculation_version}','6'));
-    RAISE EXCEPTION 'FAIL: unsupported calculation 6 accepted';
+      jsonb_set(next_result,'{calculationVersion}','7'),jsonb_set(next_benchmark,'{calculation_version}','7'));
+    RAISE EXCEPTION 'FAIL: unsupported calculation 7 accepted';
   EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
   IF NOT public.upgrade_analysis_calculation('calc-v5-paired','steam','player_a',old_data,old_benchmark,next_result,next_benchmark)
   THEN RAISE EXCEPTION 'FAIL: paired 4 to 5 rejected'; END IF;
@@ -46,8 +46,8 @@ BEGIN
   THEN RAISE EXCEPTION 'FAIL: canonical v5 to v4 downgrade accepted'; END IF;
   BEGIN
     PERFORM public.upgrade_analysis_calculation_canonical('calc-v5-canonical','steam','player_a',actual,
-      jsonb_set(next_result,'{calculationVersion}','6'));
-    RAISE EXCEPTION 'FAIL: canonical calculation 6 accepted';
+      jsonb_set(next_result,'{calculationVersion}','7'));
+    RAISE EXCEPTION 'FAIL: canonical calculation 7 accepted';
   EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
   RAISE NOTICE 'PASS: paired and canonical 4 to 5, unsupported version and downgrade rejected';
 END $$;
@@ -110,7 +110,8 @@ END $$;
 -- 4. 텔레메트리 복구 provenance에 계산 5가 포함됐고 함수 권한 경계가 그대로다.
 DO $$
 BEGIN
-  IF position($p$IN ('2'::jsonb,'3'::jsonb,'4'::jsonb,'5'::jsonb) AND v_benchmark.calculation_version::text$p$ IN (
+  -- 계산 6 migration이 목록 끝에 6을 더하므로 2·3·4·5 앞부분만 확인한다.
+  IF position($p$IN ('2'::jsonb,'3'::jsonb,'4'::jsonb,'5'::jsonb$p$ IN (
     SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='public' AND p.proname='finalize_telemetry_cache_recovery')) = 0
   THEN RAISE EXCEPTION 'FAIL: recovery provenance missing calculation 5'; END IF;

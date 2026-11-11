@@ -12,10 +12,15 @@
  *   파일 수준의 캐시 무효화를 수행합니다. (R2 파일명 기반, ISR 무관)
  */
 
-export const ANALYSIS_CALCULATION_VERSION = 5; // 팀 전멸·소생·교전을 내 기여 기준으로 귀속하고 재투입·중복 이벤트를 바로잡는다.
+export const ANALYSIS_CALCULATION_VERSION = 6; // 딜량 동점 순위를 입력 순서와 무관하게 정하고, 오래된 위치·미관측 적으로 고립 지수를 만들지 않는다.
 // 계산 2→3은 캐리 보정만, 3→4는 기회 없음 대체값만 바꾼다(비교 지표 원본 관측값은 같다).
-// 4→5는 일부 비교 지표의 의미가 바뀐다. 해당 지표는 계산 5끼리만 비교한다(benchmarkLookup.ts CALCULATION_5_REDEFINED_METRICS).
-export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, 4, ANALYSIS_CALCULATION_VERSION] as const;
+// 4→5는 일부 비교 지표의 의미가 바뀐다. 해당 지표는 계산 5 이상끼리만 비교한다(benchmarkLookup.ts CALCULATION_5_REDEFINED_METRICS).
+// 5→6은 고립 지수·최소 아군 거리의 의미가 바뀐다. 해당 지표는 계산 6끼리만 비교한다(benchmarkLookup.ts CALCULATION_6_REDEFINED_METRICS).
+export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, 4, 5, ANALYSIS_CALCULATION_VERSION] as const;
+// 계산 5에서 의미가 바뀐 교전·전멸·소생 지표를 같은 정의로 비교할 수 있는 최소 계산 버전.
+export const COMBAT_ATTRIBUTION_CALCULATION_VERSION = 5;
+// 계산 6에서 의미가 바뀐 위치 지표(고립 지수·최소 아군 거리)를 같은 정의로 비교할 수 있는 최소 계산 버전.
+export const POSITION_FRESHNESS_CALCULATION_VERSION = 6;
 export function isSupportedAnalysisCalculationVersion(value: unknown): value is number {
   return SUPPORTED_ANALYSIS_CALCULATION_VERSIONS.some(version => value === version);
 }

@@ -1110,13 +1110,13 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
         ? (activeCrate.price_gcoin || 250)
         : (activeCrate.ticket_price_single || 1);
       countToOpen = 1;
-      bonusAmount = activeCrate.bonus_amount_single || 10;
+      bonusAmount = activeCrate.bonus_amount_single ?? 10;
     } else {
       price = paymentMethod === "gcoin"
         ? (activeCrate.bundle_price_gcoin || 2500)
         : (activeCrate.ticket_price_bundle || 10);
       countToOpen = 10;
-      bonusAmount = activeCrate.bonus_amount_bundle || 100;
+      bonusAmount = activeCrate.bonus_amount_bundle ?? 100;
     }
 
     if (paymentMethod === "gcoin") {

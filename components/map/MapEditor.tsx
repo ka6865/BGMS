@@ -208,6 +208,8 @@ const MapEditorComponent = () => {
   }, [activeType, categoryInfoMap]);
 
   useEffect(() => {
+    // 지도를 바꾼 뒤 늦게 도착한 이전 지도 응답이 현재 지도 상태를 덮어쓰지 않게 한다.
+    let cancelled = false;
     const checkAdmin = async () => {
       const {
         data: { session },
@@ -236,6 +238,7 @@ const MapEditorComponent = () => {
         .from("map_markers")
         .select("*")
         .eq("map_id", activeMapId);
+      if (cancelled) return;
 
       if (fetchError) {
         console.error("Error fetching map markers:", fetchError);
@@ -253,12 +256,16 @@ const MapEditorComponent = () => {
         .from("pending_markers")
         .select("*")
         .eq("map_name", activeMapId);
-        
+      if (cancelled) return;
+
       setPendingVehicles(pendingData || []);
 
       setIsLoaded(true);
     };
     checkAdmin();
+    return () => {
+      cancelled = true;
+    };
   }, [router, activeMapId]);
 
   useEffect(() => {
@@ -755,7 +762,7 @@ const MapEditorComponent = () => {
             </Marker>
           ))}
 
-          {pendingVehicles.map((v) => {
+          {pendingVehicles.filter((v) => v.map_name === activeMapId).map((v) => {
             const weight = v.weight || 1;
             const radius = 15 + weight * 4;
             const color = weight >= 5 ? "#ef4444" : "#f59e0b";

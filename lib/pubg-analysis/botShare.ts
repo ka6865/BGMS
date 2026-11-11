@@ -25,6 +25,7 @@ type DamageParticipant = ParticipantLike & { attributes?: { stats?: { name?: unk
 
 /**
  * 봇을 뺀 참가자 중 내 딜량 순위 비율(1/사람 수 ~ 1). 경기 등급과 "딜량 상위 %"에 쓴다.
+ * [계산 6] 딜량이 같은 참가자가 있으면 그중 가장 낮은 순위를 쓴다. 참가자 배열 순서가 결과를 바꾸지 않는다.
  * 내 기록을 찾지 못하면 가장 낮은 비율(1)로 둔다.
  */
 export function humanDamageRankPct(participants: readonly DamageParticipant[] | null | undefined, lowerNickname: string): number {
@@ -34,12 +35,14 @@ export function humanDamageRankPct(participants: readonly DamageParticipant[] | 
     const value = participant?.attributes?.stats?.damageDealt;
     return typeof value === "number" && Number.isFinite(value) ? value : 0;
   };
-  const sorted = [...humans].sort((a, b) => damage(b) - damage(a));
-  const rank = sorted.findIndex((participant) => {
+  const me = humans.find((participant) => {
     const name = participant?.attributes?.stats?.name;
     return typeof name === "string" && normalizeName(name) === lowerNickname;
-  }) + 1;
-  return rank > 0 ? rank / humans.length : 1;
+  });
+  if (!me) return 1;
+  const myDamage = damage(me);
+  const rank = humans.filter((participant) => damage(participant) >= myDamage).length;
+  return rank / humans.length;
 }
 
 export function countBotParticipants(participants: readonly ParticipantLike[] | null | undefined): number {

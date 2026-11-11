@@ -81,7 +81,7 @@ export function selectSummaryDebateTopics(
     comparisonIssues.push({ topic: "포지셔닝", gap: Math.abs(userIsolation - b.avgIsolationIndex) / TACTICAL_THRESHOLDS.ISOLATION_MAX_RATIO });
   }
 
-  // 사망 페이즈는 계산 2~5를 합친 비교 평균이 있다(benchmarkLookup). 페이즈 범위(0~9)로 나눠 같은 척도로 맞춘다.
+  // 사망 페이즈는 계산 2~6을 합친 비교 평균이 있다(benchmarkLookup). 페이즈 범위(0~9)로 나눠 같은 척도로 맞춘다.
   const userDeathPhase = readObservedNumber(stats.rawMetricValues?.death_phase) ?? readObservedNumber(stats.avgDeathPhase);
   if (comparable("avgDeathPhase") && userDeathPhase !== null) {
     comparisonIssues.push({ topic: "생존 운영", gap: Math.abs(userDeathPhase - b.avgDeathPhase) / MAX_DEATH_PHASE });

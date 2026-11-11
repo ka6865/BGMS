@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getActiveDeathTime,
   getReplayMaxTime,
+  matchCarePackageLandings,
   normalizeReplayZoneEvents,
   sampleTerrainHeight,
   shouldMarkPlayerDeadFromHealth,
@@ -76,5 +77,40 @@ describe("3D replay helpers", () => {
       blueY: 4_096,
       blueRadius: 0,
     });
+  });
+});
+
+describe("matchCarePackageLandings", () => {
+  it("생성보다 앞선 착륙은 고르지 않는다", () => {
+    const spawns = [{ relativeTimeMs: 300_000, x: 100, y: 100 }];
+    const lands = [
+      { relativeTimeMs: 250_000, x: 100, y: 100 },
+      { relativeTimeMs: 340_000, x: 105, y: 102 },
+    ];
+
+    expect(matchCarePackageLandings(spawns, lands)).toEqual([lands[1]]);
+  });
+
+  it("같은 시간대 여러 상자는 같은 착륙을 나눠 쓰지 않고 가까운 착륙과 연결한다", () => {
+    const spawns = [
+      { relativeTimeMs: 100_000, x: 1000, y: 1000 },
+      { relativeTimeMs: 100_500, x: 3000, y: 3000 },
+    ];
+    const lands = [
+      { relativeTimeMs: 140_000, x: 3010, y: 2995 },
+      { relativeTimeMs: 141_000, x: 1002, y: 998 },
+    ];
+
+    expect(matchCarePackageLandings(spawns, lands)).toEqual([lands[1], lands[0]]);
+  });
+
+  it("120초 안에 남은 착륙이 없으면 null이다", () => {
+    const spawns = [
+      { relativeTimeMs: 0, x: 0, y: 0 },
+      { relativeTimeMs: 1_000, x: 0, y: 0 },
+    ];
+    const lands = [{ relativeTimeMs: 30_000, x: 0, y: 0 }];
+
+    expect(matchCarePackageLandings(spawns, lands)).toEqual([lands[0], null]);
   });
 });

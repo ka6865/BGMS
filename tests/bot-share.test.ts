@@ -68,6 +68,18 @@ describe("봇을 뺀 딜량 순위 비율", () => {
     expect(humanDamageRankPct(participants, "top")).toBeCloseTo(1 / 3);
   });
 
+  it("딜량 동점은 참가자 순서와 무관하게 동점자 중 가장 낮은 순위를 쓴다", () => {
+    const zeros = Array.from({ length: 10 }, (_, index) => p(index === 0 ? "Me" : `Other${index}`, `account.${index}`, 0));
+    const meFirst = zeros;
+    const meLast = [...zeros.slice(1), zeros[0]];
+    expect(humanDamageRankPct(meFirst, "me")).toBe(1);
+    expect(humanDamageRankPct(meLast, "me")).toBe(1);
+
+    const tiedTop = [p("Me", "account.me", 300), p("Rival", "account.rival", 300), p("Low", "account.low", 100)];
+    expect(humanDamageRankPct(tiedTop, "me")).toBeCloseTo(2 / 3);
+    expect(humanDamageRankPct([...tiedTop].reverse(), "me")).toBeCloseTo(2 / 3);
+  });
+
   it("내 기록이 없거나 사람이 없으면 가장 낮은 비율로 둔다", () => {
     expect(humanDamageRankPct(participants, "ghost")).toBe(1);
     expect(humanDamageRankPct([p("Bot", "ai.9", 10)], "me")).toBe(1);
