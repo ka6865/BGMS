@@ -23,9 +23,10 @@ const typeInfo = (type: string) => TYPES[type] ?? { label: type, tone: "border-z
 const rarityRing: Record<LolAugmentRarity, string> = { prismatic: "border-fuchsia-400/70", gold: "border-amber-400/70", silver: "border-zinc-400/60" };
 const rarityText: Record<LolAugmentRarity, string> = { prismatic: "text-fuchsia-300", gold: "text-amber-300", silver: "text-zinc-300" };
 
-export function AugmentIcon({ icon, patch, rarity, size }: { icon: string | null | undefined; patch: string; rarity: LolAugmentRarity | null | undefined; size: number }) {
+export function AugmentIcon({ icon, patch, rarity, size, art = null }: { icon: string | null | undefined; patch: string; rarity: LolAugmentRarity | null | undefined; size: number; art?: string | null }) {
   const ring = rarity ? rarityRing[rarity] : "border-zinc-700";
-  return icon ? <img src={`/api/lol/augment-icons/${patch}/${icon}`} alt="" width={size} height={size} loading="lazy" decoding="async" className={`shrink-0 rounded-lg border-2 bg-zinc-950 ${ring}`} style={{ width: size, height: size }} />
+  const src = icon ? `/api/lol/augment-icons/${patch}/${icon}` : art;
+  return src ? <img src={src} alt="" width={size} height={size} loading="lazy" decoding="async" className={`shrink-0 rounded-lg border-2 bg-zinc-950 ${ring}`} style={{ width: size, height: size }} />
     : <span aria-hidden="true" className={`shrink-0 rounded-lg border-2 border-dashed bg-zinc-900 ${ring}`} style={{ width: size, height: size }} />;
 }
 
@@ -120,7 +121,7 @@ export default function LolMayhemArchive({ patch, champions, catalog, championVe
         const icon = a.officialId ? augmentMap.get(a.officialId)?.icon : null;
         const open = expanded.has(a.key);
         return <li key={a.key} className="flex min-w-0 gap-3 break-words rounded-xl border border-zinc-800 bg-zinc-900/70 p-4 text-sm">
-          <AugmentIcon icon={icon} patch={catalog.clientPatch} rarity={a.rarity} size={48} />
+          <AugmentIcon icon={icon} art={a.art} patch={catalog.clientPatch} rarity={a.rarity} size={48} />
           <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1"><strong>{a.name}</strong>{a.rarity && <span className={`text-xs font-semibold ${rarityText[a.rarity]}`}>{LOL_AUGMENT_RARITY_LABELS[a.rarity]}</span>}{a.status !== "active" && <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">{MAYHEM_AVAILABILITY_LABELS[a.status]}</span>}</div>
             {(a.nameEn || (a.sourceName && a.sourceName !== a.name)) && <p className="text-xs text-zinc-400">{[a.nameEn, a.sourceName && a.sourceName !== a.name ? `원본 이름: ${a.sourceName}` : null].filter(Boolean).join(" · ")}</p>}
@@ -146,7 +147,7 @@ export default function LolMayhemArchive({ patch, champions, catalog, championVe
             return <li key={a.key} className="flex min-w-0 items-center gap-1.5">
               {index > 0 && <Plus aria-hidden="true" size={12} className="shrink-0 text-zinc-500" />}
               <span className="flex min-w-0 items-center gap-2 rounded-lg bg-zinc-950/60 py-1 pl-1 pr-2.5">
-                <AugmentIcon icon={official?.icon} patch={catalog.clientPatch} rarity={official?.rarity} size={32} />
+                <AugmentIcon icon={official?.icon} art={a.art} patch={catalog.clientPatch} rarity={official?.rarity} size={32} />
                 <span className={`min-w-0 text-[13px] ${official ? rarityText[official.rarity] : "text-zinc-200"}`}>{a.name}{a.status !== "active" && <span className="ml-1 text-[11px] text-zinc-400">({MAYHEM_AVAILABILITY_LABELS[a.status]})</span>}</span>
               </span>
             </li>;
