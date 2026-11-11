@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { MayhemChampionTiers } from "@/lib/lol/mayhemChampionTiers";
 import LolMayhemPatchRankings from "./LolMayhemPatchRankings";
 import LolMayhemPatchNotes from "./LolMayhemPatchNotes";
@@ -23,7 +23,7 @@ const SourceBadge = ({ rule }: { rule: Pick<MayhemOfferNote, "verified" | "patch
 const chip = (active: boolean) => `min-h-11 rounded-lg border px-3 text-sm font-semibold transition ${active
   ? "border-amber-400 bg-amber-400/10 text-amber-300" : "border-zinc-700 text-zinc-400 hover:text-zinc-100"}`;
 
-export default function LolMayhemView({ catalog, error = false, dataset, champions = [], championStatsEnabled = false, championVersion = null, itemsEnabled = false, championTiers = null, patchRankingsEnabled = false, patchNotes = [], tipItems = null, offerRules = [] }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[]; championStatsEnabled?: boolean; championVersion?: string | null; itemsEnabled?: boolean; championTiers?: MayhemChampionTiers|null; patchRankingsEnabled?: boolean; patchNotes?: MayhemPatchNote[]; tipItems?: MayhemTipItem[] | null; offerRules?: MayhemOfferRule[] }) {
+export default function LolMayhemView({ catalog, error = false, dataset, champions = [], championStatsEnabled = false, championVersion = null, itemsEnabled = false, championTiers = null, patchRankingsEnabled = false, patchNotes = [], tipItems = null, offerRules = [], title = "증바람 증강", initialChampionId, initialView, children }: { catalog: LolMayhemCatalog | null; error?: boolean; dataset?: PublicMayhemDataset | null; champions?: LolChampion[]; championStatsEnabled?: boolean; championVersion?: string | null; itemsEnabled?: boolean; championTiers?: MayhemChampionTiers|null; patchRankingsEnabled?: boolean; patchNotes?: MayhemPatchNote[]; tipItems?: MayhemTipItem[] | null; offerRules?: MayhemOfferRule[]; title?: string; initialChampionId?: number; initialView?: string; children?: ReactNode }) {
   const [query, setQuery] = useState("");
   const [rarity, setRarity] = useState<LolAugmentRarity | null>(null);
   const [newOnly, setNewOnly] = useState(false);
@@ -31,7 +31,8 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
   const [tipDraft, setTipDraft] = useState<{ augmentId: number; summary: string } | null>(null);
   const randomExcluded = mayhemRandomExcluded(offerRules);
   const hasOfferInfo = (id: number) => (granters.has(id) && randomExcluded.ids.length > 0) || mayhemOfferNotes(offerRules, id).length > 0;
-  const [view, setView] = useState(championStatsEnabled || itemsEnabled ? "champions" : "catalog");
+  // 상세 글에서 돌아올 때는 ?view=tips로 제보 목록을 바로 연다.
+  const [view, setView] = useState(initialView === "tips" && tipItems && catalog ? "tips" : championStatsEnabled || itemsEnabled ? "champions" : "catalog");
   const augments = catalog?.augments;
   const visible = filterLolMayhemAugments(augments ?? [], query, rarity, newOnly).filter(augment => !offerOnly || hasOfferInfo(augment.id));
   const augmentNames = new Map((augments ?? []).map(augment => [augment.id, augment.name]));
@@ -39,7 +40,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
   const newCount = augments?.filter(augment => augment.isNew).length ?? 0;
 
   return <main className={`mx-auto w-full px-4 py-6 text-zinc-100 sm:px-6 ${view === "champions" ? "max-w-7xl" : "max-w-5xl"}`}>
-    <h1 className="text-xl font-bold">증바람 증강</h1>
+    <h1 className="text-xl font-bold">{title}</h1>
     <p className="mt-1 text-sm text-zinc-400">무작위 총력전: 아수라장의 챔피언별 선택 통계와 증강 도감입니다.</p>
     {(championStatsEnabled || itemsEnabled || patchRankingsEnabled || dataset?.archiveAvailable || patchNotes.length > 0 || tipItems) && <div role="group" aria-label="증바람 보기" className="mt-5 flex flex-wrap gap-2">
       {(championStatsEnabled || itemsEnabled) && <button aria-pressed={view === "champions"} className={chip(view === "champions")} onClick={() => setView("champions")}>챔피언별 정보</button>}
@@ -60,7 +61,7 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
         증강 도감 {catalog.displayPatch} · 증강 {catalog.augments.length}개 · 신규 {newCount}개
         {catalog.notesUrl && <> · <a href={catalog.notesUrl} target="_blank" rel="noreferrer" className="text-amber-300 underline underline-offset-2">공식 패치 노트</a></>}
       </p>
-      {(championStatsEnabled || itemsEnabled) && view === "champions" && <LolMayhemChampionStats enabled={championStatsEnabled} patch={catalog.clientPatch} champions={champions} catalog={catalog} championVersion={championVersion} itemsEnabled={itemsEnabled} championTiers={championTiers} />}
+      {(championStatsEnabled || itemsEnabled) && view === "champions" && <LolMayhemChampionStats enabled={championStatsEnabled} patch={catalog.clientPatch} champions={champions} catalog={catalog} championVersion={championVersion} itemsEnabled={itemsEnabled} championTiers={championTiers} initialChampionId={initialChampionId} />}
       {view === "catalog" && <><div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
         <input
           type="search" value={query} onChange={event => setQuery(event.target.value)}
@@ -110,5 +111,6 @@ export default function LolMayhemView({ catalog, error = false, dataset, champio
         Riot API가 아수라장 경기를 공개하지 않아 전적에도 표시되지 않습니다.
       </p>
     </>}
+    {children}
   </main>;
 }

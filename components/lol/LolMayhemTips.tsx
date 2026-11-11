@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, type SyntheticEvent } from "react";
+import Link from "next/link";
 import { CircleHelp, MessageCircle, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import type { LolChampion } from "@/lib/lol/champions";
 import { LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments, type LolAugmentRarity, type LolMayhemCatalog } from "@/lib/lol/augments/catalog";
 import { MAYHEM_TIP_LIMITS, type MayhemTip, type MayhemTipComment, type MayhemTipItem, type MayhemTipKind, type MayhemTipSort } from "@/lib/lol/mayhemTips";
+import { mayhemTipPath } from "@/lib/lol/mayhemSeo";
 import { AugmentIcon, ChampionPicker } from "./LolMayhemArchive";
 import { ChampionPortrait } from "./LolMayhemChampionStats";
 
@@ -231,7 +233,7 @@ function TipCard({ tip, champion, version, catalog, augmentMap, itemMap, signedI
   return <li className="flex min-w-0 flex-col gap-2.5 break-words rounded-xl border border-zinc-800 bg-zinc-900/70 p-3 text-sm">
     <div className="flex items-center gap-2.5">
       {champion ? <ChampionPortrait champion={champion} version={version} size={36} /> : <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-[11px] font-bold text-zinc-300">공용</span>}
-      <div className="min-w-0 flex-1"><strong className="block">{tip.kind === "question" && <span className="mr-1.5 inline-flex items-center gap-0.5 rounded bg-sky-400/15 px-1.5 align-[1px] text-[11px] font-bold text-sky-300"><CircleHelp aria-hidden="true" size={11} />질문</span>}{tip.summary}</strong>
+      <div className="min-w-0 flex-1"><strong className="block">{tip.kind === "question" && <span className="mr-1.5 inline-flex items-center gap-0.5 rounded bg-sky-400/15 px-1.5 align-[1px] text-[11px] font-bold text-sky-300"><CircleHelp aria-hidden="true" size={11} />질문</span>}<Link href={mayhemTipPath(tip.id)} className="hover:underline">{tip.summary}</Link></strong>
         <span className="text-xs text-zinc-400">{champion?.name ?? "공용 조합"} · {tip.anonymous ? "익명" : tip.author ?? "BGMS 유저"}{tip.mine && <span className="ml-1 text-amber-300">(내 글)</span>} · {new Date(tip.createdAt).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}{tip.updatedAt && " · 수정됨"}</span>
       </div>
     </div>

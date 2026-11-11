@@ -1,5 +1,8 @@
 import { MetadataRoute } from 'next';
 import { createClient } from '@/utils/supabase/server';
+import { getLolChampions } from '@/lib/lol/champions.server';
+import { listMayhemTipSitemap } from '@/lib/lol/mayhemTips.server';
+import { MAYHEM_PATH, mayhemChampionPath, mayhemTipPath } from '@/lib/lol/mayhemSeo';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,5 +81,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error('[Sitemap] Failed to fetch posts:', error);
   }
 
-  return [...staticEntries, ...mapEntries, ...postEntries];
+  // LoL은 증바람 페이지만 검색에 싣고, 공개 설정이 꺼져 있으면 넣지 않는다.
+  const mayhemEntries: MetadataRoute.Sitemap = [];
+  if (process.env.LOL_PUBLIC_ENABLED === 'true') {
+    mayhemEntries.push({ url: `${siteUrl}${MAYHEM_PATH}`, changeFrequency: 'daily', priority: 0.7 });
+    const [champions, tips] = await Promise.all([
+      getLolChampions().catch(() => null),
+      process.env.LOL_MAYHEM_TIPS_ENABLED === 'true' ? listMayhemTipSitemap().catch(() => []) : [],
+    ]);
+    for (const champion of champions?.champions ?? []) {
+      mayhemEntries.push({ url: `${siteUrl}${mayhemChampionPath(champion.imageId)}`, changeFrequency: 'daily', priority: 0.6 });
+    }
+    for (const tip of tips) {
+      mayhemEntries.push({ url: `${siteUrl}${mayhemTipPath(tip.id)}`, lastModified: new Date(tip.updated_at ?? tip.created_at), changeFrequency: 'weekly', priority: 0.5 });
+    }
+  }
+
+  return [...staticEntries, ...mapEntries, ...postEntries, ...mayhemEntries];
 }
