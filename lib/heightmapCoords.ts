@@ -2,6 +2,12 @@
 // Leaflet CRS.Simple 좌표는 lat 8192가 북쪽이므로 행 방향이 반대다.
 const MAP_COORDINATE_MAX = 8192;
 
+/** 맵 하이트맵 경로. 건물을 뺀 지형만 담은 8비트 흑백 무손실 PNG다. */
+export const heightmapUrl = (mapId: string): string => `/assets/map/${mapId}_HeightMap.png`;
+
+/** 하이트맵 화소값(R)을 해발 높이(m)로 바꾼다. 128이 0m이고 한 단계가 2m다. */
+export const heightmapElevationMeters = (value: number): number => (value - 128) * 2;
+
 const clampIndex = (value: number, size: number): number =>
   Math.max(0, Math.min(size - 1, value));
 

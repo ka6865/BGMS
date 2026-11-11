@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  createBuildingIndex,
+  findWaypointSegment,
   getActiveDeathTime,
+  getHeadingAt,
+  interpolateSmooth,
+  isGroggyAt,
+  joinVehicleCluster,
+  lowerBoundByTime,
+  type VehicleCluster,
   getReplayMaxTime,
   matchCarePackageLandings,
   normalizeReplayZoneEvents,
@@ -112,5 +120,98 @@ describe("matchCarePackageLandings", () => {
     const lands = [{ relativeTimeMs: 30_000, x: 0, y: 0 }];
 
     expect(matchCarePackageLandings(spawns, lands)).toEqual([lands[0], null]);
+  });
+});
+
+describe("3D replay playback helpers", () => {
+  it("finds the waypoint segment by binary search and clamps the edges", () => {
+    const points = [{ t: 0 }, { t: 10 }, { t: 20 }, { t: 30 }];
+    expect(findWaypointSegment([], 5)).toBe(-1);
+    expect(findWaypointSegment(points, -5)).toBe(0);
+    expect(findWaypointSegment(points, 10)).toBe(1);
+    expect(findWaypointSegment(points, 19.9)).toBe(1);
+    expect(findWaypointSegment(points, 99)).toBe(3);
+  });
+
+  it("keeps a player knocked only until revive, death or redeploy", () => {
+    expect(isGroggyAt([], [], 100)).toBe(false);
+    expect(isGroggyAt([100], [], 99)).toBe(false);
+    expect(isGroggyAt([100], [], 150)).toBe(true);
+    expect(isGroggyAt([100], [140], 150)).toBe(false);
+    // 이전 기절의 부활 기록은 새 기절을 풀지 않는다.
+    expect(isGroggyAt([100, 200], [140], 250)).toBe(true);
+  });
+
+  it("turns movement into a +Z based Y rotation and ignores standing still", () => {
+    const points = [{ t: 0, x: 0, y: 0 }, { t: 10, x: 0, y: 5 }, { t: 20, x: 5, y: 5 }, { t: 30, x: 5, y: 5 }];
+    expect(getHeadingAt([{ t: 0, x: 0, y: 0 }], 0)).toBeNull();
+    expect(getHeadingAt(points, 5)).toBeCloseTo(0);
+    expect(getHeadingAt(points, 15)).toBeCloseTo(Math.PI / 2);
+    expect(getHeadingAt(points, 99)).toBeNull();
+  });
+
+  it("keeps riders in one vehicle across drift but splits distant or different vehicles", () => {
+    const clusters: VehicleCluster[] = [];
+    const driver = joinVehicleCluster(clusters, { name: "A", vehicleId: "Dacia", x: 10, z: 10 });
+    expect(driver.seat).toBe(0);
+    // 이력이 있으면 약 100m 벌어져도 같은 차량이다.
+    expect(joinVehicleCluster(clusters, { name: "B", vehicleId: "Dacia", x: 11.2, z: 10, previousAnchor: "A" }).seat).toBe(1);
+    // 이력이 없으면 같은 거리는 다른 차량이다.
+    expect(joinVehicleCluster(clusters, { name: "C", vehicleId: "Dacia", x: 11.2, z: 10 }).cluster.anchor).toBe("C");
+    // 가까워도 차종이 다르면 다른 차량이다.
+    expect(joinVehicleCluster(clusters, { name: "D", vehicleId: "UAZ", x: 10, z: 10 }).cluster.anchor).toBe("D");
+    expect(joinVehicleCluster(clusters, { name: "E", vehicleId: "Dacia", x: 10.3, z: 10 }).cluster.anchor).toBe("A");
+  });
+
+  it("finds the first item at or after a time", () => {
+    const items = [{ t: 0 }, { t: 10 }, { t: 10 }, { t: 30 }];
+    expect(lowerBoundByTime(items, 10, (item) => item.t)).toBe(1);
+    expect(lowerBoundByTime(items, 11, (item) => item.t)).toBe(3);
+    expect(lowerBoundByTime(items, 99, (item) => item.t)).toBe(4);
+  });
+
+  it("smooths movement through samples without overshooting turns or teleports", () => {
+    const at = (t: number, x: number, y = 0) => ({ t, x, y, z: 0 });
+    // 끝점은 표본 위치와 같다.
+    const straight = [at(0, 0), at(10, 10), at(20, 20), at(30, 30)];
+    expect(interpolateSmooth(straight, 1, 10, 100, 10).x).toBeCloseTo(10);
+    expect(interpolateSmooth(straight, 1, 15, 100, 10).x).toBeCloseTo(15);
+    // 되돌아가는 표본에서는 접선이 0이라 구간 밖(10 초과)으로 튀지 않는다.
+    const turn = [at(0, 0), at(10, 10), at(20, 0)];
+    const mid = interpolateSmooth(turn, 0, 9, 100, 10).x;
+    expect(mid).toBeLessThanOrEqual(10);
+    expect(mid).toBeGreaterThan(9);
+    // 너무 빠른 이웃 구간(순간이동)은 접선에서 빠져 직선 보간과 같다.
+    const teleport = [at(0, -5000), at(10, 0), at(20, 10), at(30, 20)];
+    expect(interpolateSmooth(teleport, 1, 15, 100, 10).x).toBeCloseTo(5);
+  });
+
+  it("finds whether a map point is inside a rotated building rectangle", () => {
+    const isInside = createBuildingIndex([
+      [100, 100, 40, 10, 0, 6],
+      // 45도 회전한 정사각형은 꼭짓점 방향으로 더 멀리 닿는다.
+      [600, 600, 20, 20, 45, 9],
+    ]);
+    expect(isInside(115, 100)).toBe(true);
+    expect(isInside(100, 110)).toBe(false);
+    expect(isInside(600, 613)).toBe(true);
+    expect(isInside(613, 613)).toBe(false);
+    expect(isInside(4000, 4000)).toBe(false);
+  });
+
+  it("groups riders by vehicle instance ID before distance", () => {
+    const clusters: VehicleCluster[] = [];
+    joinVehicleCluster(clusters, { name: "A", vehicleId: "Dacia", uniqueId: "v1", x: 10, z: 10 });
+    // 같은 차종이 가까이 있어도 고유 ID가 다르면 다른 차량이다.
+    expect(joinVehicleCluster(clusters, { name: "B", vehicleId: "Dacia", uniqueId: "v2", x: 10.3, z: 10 }).cluster.anchor).toBe("B");
+    // 같은 고유 ID면 보간 위치가 멀어도 같은 차량이다.
+    expect(joinVehicleCluster(clusters, { name: "C", vehicleId: "Dacia", uniqueId: "v1", x: 13, z: 10 }).cluster.anchor).toBe("A");
+  });
+
+  it("does not merge different instance IDs through a cluster started without an ID", () => {
+    const clusters: VehicleCluster[] = [];
+    joinVehicleCluster(clusters, { name: "A", vehicleId: "Dacia", x: 10, z: 10 });
+    expect(joinVehicleCluster(clusters, { name: "B", vehicleId: "Dacia", uniqueId: "v1", x: 10.1, z: 10 }).cluster.anchor).toBe("A");
+    expect(joinVehicleCluster(clusters, { name: "C", vehicleId: "Dacia", uniqueId: "v2", x: 10.2, z: 10 }).cluster.anchor).toBe("C");
   });
 });

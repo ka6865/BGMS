@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowLeft, Users, PanelLeftOpen, Zap } from "lucide-react";
+import { ArrowLeft, Users, PanelLeftOpen, Zap, LocateFixed, X } from "lucide-react";
 import { ZoneState } from "@/types/replay3d";
 
 interface ReplayHUDProps {
@@ -12,6 +12,9 @@ interface ReplayHUDProps {
   // 모바일 사이드바 토글
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
+  // 카메라가 따라가는 선수. 없으면 기본 선수를 다시 따라가는 버튼을 보인다.
+  followName: string | null;
+  onToggleFollow: () => void;
 }
 
 export default function ReplayHUD({
@@ -22,6 +25,8 @@ export default function ReplayHUD({
   formatTime,
   isSidebarOpen,
   onToggleSidebar,
+  followName,
+  onToggleFollow,
 }: ReplayHUDProps) {
   return (
     <div className="absolute left-3 top-3 flex flex-col gap-2 z-10 pointer-events-none sm:left-4 sm:top-4">
@@ -60,6 +65,17 @@ export default function ReplayHUD({
           </div>
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={onToggleFollow}
+        title={followName ? "따라가기 해제" : "선수 따라가기"}
+        className="pointer-events-auto inline-flex min-h-8 w-fit max-w-[180px] items-center gap-1.5 rounded-lg border border-[#30363d] bg-[#161b22]/90 px-2.5 py-1.5 text-[11px] font-bold text-[#e6edf3] shadow-lg backdrop-blur transition-colors hover:border-[#ff9f0a]"
+      >
+        <LocateFixed className={`h-3.5 w-3.5 shrink-0 ${followName ? "text-[#ff9f0a]" : "text-[#8b949e]"}`} />
+        <span className="truncate">{followName ?? "선수 따라가기"}</span>
+        {followName && <X className="h-3 w-3 shrink-0 text-[#8b949e]" />}
+      </button>
 
       {/* 자기장 수축 경고 배지 */}
       {zones.length > 0 &&

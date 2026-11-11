@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leafletToHeightmapPixel, threeToHeightmapPixel } from "@/lib/heightmapCoords";
+import { heightmapElevationMeters, heightmapUrl, leafletToHeightmapPixel, threeToHeightmapPixel } from "@/lib/heightmapCoords";
 
 describe("heightmap coordinates", () => {
   it("maps Leaflet north (lat 8192) to the top image row", () => {
@@ -30,5 +30,12 @@ describe("heightmap coordinates", () => {
   it("clamps points outside the map to the image edge", () => {
     expect(leafletToHeightmapPixel(9000, -10, 100, 100)).toEqual({ x: 0, y: 0 });
     expect(threeToHeightmapPixel(80, 80, 100, 100, 100)).toEqual({ x: 99, y: 99 });
+  });
+
+  it("reads 2m elevation steps from the lossless heightmap PNG", () => {
+    expect(heightmapUrl("Erangel")).toBe("/assets/map/Erangel_HeightMap.png");
+    expect(heightmapElevationMeters(128)).toBe(0);
+    expect(heightmapElevationMeters(178)).toBe(100);
+    expect(heightmapElevationMeters(118)).toBe(-20);
   });
 });
