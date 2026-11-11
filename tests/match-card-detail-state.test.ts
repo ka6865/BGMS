@@ -1077,3 +1077,43 @@ describe("상세 기록의 결측과 실제 0", () => {
     }
   });
 });
+
+describe("AI 코칭 장면 칩", () => {
+  beforeEach(() => { vi.spyOn(Date, "now").mockReturnValue(TEST_NOW); });
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it("칩을 누르면 접힌 경기 흐름과 미니맵을 열고 그 장면을 선택한다", async () => {
+    const knock = { ts: 312_450, type: "KNOCK", weapon: "M416", distance: 45, isMe: true, x: 120, y: 340 };
+    const payload = JSON.stringify({
+      coach: "SPICY BOMBER", signature: "전술 fixture", signatureSub: "fixture summary",
+      briefFeedback: ["첫 번째 코칭", "두 번째 코칭"], briefFeedbackSceneIds: ["KNOCK-312450", null],
+      finalVerdict: "scene verdict", actionItems: [{ icon: "target", title: "목표", desc: "팁", sceneId: "KNOCK-999" }],
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/match?")) return Promise.resolve(jsonResponse({ ...detail(), timeline: [knock] }));
+      if (url === "/api/pubg/ai-analyze") {
+        return Promise.resolve(new Response(`${JSON.stringify({ type: "chunk", data: payload })}\n${JSON.stringify({ type: "done" })}\n`, { status: 200 }));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard();
+    await openAiPanel();
+    fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
+    await screen.findByText(/scene verdict/);
+
+    expect(screen.getByRole("button", { name: /^경기 흐름/ })).toHaveAttribute("aria-expanded", "false");
+    // 검증되지 않은 ID(KNOCK-999)와 null에는 칩을 붙이지 않는다.
+    const chips = screen.getAllByTestId("ai-scene-chip");
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toHaveTextContent("5:12 적 기절");
+
+    fireEvent.click(chips[0]);
+    expect(screen.getByRole("button", { name: /^경기 흐름/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /지도와 전체 이벤트 보기/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("match-tactical-map")).toBeInTheDocument();
+    // 장면이 선택되면 "이벤트를 클릭" 안내 덮개가 사라진다.
+    expect(screen.queryByText("이벤트를 클릭하여 위치 확인")).not.toBeInTheDocument();
+  });
+});

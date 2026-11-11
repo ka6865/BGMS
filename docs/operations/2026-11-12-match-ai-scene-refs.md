@@ -1,0 +1,27 @@
+# 단일 경기 AI 코칭의 장면 근거 (2026-11-12)
+
+## 출력 형식
+
+단일 경기 코칭(`/api/pubg/ai-analyze`) 응답 JSON에 장면 근거를 병렬 필드로 더한다. 기존 필드는 그대로다.
+
+| 필드 | 형식 | 의미 |
+| --- | --- | --- |
+| `briefFeedbackSceneIds` | `(string \| null)[]` | `briefFeedback`과 같은 순서·길이. 문장이 가리키는 장면 ID 또는 `null` |
+| `actionItems[].sceneId` | `string` (선택) | 행동 제안이 가리키는 장면 ID |
+
+- 장면 ID는 `{타임라인 type}-{경과 ms}`(예: `KNOCK-312450`)다. 대상은 위치가 있는 `KILL`, `KNOCK`, `DOWNED`, `DIED`, `REVIVE`, `TEAM_KNOCK`, `TEAM_DIED` 이벤트이고, 좌표가 0,0인 이벤트는 뺀다(`lib/pubg-analysis/matchAiScenes.ts`).
+- 서버는 canonical 분석의 `timeline`으로 장면 목록(최대 24개, 상대 닉네임 제외)을 만들어 프롬프트의 `[장면 목록]`에 넣는다. 모델은 목록 안의 ID를 고르거나 `null`만 쓴다. 시각·좌표는 모델이 쓰지 않는다.
+- 장면이 24개를 넘으면 내 기절(`DOWNED`)·사망(`DIED`)을 항상 남기고, 나머지 내 장면(`KILL`, `KNOCK`, `REVIVE`), 팀원 장면 순으로 시간이 이른 것부터 채운 뒤 시간순으로 정렬한다.
+- 후처리 순서는 언어 순화 → `applyMatchAiEvidencePolicy` → `applyMatchAiSceneRefs` → 매운맛 한마디다. `applyMatchAiSceneRefs`는 목록에 없는 ID를 지우고 `briefFeedbackSceneIds` 길이를 `briefFeedback`에 맞추며, 유효한 ID가 없으면 필드를 뺀다. 새 응답과 캐시 응답에 같은 순서로 적용한다.
+- 근거 정책이 바꾼 문장의 장면 ID는 버린다. 정책 전후 텍스트를 비교해 `briefFeedback`은 같은 인덱스의 문장이 바뀌면(정책은 길이를 바꾸지 않는다) 그 ID를, `actionItems`는 정책 전 항목 중 `title`·`desc`·`sceneId`가 같은 항목이 없으면 그 `sceneId`를 지운다. 정책은 `desc`가 빈 항목을 지워 인덱스가 어긋나므로 인덱스로 짝짓지 않는다. 캐시에는 이 후처리를 마친 텍스트가 저장되고 정책은 재적용에 안정적이라, 캐시 응답은 정책이 바뀌어 문장이 달라질 때만 ID가 빠진다.
+- 화면은 같은 규칙으로 상세 응답의 `timeline`에서 장면을 다시 찾고, 찾지 못하면 칩을 그리지 않는다. 장면 필드가 없는 구버전 응답·마크다운 응답은 기존처럼 그린다.
+
+## 캐시 버전
+
+- `AI_MATCH_PROMPT_VERSION`: `${AI_CACHE_VERSION}.nearest-teammate-v1` → `${AI_CACHE_VERSION}.scene-refs-v1`. 캐시 키는 계속 `prompt_version = AI_MATCH_PROMPT_VERSION + .calc{계산 버전}`이다.
+- 최근 요약(`AI_SUMMARY_CACHE_VERSION`)과 스쿼드(`AI_SQUAD_CACHE_VERSION`) 캐시는 바꾸지 않는다.
+- 배포 뒤 기존 단일 경기 캐시는 조회되지 않으므로 첫 요청마다 새로 생성된다.
+
+## 남은 확인 사항
+
+- 실제 Gemini 확인: `gemini-3.5-flash-lite`로 운영 경기 6개 × 3회(18회) 호출했다. 목록 밖 ID는 0건이었고, `briefFeedback` 54문장 중 6문장에 장면이 연결됐다. 연결 7건 중 1건은 문장과 어긋났다(조기 탈락 문장에 소생된 첫 기절 장면이 붙음).

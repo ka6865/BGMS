@@ -782,6 +782,60 @@ describe("AI cache route stabilization", () => {
     expect(text).not.toContain("팀 지원 지표가 바닥");
   });
 
+  it("ai-analyze는 캐시 응답의 장면 ID를 canonical 타임라인으로 다시 검증한다", async () => {
+    const cachedText = JSON.stringify({
+      briefFeedback: ["첫 문장", "둘째 문장"], briefFeedbackSceneIds: ["KNOCK-312450", "KNOCK-1"],
+      finalVerdict: "총평", actionItems: [{ icon: "t", title: "목표", desc: "팁", sceneId: "DIED-1" }],
+    });
+    const matchCache = createQueryChain({ data: { ai_result: { text: cachedText } }, error: null });
+    const telemetry = createQueryChain({
+      data: createCanonicalAnalyzeRow("match-scene-cache", { timeline: [{ ts: 312_450, type: "KNOCK", x: 120, y: 340 }] }),
+      error: null,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    }) });
+
+    const response = await aiAnalyzePOST(createRequest({
+      nickname: "Player_A", platform: "kakao", coachingStyle: "mild", matchData: { matchId: "match-scene-cache" },
+    }));
+    const chunk = (await response.text()).split("\n").map((line) => line && JSON.parse(line)).find((line) => line?.type === "chunk");
+    const parsed = JSON.parse(chunk.data);
+    expect(parsed.briefFeedbackSceneIds).toEqual(["KNOCK-312450", null]);
+    expect(parsed.actionItems[0]).not.toHaveProperty("sceneId");
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+
+  it("ai-analyze는 캐시 응답에서 근거 정책이 바꾼 문장의 장면 ID를 버린다", async () => {
+    const timeline = [{ ts: 312_450, type: "KNOCK", x: 120, y: 340 }, { ts: 900_000, type: "DOWNED", x: 200, y: 210 }];
+    const cachedText = JSON.stringify({
+      briefFeedback: ["무리한 진입이 문제였습니다.", "둘째 문장"], briefFeedbackSceneIds: ["KNOCK-312450", "DOWNED-900000"],
+      finalVerdict: "총평",
+      actionItems: [
+        { icon: "t", title: "지울 항목", desc: "무책임한 플레이였습니다.", sceneId: "KNOCK-312450" },
+        { icon: "t", title: "남길 항목", desc: "팁", sceneId: "DOWNED-900000" },
+        { icon: "t", title: "바뀔 항목", desc: "무리한 진입을 줄이세요.", sceneId: "KNOCK-312450" },
+      ],
+    });
+    const matchCache = createQueryChain({ data: { ai_result: { text: cachedText } }, error: null });
+    const telemetry = createQueryChain({ data: createCanonicalAnalyzeRow("match-scene-policy", { timeline }), error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    }) });
+
+    const response = await aiAnalyzePOST(createRequest({
+      nickname: "Player_A", platform: "kakao", coachingStyle: "mild", matchData: { matchId: "match-scene-policy" },
+    }));
+    const chunk = (await response.text()).split("\n").map((line) => line && JSON.parse(line)).find((line) => line?.type === "chunk");
+    const parsed = JSON.parse(chunk.data);
+    expect(parsed.briefFeedbackSceneIds).toEqual([null, "DOWNED-900000"]);
+    expect(parsed.actionItems.map((item: { title: string }) => item.title)).toEqual(["남길 항목", "바뀔 항목"]);
+    expect(parsed.actionItems[0].sceneId).toBe("DOWNED-900000");
+    expect(parsed.actionItems[1]).not.toHaveProperty("sceneId");
+  });
+
   it("ai-analyze는 신규 Gemini 단일 경기 코칭도 순화한 뒤 캐시에 저장한다", async () => {
     mockSummaryGeminiRawText("혼자 다 해먹는 화력이고 팀 지원 지표가 바닥이며 22.4초는 느린 백업입니다.");
 

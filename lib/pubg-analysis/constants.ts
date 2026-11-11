@@ -31,8 +31,9 @@ export const COUNTER_LATENCY_PENALTY_MS = 3000;
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 63.0; // [V63.0] 리플레이 위치·탑승 이벤트에 차량 인스턴스 ID(vehicleUniqueId) 추가
 export const AI_CACHE_VERSION = "2026-10-28.first-reply-evidence-v6"; // 적격 반격 소요 시간의 표현·근거 정책
-// 단일 경기 코칭만의 프롬프트 버전. 가장 가까운 아군 거리 표기를 바꿨으므로 단일 경기 캐시만 새로 만든다(스쿼드는 유지).
-export const AI_MATCH_PROMPT_VERSION = `${AI_CACHE_VERSION}.nearest-teammate-v1`;
+// 단일 경기 코칭만의 프롬프트 버전. 문장별 장면 ID(briefFeedbackSceneIds, actionItems[].sceneId)를 출력에 더했으므로 단일 경기 캐시만 새로 만든다(스쿼드는 유지).
+// 이전 값 nearest-teammate-v1은 가장 가까운 아군 거리 표기 변경이었다.
+export const AI_MATCH_PROMPT_VERSION = `${AI_CACHE_VERSION}.scene-refs-v1`;
 export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v16`; // 매운맛 총평을 서버 마무리 한마디로 끝낸다(v15: 총평 거짓 대조·반복 제거)
 export const AI_SUMMARY_CACHE_VERSION = "2026-11-09.spicy-punchline-v35"; // 매운맛 의견에 서버가 고른 비꼬는 한마디를 붙인다(v34: 내 관측 5건 미만 비율 지표는 비교하지 않음)
 // Evidence marker for canonical rows written after the human BR population
