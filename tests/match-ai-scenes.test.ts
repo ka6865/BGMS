@@ -104,6 +104,30 @@ describe("AI 코칭 장면 ID 후처리", () => {
     expect(JSON.parse(once).briefFeedbackSceneIds).toEqual(["KNOCK-312450", null, null]);
     expect(applyMatchAiSceneRefs(applyMatchAiEvidencePolicy(once, match), match)).toBe(once);
   });
+
+  it("근거 정책이 바꾼 문장과 지운 행동 제안의 장면 ID를 버리고, 인덱스가 어긋나도 남은 항목의 ID는 유지한다", () => {
+    const raw = JSON.stringify({
+      briefFeedback: ["무리한 진입이 문제였습니다.", "둘째 문장"],
+      briefFeedbackSceneIds: ["KNOCK-312450", "DOWNED-900000"],
+      finalVerdict: "v",
+      actionItems: [
+        { icon: "t", title: "지울 항목", desc: "무책임한 플레이였습니다.", sceneId: "KNOCK-312450" },
+        { icon: "t", title: "남길 항목", desc: "팁", sceneId: "DOWNED-900000" },
+        { icon: "t", title: "바뀔 항목", desc: "무리한 진입을 줄이세요.", sceneId: "KNOCK-312450" },
+      ],
+    });
+    const finalize = (text: string) => applyMatchAiSceneRefs(applyMatchAiEvidencePolicy(text, match), match, text);
+    const once = finalize(raw);
+    const out = JSON.parse(once);
+    expect(out.briefFeedback[0]).not.toBe("무리한 진입이 문제였습니다.");
+    expect(out.briefFeedbackSceneIds).toEqual([null, "DOWNED-900000"]);
+    expect(out.actionItems.map((item: { title: string }) => item.title)).toEqual(["남길 항목", "바뀔 항목"]);
+    expect(out.actionItems[0].sceneId).toBe("DOWNED-900000");
+    expect(out.actionItems[1]).not.toHaveProperty("sceneId");
+    expect(finalize(once)).toBe(once);
+    expect(finalize("마크다운 응답")).toBe(applyMatchAiEvidencePolicy("마크다운 응답", match));
+    expect(JSON.parse(finalize(response({})))).not.toHaveProperty("briefFeedbackSceneIds");
+  });
 });
 
 describe("AI 코칭 카드", () => {

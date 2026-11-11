@@ -22,9 +22,10 @@ function withStyleJab(text: string, match: unknown, coachingStyle: string): stri
   return coachingStyle === "spicy" ? applyMatchSpicyJab(text, match) : text;
 }
 
-// 근거 정책 뒤에 장면 ID를 이 경기 장면 목록으로 검증한다. 새 응답과 캐시 응답에 같은 순서로 적용한다.
+// 근거 정책 뒤에 장면 ID를 이 경기 장면 목록으로 검증하고, 정책이 바꾼 문장의 장면 ID는 버린다.
+// 새 응답과 캐시 응답에 같은 순서로 적용한다. 정책이 재적용에 안정적이라 이미 처리된 캐시 텍스트는 그대로 남는다.
 function finalizeMatchAiText(text: string, match: unknown, coachingStyle: string): string {
-  return withStyleJab(applyMatchAiSceneRefs(applyMatchAiEvidencePolicy(text, match), match), match, coachingStyle);
+  return withStyleJab(applyMatchAiSceneRefs(applyMatchAiEvidencePolicy(text, match), match, text), match, coachingStyle);
 }
 
 const CANONICAL_MATCH_ID = /^[A-Za-z0-9._-]{1,160}$/;

@@ -77,32 +77,59 @@ export function findMatchAiScene(timeline: unknown, id: unknown): MatchAiScene |
   return eligibleScenes(timeline).find((scene) => scene.id === id) ?? null;
 }
 
+function parseRecord(text: string | undefined): Record<string, unknown> | null {
+  if (text === undefined) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+const actionItemKey = (item: Record<string, unknown>) => JSON.stringify([item.title, item.desc, item.sceneId]);
+
 /**
  * 응답 JSON의 장면 ID를 이 경기 장면 목록으로 검증한다. 목록에 없는 ID는 지우고, briefFeedbackSceneIds는
  * briefFeedback과 같은 길이로 맞춘다. 유효한 ID가 하나도 없으면 필드를 뺀다. JSON이 아니면 그대로 둔다.
+ * beforePolicy(근거 정책 적용 전 텍스트)를 주면 정책이 바꾼 briefFeedback 문장과 title·desc가 바뀐 행동 제안의 ID도 지운다.
  */
-export function applyMatchAiSceneRefs(text: string, match: unknown): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return text;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return text;
-  const record = parsed as Record<string, unknown>;
+export function applyMatchAiSceneRefs(text: string, match: unknown, beforePolicy?: string): string {
+  const record = parseRecord(text);
+  if (!record) return text;
+  const before = parseRecord(beforePolicy);
   const ids = new Set(buildMatchAiSceneCatalog(match).map((scene) => scene.id));
   const valid = (value: unknown): string | null => (typeof value === "string" && ids.has(value) ? value : null);
   const { briefFeedbackSceneIds, ...next } = record;
   if (Array.isArray(record.briefFeedback)) {
     const refs = Array.isArray(briefFeedbackSceneIds) ? briefFeedbackSceneIds : [];
-    const aligned = record.briefFeedback.map((_, index) => valid(refs[index]));
+    // 정책은 briefFeedback을 문장별로 치환할 뿐 길이를 바꾸지 않으므로 같은 인덱스끼리 비교한다.
+    const original = Array.isArray(before?.briefFeedback) ? before.briefFeedback : null;
+    const aligned = record.briefFeedback.map((sentence, index) => (
+      before && original?.[index] !== sentence ? null : valid(refs[index])
+    ));
     if (aligned.some(Boolean)) next.briefFeedbackSceneIds = aligned;
   }
   if (Array.isArray(record.actionItems)) {
+    // 정책은 desc가 빈 항목을 지워 인덱스가 어긋난다. 정책 전 항목의 (title, desc, sceneId)가 그대로 남은 항목만 ID를 유지한다.
+    const unchanged = new Map<string, number>();
+    if (before && Array.isArray(before.actionItems)) {
+      for (const item of before.actionItems) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+        const key = actionItemKey(item as Record<string, unknown>);
+        unchanged.set(key, (unchanged.get(key) ?? 0) + 1);
+      }
+    }
     next.actionItems = record.actionItems.map((item) => {
       if (!item || typeof item !== "object" || Array.isArray(item)) return item;
       const { sceneId, ...rest } = item as Record<string, unknown>;
-      const id = valid(sceneId);
+      let id = valid(sceneId);
+      if (id && before) {
+        const key = actionItemKey(item as Record<string, unknown>);
+        const count = unchanged.get(key) ?? 0;
+        if (count > 0) unchanged.set(key, count - 1);
+        else id = null;
+      }
       return id ? { ...rest, sceneId: id } : rest;
     });
   }
