@@ -102,7 +102,7 @@ const SceneChip = ({ scene, onSelect }: { scene: MatchAiScene; onSelect: (scene:
         event.stopPropagation();
         onSelect(scene);
       }}
-      className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 text-[11px] font-black text-sky-200 transition-colors hover:bg-sky-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+      className="mt-2 inline-flex min-h-11 self-start items-center gap-1.5 rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 text-[11px] font-black text-sky-200 transition-colors hover:bg-sky-500/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
     >
       <MapPin size={12} aria-hidden="true" />
       {label}
