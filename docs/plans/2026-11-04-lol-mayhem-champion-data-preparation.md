@@ -10,8 +10,6 @@
 
 **Spec:** [기존 콘텐츠 설계](2026-10-23-aram-mayhem-content-design.md)의 ID·출현 판정 원칙과 아래 조사 계약. 실명·URL·원본 스키마는 Git 제외 경로 `docs-private/lol-research/2026-11-04-mayhem-champion-dataset-research.md`에 있다. 이 문서는 공개 구현 계약을 포함하며, 공급원 연결을 시작할 때 비공개 조사 자료와 현재 API 문서를 함께 확인한다.
 
-> 운영 준비 구현·실제 적용 구분은 [운영 절차](../operations/2026-11-04-lol-mayhem-champion-dataset.md)를 따른다. 아래는 실행 전 기준이며 인증·운영 적용 미확인을 구현 검증으로 대체하지 않는다.
-
 ## 현재 확인한 범위
 
 - CDN 후보에서 트위치 전체129개, 럭스121개, 유미110개의 증강 행을 받았다. 단계별 행과 트위치 상위 구간까지 합한 2,262행을 검사했다. 16.21 고정 공식 카탈로그 KIWI249개에 표본의 숫자 ID가 모두 연결됐다. 전체173명 전수 검사는 아니다.
@@ -51,7 +49,7 @@
 | 신규 `lol_mayhem_champion_dataset_publications` | `(source,client_patch,cohort)` PK, `release_id bigint`, `previous_release_id bigint`, 공개자 UUID·시각. 두 참조 모두 릴리스 `(id,source,client_patch,cohort)` 복합 FK로 다른 패치·출처 공개를 차단 |
 | 기존 `lol_data_sync_status`·`admin_audit_events` | 점검·수집·변경·공개 시각을 구분하고 오류 코드·수량만 기록. 검토·공개·롤백 감사 기록 |
 
-릴리스는 `(source,client_patch,cohort,capture_hash,normalizer_version)` unique 및 복합 FK 대상 unique를 둔다. status는 pending/approved/rejected, source/cohort는 위 고정값을 CHECK한다. hash는 소문자 64hex, JSON 메타는 256KiB 이하, 경로는 서버 생성 prefix만 허용한다. 패치·상태·수집시각 인덱스와 검토자/공개 FK 인덱스를 둔다. 두 테이블 모두 RLS 활성화 및 anon/authenticated 직접 접근 차단, 서비스 역할만 쓴다.
+릴리스는 `(source,client_patch,cohort,capture_hash,normalizer_version)` unique 및 복합 FK 대상 unique를 둔다. status는 pending/approved/rejected, source/cohort는 위 고정값을 CHECK한다. hash는 소문자 64hex, JSON 메타는 64KiB 이하, 경로는 서버 생성 prefix만 허용한다. 패치·상태·수집시각 인덱스와 검토자/공개 FK 인덱스를 둔다. 두 테이블 모두 RLS 활성화 및 anon/authenticated 직접 접근 차단, 서비스 역할만 쓴다.
 
 정규화 단위 `ChampionStatsFile`은 다음으로 제한한다.
 
@@ -70,7 +68,7 @@ manifest에는 예상·완료 챔피언 ID 목록, 원본/정규화 파일별 SH
 
 - metadata는 6시간마다 점검한다. HTTP 조건부 요청은 공급원이 지원하는 경우만 사용한다. 변경 없는 버전은 유료 데이터 요청을 보내지 않는다.
 - 후보 API의 현재 문서 한도는 UTC일별200credits,60req/min이다. 원시 챔피언별 증강 파일1credit, 친화형 상세2credits다. 173명 예시에서 두 목록+원시 파일은175credits, 친화형 방식은348credits다. 챔피언 수173을 코드 상수로 쓰지 않는다.
-- 초기 수집은 원시 파일 경로, locale `ko`를 사용한다. 숫자 ID·표시명은 기존 공식 카탈로그를 기준으로 하므로 증강 목록 요청은 생략한다(173명 실제 요청 예산174credits). 문서의 quota 헤더와 사전 비용 추정 모두 확인하고 최소25credits를 남긴다. 문서/HEAD의 비용0을 데이터 응답304에도 임의 적용하지 않는다.
+- 초기 수집은 원시 파일 경로, locale `ko`를 사용한다. 숫자 ID·표시명은 기존 공식 카탈로그를 기준으로 한다. 문서의 quota 헤더와 사전 비용 추정 모두 확인하고 최소25credits를 남긴다. 문서/HEAD의 비용0을 데이터 응답304에도 임의 적용하지 않는다.
 - 단일 worker, 요청 간 최소1초, 작업10분 상한, 개별 JSON2MiB·배치64MiB 상한을 둔다. 크기 초과는 안전하게 중단하고 측정 후 조정한다. 큰 부가 조합 파일은 수집하지 않는다.
 - 버전별 진행 manifest를 private Storage에 기록해 받은 동일 파일을 재사용한다. 잔여 quota가 모자라면 다음 UTC일로 이어 받고 완전한 후보만 만든다. 원천에 이전 버전 조회가 없고 버전이 바뀌면 섞지 말고 새 후보로 시작한다.
 - lease는 기존 acquire/release RPC에 전용 키 `ops:lol-mayhem-champion:champion_api_v1`, TTL120초를 사용한다. 기존 renew RPC는 옛 출처로 고정돼 있어 재사용하지 않는다. 전용 renew는 DB clock과 token·미만료 여부를 검증하고 매30초 및 DB 후보 저장 직전 갱신한다.
@@ -135,12 +133,3 @@ Task 1 → Task 2 → Task 3 → Task 4 순서로 진행한다. 최초 검증은
 - 재현 명령: `python3 tmp/lol-mayhem-research/2026-11-04/validate_samples.py`.
 - 산출물: 같은 폴더 `sample-validation.json`, `selected-stats-preview.json`, HTTP/ETag·원본 SHA 기록. CDN 표본4개·2,262행·숫자 ID 미해결0·운영 쓰기0이며 API 후보 인증 검증과 다르다.
 - 문서만 변경했으므로 제품 lint/build/단위 테스트·브라우저·운영 DB 검증은 실행하지 않는다. 현재 구현 상태·관련 경로·package.json 명령·문서 계약을 대조한다.
-
-
-## 운영 준비 실행 결과
-
-2026-11-04 별도 브랜치에서 Task 1 파서, Task 2 저장·검수, Task 3 수집·재개·워크플로, Task 4 API·UI를 구현했다. 위 체크리스트는 원래 실행 계획이며 인증 응답·사용 조건 확인을 포함하는 항목은 아직 완료로 보지 않는다. 기존 후보/매핑은 변경하지 않았다.
-
-검증: lint·타입, LoL·관리자·전체 단위 테스트, 격리 PostgreSQL migration/RPC, 기존 fixture 브라우저12개(모바일3종·데스크톱)가 통과했다. 새 수집 원본 전체173명 인증 다운로드와 운영 DB/Storage 쓰기·배포는 실행하지 않았다. 무료 config 점검은16.21/16.21.5를 반환했고, 새 API key/사용 조건 설정이 없는 상태에서 유료 수집을 시작하지 않는 것을 확인했다.
-
-독립 리뷰의 일부 챔피언 목록 수용 문제는 상세 요청 전 공식 전체 목록 대조로 수정하고 회귀 테스트를 통과시켰다. DB JSON 키 순서, 카탈로그 SHA 직렬화, null/0 및 공개 DTO allowlist도 검증했다. 운영 설정·보관 예산·명령·공개/롤백 절차는 위 운영 문서가 기준이다.
