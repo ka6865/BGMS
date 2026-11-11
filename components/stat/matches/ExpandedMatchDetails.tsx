@@ -37,7 +37,7 @@ export { MatchPerformancePanel } from "./MatchPerformancePanel";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { BOT_SHARE_LEVEL_LABELS, buildBotShare } from "@/lib/pubg-analysis/botShare";
 import { hasMatchFlow, hasMatchOverview, humanTeamPlace } from "@/lib/pubg-analysis/matchReportView";
-import { MatchDeathLine, MatchFlowContent, MatchOverviewContent, MatchPlayerRankingContent, playerRankSummary } from "./MatchReportSections";
+import { MatchFlowContent, MatchOverviewContent, MatchPlayerRankingContent, playerRankSummary } from "./MatchReportSections";
 import { normalizeSquadWeaponStats } from "@/lib/pubg-analysis/squadWeaponStats";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
@@ -53,6 +53,7 @@ import {
   MATCH_DETAIL_EXPIRED_MESSAGE,
 } from "@/lib/pubg-analysis/matchRetention";
 import { MatchDetailExpiredNotice } from "./MatchDetailExpiredNotice";
+import { MatchVerdictBlock } from "./MatchVerdictBlock";
 
 const TimelineMiniMap = dynamic(
   () => import("@/components/stat/TimelineMiniMap").then((mod) => mod.TimelineMiniMap),
@@ -369,7 +370,8 @@ export const ExpandedMatchDetails = ({
     ai: false,
     ranking: false,
     team: false,
-    flow: false
+    // 경기 흐름은 펼친 직후 바로 보이게 연다. 미니맵(showFlowMap)은 계속 접어 둔다.
+    flow: true
   });
   const [showFlowMap, setShowFlowMap] = useState(false);
   const [showReplayModal, setShowReplayModal] = useState(false);
@@ -1136,8 +1138,10 @@ export const ExpandedMatchDetails = ({
 
       {/* Expanded Content */}
       <div className="p-3 md:p-6 pt-0 border-t border-white/10 animate-in slide-in-from-top-4 duration-500 bg-transparent rounded-b-2xl relative z-10">
+          <MatchVerdictBlock matchData={matchData} report={matchReport} showScore={!isBasicSummary && !isTdmMatch} />
+
           {/* Detailed Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
             <StatBox icon={<Crosshair size={16} />} label="헤드샷" value={displayStat(isBasicSummary ? null : matchData.stats.headshotKills)} color="text-red-400" />
             <StatBox icon={<Zap size={16} />} label="어시스트" value={displayStat(isBasicSummary ? null : matchData.stats.assists)} color="text-indigo-400" />
             <StatBox icon={<Shield size={16} />} label="기절시킴" value={displayStat(isBasicSummary ? getObservedBasicMatchStat(matchData, "DBNOs") : matchData.stats.DBNOs)} color="text-yellow-400" />
@@ -1159,7 +1163,6 @@ export const ExpandedMatchDetails = ({
               )}
             </p>
           )}
-          {matchReport && <MatchDeathLine report={matchReport} />}
 
           {hasVehicleCombat && (
             <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400" aria-label="차량 교전">

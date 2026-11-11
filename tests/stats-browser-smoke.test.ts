@@ -1603,7 +1603,7 @@ describeBrowser("stats browser smoke", () => {
         await waitForStatsText({ dispatcher, page, text: "봇 12 (19%)" });
         // 경기 흐름·경기 전체 섹션은 분석 결과의 matchReport로 그린다.
         await waitForStatsText({ dispatcher, page, text: "써드파티 · 최근 1분간 2팀 교전" });
-        await clickButtonText(page, "경기 흐름");
+        // 경기 흐름은 펼친 직후 기본으로 열려 있다.
         await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label="교전1 리플레이에서 보기"]' });
         await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="내 처치"]' });
         await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="나를 맞힌 것"]' });

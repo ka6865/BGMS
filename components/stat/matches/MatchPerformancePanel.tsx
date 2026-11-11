@@ -5,6 +5,7 @@ import { BgmsIcon } from "@/components/common/BgmsIcon";
 import { getNextTierInfo } from "@/lib/pubg-analysis/benchmarkScore";
 import { firstReplyLatencyMs } from "@/lib/pubg-analysis/firstReply";
 import { getObservedBasicMatchStat, type MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
+import { getMatchScoreMax } from "@/lib/pubg-analysis/matchVerdict";
 import type { MatchData } from "@/types/stat";
 
 const ScoreBar = ({ label, score, max, color, compact = false }: { label: string, score: number, max: number, color: string, compact?: boolean }) => (
@@ -90,7 +91,7 @@ const getOpportunityRate = (success?: number, total?: number) => {
   };
 };
 
-const buildTierEvidence = (matchData: MatchSummaryData) => {
+export const buildTierEvidence = (matchData: MatchSummaryData) => {
   const stats = matchData.stats;
   const tradeStats = matchData.tradeStats;
   const totalTeammateKnocks = tradeStats?.teammateKnocks;
@@ -356,9 +357,7 @@ export const MatchPerformancePanel = ({
     || mapName.includes("tdm")
     || matchData.mapName === "PillarCompound_Main"
     || matchData.mapName === "Italy_TDM_Main";
-  const scoreMax = !isTdmMatch && mode.includes("solo")
-    ? { combat: 50, tactical: 15, survival: 35 }
-    : { combat: 40, tactical: 35, survival: 25 };
+  const scoreMax = getMatchScoreMax(mode, isTdmMatch);
   const tierEvidence = isTdmMatch ? null : buildTierEvidence(matchData);
   const teamDamageShare = Number(matchData.teamImpact?.teamDamageShare || 0);
   const badges = matchData.badges || [];

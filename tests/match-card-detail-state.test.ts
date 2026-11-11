@@ -474,7 +474,9 @@ describe("MatchCard isolated detail state", () => {
     fireEvent.click(screen.getAllByText("SquadMate").at(-1)!);
     expect(onNicknameClick).toHaveBeenCalledWith("SquadMate");
 
-    fireEvent.click(screen.getByRole("button", { name: /경기 흐름/ }));
+    // 경기 흐름은 기본으로 펼쳐져 있고 미니맵만 접혀 있다.
+    expect(screen.getByRole("button", { name: /경기 흐름/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByTestId("match-tactical-map")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /지도와 전체 이벤트 보기/ }));
     expect(screen.getByTestId("match-tactical-map")).toBeInTheDocument();
 
