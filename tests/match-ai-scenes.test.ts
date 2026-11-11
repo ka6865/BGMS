@@ -45,6 +45,19 @@ describe("AI 코칭 장면 목록", () => {
     expect(catalog.map((scene) => scene.id)).toContain("DOWNED-900000");
   });
 
+  it("내 장면이 넘쳐도 마지막 기절·사망을 남기고 팀원 장면보다 내 장면을 먼저 채운다", () => {
+    const kills = Array.from({ length: 30 }, (_, index) => ({ ts: 10_000 + index * 1000, type: "KILL", x: 1, y: 1 }));
+    const died = { ts: 1_200_000, type: "DIED", x: 5, y: 5 };
+    const catalog = buildMatchAiSceneCatalog({ timeline: [teamKnock, ...kills, downed, died] });
+    const ids = catalog.map((scene) => scene.id);
+    expect(catalog).toHaveLength(24);
+    expect(ids).toContain("DIED-1200000");
+    expect(ids).toContain("DOWNED-900000");
+    expect(ids).not.toContain("TEAM_KNOCK-500000");
+    expect(ids.filter((id) => id.startsWith("KILL-"))).toEqual(kills.slice(0, 22).map((kill) => `KILL-${kill.ts}`));
+    expect(catalog.map((scene) => scene.ts)).toEqual([...catalog.map((scene) => scene.ts)].sort((a, b) => a - b));
+  });
+
   it("타임라인이 없거나 형식이 다르면 빈 목록이다", () => {
     expect(buildMatchAiSceneCatalog(null)).toEqual([]);
     expect(buildMatchAiSceneCatalog({ timeline: "broken" })).toEqual([]);

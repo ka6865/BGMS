@@ -12,8 +12,10 @@ const SCENE_LABELS: Partial<Record<TimelineEvent["type"], string>> = {
   TEAM_KNOCK: "팀원 기절",
   TEAM_DIED: "팀원 사망",
 };
-// 내 행동 장면을 팀원 장면보다 먼저 남긴다.
+// 목록이 넘치면 내 기절·사망, 나머지 내 장면, 팀원 장면 순으로 남긴다.
 const PERSONAL_TYPES = new Set<TimelineEvent["type"]>(["KILL", "KNOCK", "DOWNED", "DIED", "REVIVE"]);
+const scenePriority = (scene: MatchAiScene): number =>
+  scene.event.type === "DIED" || scene.event.type === "DOWNED" ? 0 : PERSONAL_TYPES.has(scene.event.type) ? 1 : 2;
 const MAX_SCENES = 24;
 
 export interface MatchAiScene {
@@ -48,12 +50,11 @@ function eligibleScenes(timeline: unknown): MatchAiScene[] {
   });
 }
 
-/** 프롬프트에 넣을 장면 목록. 내 장면을 우선해 최대 24개를 고른 뒤 시간순으로 둔다. */
+/** 프롬프트에 넣을 장면 목록. 내 기절·사망을 항상 남기고 우선순위대로 최대 24개를 고른 뒤 시간순으로 둔다. */
 export function buildMatchAiSceneCatalog(match: unknown): MatchAiScene[] {
   const scenes = eligibleScenes((match as { timeline?: unknown } | null)?.timeline);
-  const personal = scenes.filter((scene) => PERSONAL_TYPES.has(scene.event.type));
-  const team = scenes.filter((scene) => !PERSONAL_TYPES.has(scene.event.type));
-  return [...personal, ...team].slice(0, MAX_SCENES).sort((a, b) => a.ts - b.ts);
+  // 정렬은 안정적이라 같은 우선순위 안에서는 시간순이 유지된다.
+  return scenes.sort((a, b) => scenePriority(a) - scenePriority(b)).slice(0, MAX_SCENES).sort((a, b) => a.ts - b.ts);
 }
 
 /** 프롬프트용 장면 한 줄. 상대 닉네임은 넣지 않는다. */

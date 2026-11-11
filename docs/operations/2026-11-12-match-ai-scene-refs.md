@@ -10,7 +10,8 @@
 | `actionItems[].sceneId` | `string` (선택) | 행동 제안이 가리키는 장면 ID |
 
 - 장면 ID는 `{타임라인 type}-{경과 ms}`(예: `KNOCK-312450`)다. 대상은 위치가 있는 `KILL`, `KNOCK`, `DOWNED`, `DIED`, `REVIVE`, `TEAM_KNOCK`, `TEAM_DIED` 이벤트이고, 좌표가 0,0인 이벤트는 뺀다(`lib/pubg-analysis/matchAiScenes.ts`).
-- 서버는 canonical 분석의 `timeline`으로 장면 목록(내 장면 우선, 최대 24개, 상대 닉네임 제외)을 만들어 프롬프트의 `[장면 목록]`에 넣는다. 모델은 목록 안의 ID를 고르거나 `null`만 쓴다. 시각·좌표는 모델이 쓰지 않는다.
+- 서버는 canonical 분석의 `timeline`으로 장면 목록(최대 24개, 상대 닉네임 제외)을 만들어 프롬프트의 `[장면 목록]`에 넣는다. 모델은 목록 안의 ID를 고르거나 `null`만 쓴다. 시각·좌표는 모델이 쓰지 않는다.
+- 장면이 24개를 넘으면 내 기절(`DOWNED`)·사망(`DIED`)을 항상 남기고, 나머지 내 장면(`KILL`, `KNOCK`, `REVIVE`), 팀원 장면 순으로 시간이 이른 것부터 채운 뒤 시간순으로 정렬한다.
 - 후처리 순서는 언어 순화 → `applyMatchAiEvidencePolicy` → `applyMatchAiSceneRefs` → 매운맛 한마디다. `applyMatchAiSceneRefs`는 목록에 없는 ID를 지우고 `briefFeedbackSceneIds` 길이를 `briefFeedback`에 맞추며, 유효한 ID가 없으면 필드를 뺀다. 새 응답과 캐시 응답에 같은 순서로 적용한다.
 - 화면은 같은 규칙으로 상세 응답의 `timeline`에서 장면을 다시 찾고, 찾지 못하면 칩을 그리지 않는다. 장면 필드가 없는 구버전 응답·마크다운 응답은 기존처럼 그린다.
 
