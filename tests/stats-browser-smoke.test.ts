@@ -975,7 +975,7 @@ describeBrowser("stats browser smoke", () => {
     });
   }, 60_000);
 
-  it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('match verdict and open flow without extra clicks at $width x $height', async (viewport) => {
+  it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('match verdict with collapsed flow at $width x $height', async (viewport) => {
     await withStatsBrowserPage({ browser, baseUrl, scenarioName: 'ready', clock, viewport,
       run: async ({ page, dispatcher }) => {
         const log = attachRuntimeLog(page);
@@ -992,15 +992,16 @@ describeBrowser("stats browser smoke", () => {
           }).length;
           const flow = Array.from(document.querySelectorAll('button[aria-expanded]')).find((node) => node.textContent?.startsWith('경기 흐름'));
           return { text: root.textContent, overflow, flowExpanded: flow?.getAttribute('aria-expanded'),
-            hasMap: Boolean(document.querySelector('[data-testid="match-tactical-map"]')) };
+            hasMap: Boolean(document.querySelector('[data-testid="match-tactical-map"]')),
+            hasReplay: Boolean(document.querySelector('button[aria-label="교전1 리플레이에서 보기"]')) };
         });
         expect(verdict.text).toContain('사망 23:25');
         expect(verdict.text).toContain('S 티어 · 82 / 100점');
         expect(verdict.text).toContain('좋았던 점전투 34 / 40점');
         expect(verdict.overflow).toBe(0);
-        expect(verdict.flowExpanded).toBe('true');
+        expect(verdict.flowExpanded).toBe('false');
         expect(verdict.hasMap).toBe(false);
-        await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label="교전1 리플레이에서 보기"]' });
+        expect(verdict.hasReplay).toBe(false);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.$eval('[data-testid="match-verdict"]', (root) => root.scrollIntoView({ block: 'start' }));
         await page.screenshot({ path: screenshotPath('match-verdict', viewport) });
@@ -1639,7 +1640,7 @@ describeBrowser("stats browser smoke", () => {
         await waitForStatsText({ dispatcher, page, text: "봇 12 (19%)" });
         // 경기 흐름·경기 전체 섹션은 분석 결과의 matchReport로 그린다.
         await waitForStatsText({ dispatcher, page, text: "써드파티 · 최근 1분간 2팀 교전" });
-        // 경기 흐름은 펼친 직후 기본으로 열려 있다.
+        await clickButtonText(page, "경기 흐름");
         await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label="교전1 리플레이에서 보기"]' });
         await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="내 처치"]' });
         await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="나를 맞힌 것"]' });

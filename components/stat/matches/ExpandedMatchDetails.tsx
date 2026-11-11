@@ -311,8 +311,7 @@ export const ExpandedMatchDetails = ({
     ai: false,
     ranking: false,
     team: false,
-    // 경기 흐름은 펼친 직후 바로 보이게 연다. 미니맵(showFlowMap)은 계속 접어 둔다.
-    flow: true
+    flow: false
   });
   const [showFlowMap, setShowFlowMap] = useState(false);
   const [showReplayModal, setShowReplayModal] = useState(false);

@@ -474,9 +474,7 @@ describe("MatchCard isolated detail state", () => {
     fireEvent.click(screen.getAllByText("SquadMate").at(-1)!);
     expect(onNicknameClick).toHaveBeenCalledWith("SquadMate");
 
-    // 경기 흐름은 기본으로 펼쳐져 있고 미니맵만 접혀 있다.
-    expect(screen.getByRole("button", { name: /경기 흐름/ })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.queryByTestId("match-tactical-map")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /경기 흐름/ }));
     fireEvent.click(screen.getByRole("button", { name: /지도와 전체 이벤트 보기/ }));
     expect(screen.getByTestId("match-tactical-map")).toBeInTheDocument();
 
@@ -1105,7 +1103,6 @@ describe("AI 코칭 장면 칩", () => {
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     await screen.findByText(/scene verdict/);
 
-    fireEvent.click(screen.getByRole("button", { name: /^경기 흐름/ }));
     expect(screen.getByRole("button", { name: /^경기 흐름/ })).toHaveAttribute("aria-expanded", "false");
     // 검증되지 않은 ID(KNOCK-999)와 null에는 칩을 붙이지 않는다.
     const chips = screen.getAllByTestId("ai-scene-chip");
