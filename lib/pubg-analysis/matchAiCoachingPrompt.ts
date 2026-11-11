@@ -2,6 +2,7 @@ import { isEarlyElimination } from "@/lib/pubg-analysis/benchmarkScore";
 import { buildBackupCoachingContext, type BackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { hasComparableBenchmarkMetric, type NormalizedBenchmark, type ObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { firstReplyLatencyMs, readFirstReplyEvidence, firstReplyFailureRate } from "@/lib/pubg-analysis/firstReply";
+import { buildMatchAiSceneCatalog, formatMatchAiSceneLine } from "@/lib/pubg-analysis/matchAiScenes";
 
 interface MatchAiPromptInput {
   matchData: any;
@@ -229,6 +230,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     "- [피드백 구성] briefFeedback 3개는 서로 다른 주제(화력·교전·팀플레이 또는 생존)를 다루고, 각 문장에 관측 수치와 그 수치가 이번 경기에서 뜻하는 바를 함께 쓰십시오. 같은 수치를 반복하지 마십시오.",
     "- [마지막 한마디] finalVerdict는 이번 경기 기록에서 가장 중요한 사실 하나와 다음 경기 과제 하나를 한두 문장으로 쓰십시오. 분석 원칙이나 코치 자신의 태도를 말하지 마십시오.",
     "- [행동 제안] actionItems는 이번 경기에서 표본이 충분한 지표 가운데 가장 아쉬운 1~2개만 골라, 다음 경기에서 확인하거나 시도할 구체 행동으로 쓰십시오. 근거가 없으면 1개만 쓰십시오.",
+    "- [장면 근거] briefFeedbackSceneIds는 briefFeedback과 같은 순서·개수로 채우십시오. 문장이 아래 [장면 목록]의 한 장면을 직접 가리킬 때만 그 장면 ID를 그대로 쓰고, 아니면 null을 쓰십시오. actionItems의 sceneId도 같은 규칙입니다. 목록에 없는 ID를 만들지 말고, 장면의 시각·위치·상황을 새로 지어 문장에 쓰지 마십시오. 장면 목록이 없으면 모두 null로 두십시오.",
     "- **핵심 규칙**: 불필요한 미사여구와 항목 나열을 절대 금지합니다. 칭호와 그에 대한 전술적 이유를 설명한 뒤, 하단에 정확히 3개의 핵심 피드백 문장만 제공하십시오.",
     "",
     "반드시 아래 구조의 JSON 객체로만 응답하세요. 백틱(```) 없이 순수 JSON만 출력하십시오.",
@@ -241,13 +243,17 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     '    "두 번째 핵심 피드백 (데이터 수치 및 팀 영향력 언급, 1문장)",',
     '    "세 번째 핵심 피드백 (데이터 수치 포함, 1문장)"',
     '  ],',
+    '  "briefFeedbackSceneIds": ["첫 번째 피드백의 장면 ID 또는 null", "두 번째 피드백의 장면 ID 또는 null", "세 번째 피드백의 장면 ID 또는 null"],',
     '  "finalVerdict": "마지막 한마디 (짧게)",',
-    '  "actionItems": [ { "icon": "🎯", "title": "목표", "desc": "팁" } ]',
+    '  "actionItems": [ { "icon": "🎯", "title": "목표", "desc": "팁", "sceneId": "장면 ID 또는 null" } ]',
     "}",
   ];
 
+  const sceneLines = buildMatchAiSceneCatalog(matchData).map(formatMatchAiSceneLine);
+  const sceneSection = `[장면 목록] (장면 ID | 경과 시각 | 사건)\n${sceneLines.length ? sceneLines.join("\n") : "없음"}`;
+
   return {
-    fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}`,
+    fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}\n\n${sceneSection}`,
     playerReportSummary,
     backupContext,
   };

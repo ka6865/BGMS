@@ -1,4 +1,5 @@
 import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
+import { applyMatchAiSceneRefs } from "@/lib/pubg-analysis/matchAiScenes";
 import { applyMatchSpicyJab } from "@/lib/pubg-analysis/spicyPunchlines";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
@@ -19,6 +20,11 @@ import { canonicalMatchPlayedAt, expiredMatchDetailResponse, isMatchDetailExpire
 // 매운맛은 근거 정책을 거친 응답 끝에 서버 한마디를 붙인다. 캐시 응답에 다시 적용해도 한 번만 붙는다.
 function withStyleJab(text: string, match: unknown, coachingStyle: string): string {
   return coachingStyle === "spicy" ? applyMatchSpicyJab(text, match) : text;
+}
+
+// 근거 정책 뒤에 장면 ID를 이 경기 장면 목록으로 검증한다. 새 응답과 캐시 응답에 같은 순서로 적용한다.
+function finalizeMatchAiText(text: string, match: unknown, coachingStyle: string): string {
+  return withStyleJab(applyMatchAiSceneRefs(applyMatchAiEvidencePolicy(text, match), match), match, coachingStyle);
 }
 
 const CANONICAL_MATCH_ID = /^[A-Za-z0-9._-]{1,160}$/;
@@ -239,7 +245,7 @@ export async function POST(request: Request) {
           platform: requestedPlatform,
         });
         const cachedData = cached.ai_result as any;
-        const cachedText = withStyleJab(applyMatchAiEvidencePolicy(sanitizeAiCoachingLanguageText(String(cachedData.text || "")), canonicalFullResult), canonicalFullResult, coachingStyle);
+        const cachedText = finalizeMatchAiText(sanitizeAiCoachingLanguageText(String(cachedData.text || "")), canonicalFullResult, coachingStyle);
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           start(controller) {
@@ -390,7 +396,7 @@ export async function POST(request: Request) {
               }
             }
             if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
-            const sanitizedText = withStyleJab(applyMatchAiEvidencePolicy(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(aiResponseText, backupContext)), canonicalFullResult), canonicalFullResult, coachingStyle);
+            const sanitizedText = finalizeMatchAiText(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(aiResponseText, backupContext)), canonicalFullResult, coachingStyle);
             aiResponseText = sanitizedText;
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: sanitizedText }) + "\n"));
 
@@ -409,7 +415,7 @@ export async function POST(request: Request) {
             }).catch((err: any) => console.error("[AI-ANALYZE] Usage fetch error:", err));
 
           } else if (fallbackText) { 
-            aiResponseText = withStyleJab(applyMatchAiEvidencePolicy(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(fallbackText, backupContext)), canonicalFullResult), canonicalFullResult, coachingStyle);
+            aiResponseText = finalizeMatchAiText(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(fallbackText, backupContext)), canonicalFullResult, coachingStyle);
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: aiResponseText }) + "\n"));
             
             if (nonStreamRes?.response?.usageMetadata) {

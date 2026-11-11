@@ -54,6 +54,8 @@ import {
 } from "@/lib/pubg-analysis/matchRetention";
 import { MatchDetailExpiredNotice } from "./MatchDetailExpiredNotice";
 import { MatchVerdictBlock } from "./MatchVerdictBlock";
+import { MatchAiCoachingCard } from "./MatchAiCoachingCard";
+import type { MatchAiScene } from "@/lib/pubg-analysis/matchAiScenes";
 
 const TimelineMiniMap = dynamic(
   () => import("@/components/stat/TimelineMiniMap").then((mod) => mod.TimelineMiniMap),
@@ -111,67 +113,6 @@ const CollapsibleDetailSection = ({
     )}
   </section>
 );
-
-/**
- * 간단한 마크다운 파서를 통해 AI 응답을 시각적으로 예쁘게 렌더링합니다.
- */
-const renderMarkdown = (text: string) => {
-  if (!text) return null;
-  const lines = text.split('\n');
-
-  return lines.map((line, idx) => {
-    if (!line.trim()) return <div key={idx} className="h-2" />;
-
-    let isHeader = false;
-    let headerLevel = 0;
-    if (line.startsWith('### ')) { isHeader = true; headerLevel = 3; }
-    else if (line.startsWith('## ')) { isHeader = true; headerLevel = 2; }
-    else if (line.startsWith('# ')) { isHeader = true; headerLevel = 1; }
-
-    let content = line;
-    if (isHeader) content = line.replace(/^#+\s/, '');
-
-    const isList = /^[*\-]\s/.test(content.trim());
-    const isBold = /\*\*(.*?)\*\*/g.test(content);
-
-    let elements: React.ReactNode = content;
-    if (isBold) {
-      const parts = content.split(/(\*\*.*?\*\*)/g);
-      elements = parts.map((part, pIdx) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={pIdx} className="text-white font-bold">{part.slice(2, -2)}</strong>;
-        }
-        return part;
-      });
-    }
-
-    if (isHeader) {
-      return (
-        <div key={idx} className="flex items-center gap-2 mt-5 mb-3">
-          <div className="w-1 h-4 bg-indigo-500 rounded-full shrink-0" />
-          <h3 className={`font-black text-white ${headerLevel === 1 ? 'text-lg' : 'text-md'} break-keep`}>
-            {elements}
-          </h3>
-        </div>
-      );
-    }
-
-    if (isList) {
-      return (
-        <div key={idx} className="flex gap-2 mb-2 pl-2">
-          <span className="text-indigo-400 shrink-0 mt-1">•</span>
-          <span className="text-gray-300 text-sm leading-relaxed break-keep">{elements}</span>
-        </div>
-      );
-    }
-
-    return (
-      <p key={idx} className="text-gray-400 text-sm leading-relaxed mb-3.5 pl-1 break-keep">
-        {elements}
-      </p>
-    );
-  });
-};
 
 export interface ExpandedMatchDetailsProps {
   matchId: string;
@@ -402,6 +343,8 @@ export const ExpandedMatchDetails = ({
   const [analysisError, setAnalysisError] = useState<AiAnalysisRequestError | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
+  const [sceneFocusRequest, setSceneFocusRequest] = useState(0);
+  const flowMapRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isAnalyzingRef = useRef(false); // [V46.0] 클로저 세이프 로딩 추적
   const detailRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
@@ -457,6 +400,17 @@ export const ExpandedMatchDetails = ({
     () => normalizeSquadWeaponStats(matchData?.squadWeaponStats),
     [matchData?.squadWeaponStats],
   );
+  // AI 코칭의 장면 칩: 경기 흐름과 미니맵을 열고 해당 이벤트를 선택한 뒤 지도로 스크롤한다.
+  const handleAiSceneSelect = (scene: MatchAiScene) => {
+    setOpenDetailSections((current) => ({ ...current, flow: true }));
+    setShowFlowMap(true);
+    setSelectedEvent(scene.event);
+    setSceneFocusRequest((current) => current + 1);
+  };
+  useEffect(() => {
+    if (sceneFocusRequest === 0) return;
+    flowMapRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  }, [sceneFocusRequest]);
   const toggleDetailSection = (section: keyof typeof openDetailSections) => {
     setOpenDetailSections((current) => ({
       ...current,
@@ -1243,115 +1197,13 @@ export const ExpandedMatchDetails = ({
 
               {analysis ? (
                 <div className="flex flex-col gap-6 animate-in fade-in zoom-in duration-500">
-                  {(() => {
-                    try {
-                      const cleanAnalysis = analysis!.trim();
-                      const isJson = cleanAnalysis.startsWith('{') || cleanAnalysis.startsWith('```json');
-                      if (!isJson) return (
-                        <div className="p-8 bg-black/40 rounded-[2.5rem] border border-white/10 prose prose-invert max-w-none">
-                          {renderMarkdown(analysis!)}
-                        </div>
-                      );
-
-                      let data;
-                      try {
-                        const jsonString = cleanAnalysis.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
-                        data = JSON.parse(jsonString);
-                      } catch (err) {
-                        if (isAnalyzing) {
-                          return (
-                            <div className="p-10 bg-black/40 rounded-[2.5rem] border border-white/10 flex flex-col items-center justify-center gap-4">
-                              <div className={`w-10 h-10 border-4 border-white/10 border-t-${coachingStyle === 'mild' ? 'emerald' : 'red'}-500 rounded-full animate-spin`} />
-                              <p className="text-gray-400 font-bold animate-pulse tracking-widest text-sm">AI 전술 데이터를 수신하고 있습니다...</p>
-                            </div>
-                          );
-                        }
-                        throw err;
-                      }
-
-                      const isMildTheme = coachingStyle === "mild";
-                      const accentColor = isMildTheme ? "emerald" : "red";
-
-                      return (
-                        <div className="flex flex-col gap-6">
-                          {/* Style Header */}
-                          <div className={`relative p-8 bg-gradient-to-br from-${accentColor}-500/10 to-transparent border border-${accentColor}-500/20 rounded-[2.5rem] overflow-hidden`}>
-                            <div className="absolute top-0 right-0 p-6 opacity-10">
-                              <BgmsIcon name={isMildTheme ? "shield" : "flame"} size={88} />
-                            </div>
-                            <div className="relative z-10">
-                              <div className="flex items-center gap-2 mb-4">
-                                <span className={`px-3 py-1 bg-${accentColor}-500/20 text-${accentColor}-400 rounded-full text-[10px] font-black uppercase tracking-widest`}>
-                                  {data.coach || (isMildTheme ? "KIND COACH" : "SPICY BOMBER")}
-                                </span>
-                                <div className={`h-1 w-1 rounded-full bg-${accentColor}-500`} />
-                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">전술 매치 보고서</span>
-                              </div>
-                              <h3 className="text-3xl font-black text-white mb-2 leading-tight">{data.signature}</h3>
-                              <p className="text-gray-400 text-sm font-medium">{data.signatureSub}</p>
-                              {data.signature && (
-                                <p className="mt-2 text-[11px] font-bold text-gray-500 break-keep" data-testid="match-signature-scope">
-                                  이번 한 경기 기록으로 붙인 별명입니다. 최근 경기 요약의 칭호와 다를 수 있습니다.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Analysis Content (3 Lines) */}
-                          <div className="flex flex-col gap-4">
-                            <div className="grid grid-cols-1 gap-3">
-                              {data.briefFeedback?.map((point: string, idx: number) => (
-                                <div key={idx} className="flex gap-4 p-4 bg-white/5 border border-white/10 rounded-2xl items-center group/point hover:bg-white/10 transition-colors">
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                                    idx === 0 ? 'bg-amber-500/20 text-amber-500' :
-                                    idx === 1 ? 'bg-indigo-500/20 text-indigo-400' :
-                                    'bg-emerald-500/20 text-emerald-400'
-                                  }`}>
-                                    <span className="text-xs font-black">{idx + 1}</span>
-                                  </div>
-                                  <p className="text-gray-200 text-sm font-medium leading-relaxed">
-                                    {point}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Final Verdict & Action Items */}
-                          <div className={`p-8 bg-black/60 border border-${accentColor}-500/30 rounded-[2.5rem] relative overflow-hidden shadow-2xl`}>
-                             <div className={`absolute inset-0 bg-${accentColor}-500/5 pointer-events-none`} />
-                             <div className="relative z-10">
-                               <div className="flex items-center gap-2 mb-4">
-                                 <span className={`text-[10px] font-black text-${accentColor}-400 uppercase tracking-[0.2em]`}>종합 코칭 진단</span>
-                                 <div className="flex-1 h-px bg-white/5" />
-                               </div>
-                               <p className="text-xl font-black text-white leading-tight mb-8">&quot;{data.finalVerdict}&quot;</p>
-
-                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                 {data.actionItems?.map((item: any, idx: number) => (
-                                   <div key={idx} className="flex items-start gap-4 p-5 bg-white/5 rounded-[1.5rem] border border-white/10 hover:bg-white/10 transition-colors group/item">
-                                     <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-2xl group-hover/item:scale-110 transition-transform">
-                                       {item.icon}
-                                     </div>
-                                     <div className="flex flex-col gap-1">
-                                       <span className="text-sm font-black text-white">{item.title}</span>
-                                       <span className="text-xs text-gray-400 leading-normal font-medium">{item.desc}</span>
-                                     </div>
-                                   </div>
-                                 ))}
-                               </div>
-                             </div>
-                          </div>
-                        </div>
-                      );
-                  } catch {
-                    return (
-                      <div className="p-8 bg-black/40 rounded-[2.5rem] border border-white/10 prose prose-invert max-w-none">
-                        {renderMarkdown(analysis!)}
-                      </div>
-                    );
-                  }
-                })()}
+                  <MatchAiCoachingCard
+                    analysis={analysis}
+                    isAnalyzing={isAnalyzing}
+                    coachingStyle={coachingStyle}
+                    timeline={matchData.timeline}
+                    onSceneSelect={handleAiSceneSelect}
+                  />
               </div>
             ) : (
               <button
@@ -1442,7 +1294,7 @@ export const ExpandedMatchDetails = ({
                   {showFlowMap && (
                   <div className="mt-3 grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-4 animate-in slide-in-from-top-2 duration-300">
                     {/* Left: Mini Map */}
-                    <div data-testid="match-tactical-map" className="lg:col-span-5 xl:col-span-4 bg-white/2 border border-white/5 rounded-[1.5rem] overflow-hidden min-h-[240px] sm:min-h-[280px] lg:min-h-0 lg:h-[360px] relative group/map">
+                    <div ref={flowMapRef} data-testid="match-tactical-map" className="lg:col-span-5 xl:col-span-4 bg-white/2 border border-white/5 rounded-[1.5rem] overflow-hidden min-h-[240px] sm:min-h-[280px] lg:min-h-0 lg:h-[360px] relative group/map">
                       <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-[9px] text-gray-400 font-black uppercase tracking-widest opacity-0 group-hover/map:opacity-100 transition-opacity">
                         인터랙티브 전술 지도
                       </div>
