@@ -27,7 +27,7 @@ export const tabMetadata: Record<string, { title: string; desc: string }> = {
 const getPostData = cache(async (postId: string) => {
   try {
     const numericPostId = Number(postId);
-    if (isNaN(numericPostId)) return null;
+    if (!Number.isSafeInteger(numericPostId) || numericPostId <= 0) return null;
 
     // 🌟 검증된 서버용 클라이언트 사용
     const supabase = await createClient();
@@ -36,15 +36,13 @@ const getPostData = cache(async (postId: string) => {
       .from('posts')
       .select('id, title, content, category, author, created_at, image_url')
       .eq('id', numericPostId)
-      .single();
+      .maybeSingle();
 
-    if (error || !post) {
-      return null;
-    }
+    if (error) throw new Error('게시글 메타데이터 조회 실패', { cause: error });
     return post;
   } catch (e) {
     console.error('getPostData error:', e);
-    return null;
+    throw e;
   }
 });
 

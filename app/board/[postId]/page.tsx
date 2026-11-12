@@ -4,8 +4,7 @@ import { getPostMetadata, getBreadcrumbJsonLd, getPostArticleJsonLd } from '@/li
 import { JsonLdProps } from '@/types/seo';
 import BoardDetailClient from '@/components/board/BoardDetailClient';
 import { sanitizeBoardHtml } from '@/lib/board/sanitizeHtml';
-import Link from 'next/link';
-import { CircleAlert, ChevronLeft } from 'lucide-react';
+import { notFound } from 'next/navigation';
 import { maskIp } from '@/lib/board/ipUtils';
 import { resolvePromoteExpectedParentRevision } from '@/lib/board/promotionRevision';
 import { BOARD_POST_PUBLIC_FIELDS, BOARD_COMMENT_PUBLIC_FIELDS } from '@/lib/board/publicFields';
@@ -17,13 +16,7 @@ export async function generateMetadata({ params }: { params: Promise<{ postId: s
   const { postId } = await params;
   const metadata = await getPostMetadata(postId);
 
-  if (!metadata) {
-    return {
-      title: "존재하지 않는 게시글입니다",
-      description: "요청하신 게시글을 찾을 수 없습니다. 삭제되었거나 주소가 잘못되었을 수 있습니다.",
-      robots: { index: false }
-    };
-  }
+  if (!metadata) notFound();
 
   return metadata;
 }
@@ -32,13 +25,14 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
   const { postId } = await params;
   const numericPostId = Number(postId);
 
-  const supabase = await createClient();
   const metadata = await getPostMetadata(postId);
+  if (!metadata) notFound();
+  const supabase = await createClient();
 
   const jsonLd: JsonLdProps[] = [
     getBreadcrumbJsonLd([
       { name: "커뮤니티", item: "/board" },
-      { name: metadata?.title?.toString() || "게시글", item: `/board/${postId}` }
+      { name: metadata.title?.toString() || "게시글", item: `/board/${postId}` }
     ]) as JsonLdProps
   ];
 
@@ -52,73 +46,19 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
     .from("posts")
     .select(`${BOARD_POST_PUBLIC_FIELDS}, profiles(nickname, role)`)
     .eq("id", numericPostId)
-    .single();
+    .maybeSingle();
+
+  if (postError) {
+    console.error("게시글 조회 오류:", postError);
+    throw new Error("게시글 조회 실패", { cause: postError });
+  }
+  if (!postResult) notFound();
 
   const { data: commentResult, error: commentError } = await supabase
     .from("comments")
     .select(`${BOARD_COMMENT_PUBLIC_FIELDS}, profiles(nickname, role)`)
     .eq("post_id", numericPostId)
     .order("created_at", { ascending: true });
-
-  // PGRST116: `.single()`에서 행이 없을 때 반환되는 코드.
-  // 존재하지 않는 게시글은 서버 오류가 아니라 "찾을 수 없음"으로 안내한다.
-  const postMissing = postError?.code === 'PGRST116' || !postResult;
-
-  if (postError && !postMissing) {
-    console.error("게시글 조회 오류:", postError);
-    return (
-      <div className="w-full h-[calc(100vh-100px)] bg-[#121212] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
-        <div className="bg-[#1a1a1a] border border-[#333] p-10 rounded-2xl shadow-2xl flex flex-col items-center max-w-md w-full">
-          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
-            <CircleAlert className="w-8 h-8 text-red-500" />
-          </div>
-          <h1 className="text-2xl font-black text-white mb-2">게시글을 불러오지 못했습니다</h1>
-          <p className="text-[#999] text-sm leading-relaxed mb-8">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
-          <div className="flex flex-col gap-3 w-full">
-            <Link
-              href={`/board/${postId}`}
-              className="flex items-center justify-center gap-2 w-full py-4 bg-[#F2A900] text-black font-bold rounded-xl hover:bg-[#d49400] transition-all active:scale-95"
-            >
-              다시 시도
-            </Link>
-            <Link href="/board" className="text-[#999] text-xs hover:text-[#F2A900] transition-colors">게시판 목록으로 돌아가기</Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (postMissing) {
-    return (
-      <div className="w-full h-[calc(100vh-100px)] bg-[#121212] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
-        <div className="bg-[#1a1a1a] border border-[#333] p-10 rounded-2xl shadow-2xl flex flex-col items-center max-w-md w-full">
-          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
-            <CircleAlert className="w-8 h-8 text-red-500" />
-          </div>
-          <h1 className="text-2xl font-black text-white mb-2">게시글을 찾을 수 없습니다</h1>
-          <p className="text-[#999] text-sm leading-relaxed mb-8">
-            삭제된 게시글이거나 유효하지 않은 주소입니다.<br />
-            입력하신 주소를 다시 한번 확인해 주세요.
-          </p>
-          <div className="flex flex-col gap-3 w-full">
-            <Link
-              href="/board"
-              className="flex items-center justify-center gap-2 w-full py-4 bg-[#F2A900] text-black font-bold rounded-xl hover:bg-[#d49400] transition-all active:scale-95"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              게시판 목록으로 돌아가기
-            </Link>
-            <Link
-              href="/"
-              className="text-[#999] text-xs hover:text-[#F2A900] transition-colors"
-            >
-              홈으로 가기
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   let promoteExpectedParentRevision = resolvePromoteExpectedParentRevision(postResult, null, null);
   if (postResult.parent_id !== null) {
