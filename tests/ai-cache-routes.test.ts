@@ -3,7 +3,7 @@ import { APICallError } from "ai";
 import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
-import { ANALYSIS_CALCULATION_VERSION, AI_SQUAD_CACHE_VERSION, AI_MATCH_PROMPT_VERSION, AI_SUMMARY_CACHE_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import { ANALYSIS_CALCULATION_VERSION, AI_SQUAD_CACHE_VERSION, AI_MATCH_PROMPT_VERSION, AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
 import { fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
 import { SQUAD_SPICY_PASS_LINES } from "../lib/pubg-analysis/squadAiPolicy";
 import {
@@ -1702,6 +1702,31 @@ describe("AI cache route stabilization", () => {
       const failure = mockTrackAiFailure.mock.calls[0][2] as Error;
       expect(failure.message).toMatch(/finishReason=other, retriedFrom=/);
       expect(mockTrackAiFailure.mock.calls[0][3]).toMatchObject({ promptTokens: 200, completionTokens: 10 });
+    });
+
+    it("OTHER 이후 모든 재생성 후보가 실패하면 이전 모델 응답을 성공으로 저장하지 않는다", async () => {
+      const summaryCache = setupSummary("sdk-retry-open-failed");
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      mockStreamText.mockImplementationOnce(() => sdkResult([
+        { type: "start-step" },
+        { type: "text-delta", text: JSON.stringify(createValidSummaryFinal()) },
+        { type: "finish", finishReason: "other", totalUsage: { inputTokens: 100, outputTokens: 5 } },
+      ]));
+      for (let index = 1; index < GEMINI_MODELS_TO_TRY.length; index += 1) {
+        mockStreamText.mockImplementationOnce(() => sdkResult([
+          { type: "error", error: new Error("provider unavailable") },
+        ]));
+      }
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-retry-open-failed"], nickname: "Player_A", platform: "kakao", force: true }));
+      const records = parseSummaryNdjson(await response.text());
+
+      expect(records.find((record) => record.type === "done")).toMatchObject({ valid: false, errorCode: "PUBG_AI_PROVIDER_ERROR" });
+      expect(records.some((record) => record.type === "final")).toBe(false);
+      expect(summaryCache.upsert).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(mockTrackAiFailure).toHaveBeenCalledTimes(1));
+      expect(mockTrackAiFailure.mock.calls[0][3]).toMatchObject({ errorCode: "model", promptTokens: 100, completionTokens: 5 });
     });
 
     it("route의 Gemini 키와 기존 생성 설정을 AI SDK에 그대로 전달한다", async () => {
@@ -7495,7 +7520,11 @@ describe("스쿼드 생성 토큰 추정", () => {
   afterEach(() => { vi.unstubAllEnvs(); });
   it("후보 답변과 thinking 토큰을 함께 기록한다", async () => {
     mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
-    mockSquadStreamText(JSON.stringify({ summary: "확인된 기록" }), { promptTokenCount: 10, candidatesTokenCount: 20, thoughtsTokenCount: 30 });
+    mockSquadStreamText(JSON.stringify({
+      squadGrade: "A", summary: "확인된 기록", strength: "관측된 팀 기록입니다.", weakness: "", coaching: "",
+      memberFeedbacks: [{ name: "Alpha", praise: "확인된 기록입니다.", fault: "", advice: "" }],
+      overallOpinion: "확인된 팀 기록을 점검하세요.",
+    }), { promptTokenCount: 10, candidatesTokenCount: 20, thoughtsTokenCount: 30 });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: createQueryChain() }) });
     const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "kakao" }));
     expect(response.status).toBe(200);

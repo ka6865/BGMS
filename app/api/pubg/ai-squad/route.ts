@@ -582,17 +582,6 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
       return factsOnlyResponse(timedOut ? "timeout" : "provider");
     }
 
-    if (generation.usage) {
-      trackAiUsage(
-        authenticatedUserId,
-        generation.modelName,
-        generation.usage.inputTokens ?? 0,
-        generation.usage.outputTokens ?? 0,
-        "squad",
-        { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
-      );
-    }
-
     let resultJson: unknown;
     try {
       const validJsonString = extractValidJson(generation.text);
@@ -612,11 +601,26 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
     } catch {
       // 파싱 오류 문구에는 모델 원문 일부가 들어갈 수 있어 길이만 남긴다.
       console.warn(`[AI-SQUAD] Generated response could not be parsed (length=${generation.text.length})`);
-      trackAiFailure(authenticatedUserId, "squad", "Squad AI response JSON invalid", {
-        errorCode: "parse", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform,
+      await trackAiFailure(authenticatedUserId, "squad", "Squad AI response JSON invalid", {
+        errorCode: "parse",
+        modelName: generation.modelName,
+        promptTokens: generation.usage?.inputTokens ?? 0,
+        completionTokens: generation.usage?.outputTokens ?? 0,
+        durationMs: Date.now() - startedAt,
+        requestId,
+        platform: requestedPlatform,
       });
       return factsOnlyResponse("provider");
     }
+
+    await trackAiUsage(
+      authenticatedUserId,
+      generation.modelName,
+      generation.usage?.inputTokens ?? 0,
+      generation.usage?.outputTokens ?? 0,
+      "squad",
+      { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
+    );
 
     // 3. Write to DB Cache
     if (request.signal.aborted) throw new SquadRequestAbortedError();

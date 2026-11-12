@@ -48,7 +48,7 @@
     "verify:security": "vitest run tests/security.test.ts tests/admin-revalidate.test.ts tests/security-hardening-boundary.test.ts tests/board-html-sanitize.test.ts tests/pubg-response-cache.test.ts tests/security-hardening-runtime.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/google": "^3.0.140",
+    "@ai-sdk/google": "^3.0.145",
     "@aws-sdk/client-s3": "^3.1160.0",
     "@aws-sdk/s3-request-presigner": "^3.1160.0",
     "@emnapi/core": "1.11.3",
@@ -63,7 +63,7 @@
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "acorn": "^8.19.0",
-    "ai": "^6.0.319",
+    "ai": "^6.0.330",
     "axios": "^1.21.0",
     "bcryptjs": "^3.0.3",
     "browser-image-compression": "^2.0.2",
