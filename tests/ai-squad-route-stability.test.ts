@@ -4,7 +4,7 @@ import { COACHING_JUDGMENT_WITHHELD } from "@/lib/pubg-analysis/aiCoachingQualit
 import { SQUAD_SPICY_PASS_LINES } from "@/lib/pubg-analysis/squadAiPolicy";
 
 type StreamScript =
-  | { kind: "ok"; text: string; usage?: { inputTokens: number; outputTokens: number } }
+  | { kind: "ok"; text: string; usage?: { inputTokens: number; outputTokens: number } | null }
   | { kind: "error"; error: Error }
   | { kind: "error-mid"; partial: string; error: Error }
   | { kind: "hang" };
@@ -49,7 +49,7 @@ const {
         return;
       }
       yield { type: "text-delta", text: script.text };
-      resolveUsage(script.usage ?? { inputTokens: 1, outputTokens: 1 });
+      resolveUsage(script.usage === null ? undefined : script.usage ?? { inputTokens: 1, outputTokens: 1 });
     })();
     return { fullStream, usage };
   });
@@ -280,6 +280,18 @@ describe("AI squad route stability", () => {
     expect(streamCalls).toHaveLength(1);
   });
 
+  it("records a generated result with zero tokens when the provider omits usage", async () => {
+    streamScripts.push({ kind: "ok", text: JSON.stringify(modelResult), usage: null });
+    useSupabase(cacheChain());
+
+    const response = await aiSquadPOST(squadRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockTrackAiUsage).toHaveBeenCalledTimes(1);
+    expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", GEMINI_MODELS_TO_TRY[0], 0, 0, "squad", expect.any(Object));
+    expect(mockTrackAiFailure).not.toHaveBeenCalled();
+  });
+
   it("with the operator switch on, serves a cache hit but calls no model on a miss", async () => {
     vi.stubEnv("PUBG_AI_GENERATION_DISABLED", "true");
     const hitCache = cacheChain({ data: { ai_result: modelResult }, error: null });
@@ -370,8 +382,14 @@ describe("AI squad route stability", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ mode: "facts_only", reason: "provider" });
     expect(cache.upsert).not.toHaveBeenCalled();
-    expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", GEMINI_MODELS_TO_TRY[0], 5, 0, "squad", expect.any(Object));
-    expect(mockTrackAiFailure).toHaveBeenCalledWith("user-1", "squad", "Squad AI response JSON invalid", expect.objectContaining({ errorCode: "parse" }));
+    expect(mockTrackAiUsage).not.toHaveBeenCalled();
+    expect(mockTrackAiFailure).toHaveBeenCalledTimes(1);
+    expect(mockTrackAiFailure).toHaveBeenCalledWith("user-1", "squad", "Squad AI response JSON invalid", expect.objectContaining({
+      errorCode: "parse",
+      modelName: GEMINI_MODELS_TO_TRY[0],
+      promptTokens: 5,
+      completionTokens: 0,
+    }));
   });
 
   it("emits one structured timing line with the agreed keys and no identifiers", async () => {

@@ -2312,6 +2312,7 @@ export async function POST(request: Request) {
             selectedModelAttemptSignalCleanup = null;
             streamResult = null;
             fullStreamIterator = null;
+            aiResponseText = "";
             await openFirstPart(modelsToTry.slice(modelsToTry.findIndex((name) => name === truncationRetryFrom) + 1));
           }
 
@@ -2397,7 +2398,7 @@ export async function POST(request: Request) {
             });
           } else {
             validationFailed = useIdCards && Boolean(streamResult);
-            if (streamResult && !diagnosticCode) diagnosticCode = "parse";
+            if (!diagnosticCode) diagnosticCode = streamResult ? "parse" : "model";
             // 원문 없이 문법/구조 오류, 출력 잘림을 구분한다.
             throw new Error(`${diagnosticCode === "schema" ? `AI response schema invalid: ${diagnosticReason}` : "No valid JSON extracted from AI response"} (length=${aiResponseText.length}, finishReason=${finishReason ?? "unknown"}${truncationRetryFrom ? `, retriedFrom=${truncationRetryFrom}` : ""})`);
           }
