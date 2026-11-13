@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Activity,
   ArrowRight,
+  Bookmark,
   Clock,
   Crosshair,
   HeartPulse,
@@ -47,6 +48,7 @@ const TIMELINE_META: Record<
   knockedout: { label: "기절", icon: HeartPulse, tone: "text-orange-300" },
   revived: { label: "부활", icon: UserPlus, tone: "text-emerald-300" },
   killer: { label: "가해자", icon: Target, tone: "text-red-300" },
+  bookmark: { label: "북마크", icon: Bookmark, tone: "text-sky-300" },
 };
 
 function formatDuration(seconds: number | null): string {

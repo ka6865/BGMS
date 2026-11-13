@@ -28,7 +28,9 @@ const ALLOWED_TIMELINE_KINDS = [
   "death",
   "knockedout",
   "revived",
-  "killer"
+  "killer",
+  // BGMS Companion 북마크 핫키로 사용자가 남긴 시각. 로컬 시계 기준이라 대략적인 시점이다.
+  "bookmark"
 ] as const;
 
 /** 서버에서도 저장을 거부하는 정책 금지 키. 클라이언트 리듀서 차단 목록과 동일해야 한다. */

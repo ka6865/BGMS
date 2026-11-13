@@ -12,7 +12,7 @@
  */
 
 /** 사후 리뷰 타임라인에서 화면이 다루는 이벤트 종류 */
-export const TIMELINE_KINDS = ["kill", "death", "knockedout", "revived", "killer"] as const;
+export const TIMELINE_KINDS = ["kill", "death", "knockedout", "revived", "killer", "bookmark"] as const;
 
 export type TimelineKind = (typeof TIMELINE_KINDS)[number];
 
