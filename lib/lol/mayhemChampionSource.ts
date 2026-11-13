@@ -26,6 +26,8 @@ export function createChampionSource(options: { fetcher?: typeof fetch; apiKey?:
     const chunks:Uint8Array[]=[];let bytes=0;const reader=response.body?.getReader();
     if (!reader) throw new Error('stats_source_empty');
     try { while (true) { const part=await reader.read(); if(part.done)break;bytes+=part.value.byteLength;if(bytes>CHAMPION_DATASET_MAX_FILE_BYTES){await reader.cancel();throw new Error('stats_source_too_large');}chunks.push(part.value); } }
+    // 본문 수신 중 끊김·10초 초과는 분류되지 않은 오류로 남지 않게 네트워크 오류로 기록한다.
+    catch (error) { if (error instanceof Error && error.message==='stats_source_too_large') throw error; throw new Error('stats_source_network'); }
     finally {reader.releaseLock();}
     const body=Buffer.concat(chunks).toString('utf8');let value:unknown;
     try {value=JSON.parse(body);} catch {throw new Error('stats_source_json');}
