@@ -13,6 +13,7 @@ try {
     console.log(JSON.stringify(await ingestChampionDataset({apply:values.apply===true}),null,2));
   }
 }catch(error){
-  console.error('[lol-mayhem-champion]',error instanceof Error&&/^[a-z_]{1,80}$/.test(error.message)?error.message:'stats_sync_failed');
+  // 분류되지 않은 오류는 원문 대신 오류 종류 이름만 남긴다.
+  console.error('[lol-mayhem-champion]',error instanceof Error&&/^[a-z_]{1,80}$/.test(error.message)?error.message:`stats_sync_failed (${error instanceof Error?error.name:typeof error})`);
   process.exitCode=1;
 }
