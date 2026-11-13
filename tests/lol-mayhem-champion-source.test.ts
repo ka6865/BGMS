@@ -51,4 +51,8 @@ describe('제3자 통계 API 수집 경계',()=>{
   await expect(createChampionSource({fetcher:vi.fn(async()=>new Response(' '.repeat(2*1024*1024+1)))}).config()).rejects.toThrow('stats_source_too_large');
   await expect(createChampionSource({fetcher:vi.fn(async()=>new Response('<html>'))}).config()).rejects.toThrow('stats_source_json');
  });
+ it('본문 수신 중 끊기면 네트워크 오류로 분류한다',async()=>{
+  const body=new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('{'));controller.error(new DOMException('The operation was aborted due to timeout','TimeoutError'));}});
+  await expect(createChampionSource({fetcher:vi.fn(async()=>new Response(body))}).config()).rejects.toThrow('stats_source_network');
+ });
 });
