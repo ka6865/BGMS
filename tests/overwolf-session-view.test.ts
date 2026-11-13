@@ -90,20 +90,22 @@ describe("세션 요약 화면 변환", () => {
           { t: 300, kind: "location" },
           { t: -5, kind: "revived" },
           { kind: "killer", detail: "Someone" },
-          { t: 200, kind: "unknown_kind" }
+          { t: 200, kind: "unknown_kind" },
+          { t: 250, kind: "bookmark" }
         ]
       })
     );
 
     expect(view?.timeline.map((entry) => entry.kind)).toEqual([
       "kill",
+      "bookmark",
       "death",
       "revived",
       "killer"
     ]);
     // 음수 경과 초와 누락값은 null 로 떨어지고 뒤로 밀린다.
-    expect(view?.timeline[2].elapsedSeconds).toBeNull();
     expect(view?.timeline[3].elapsedSeconds).toBeNull();
+    expect(view?.timeline[4].elapsedSeconds).toBeNull();
   });
 
   it("pseudo_match_id만 있으면 분석 진입을 막는다", () => {
@@ -251,7 +253,8 @@ describe("타임라인 payload 검증", () => {
         { t: 10, kind: "kill" },
         { t: 20, kind: "killer", detail: "Enemy_01" },
         { t: 30, kind: "location" },
-        { t: 40, kind: "kill", x: 100, y: 200 }
+        { t: 40, kind: "kill", x: 100, y: 200 },
+        { t: 50, kind: "bookmark" }
       ]
     });
 
@@ -261,7 +264,8 @@ describe("타임라인 payload 검증", () => {
     expect(result.value.event_timeline).toEqual([
       { t: 10, kind: "kill" },
       { t: 20, kind: "killer", detail: "Enemy_01" },
-      { t: 40, kind: "kill" }
+      { t: 40, kind: "kill" },
+      { t: 50, kind: "bookmark" }
     ]);
     // 좌표 키가 정규화 결과에 남지 않는다.
     expect(JSON.stringify(result.value.event_timeline)).not.toContain("100");

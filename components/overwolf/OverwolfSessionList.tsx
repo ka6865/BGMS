@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Activity,
   ArrowRight,
+  Bookmark,
   Clock,
   Crosshair,
   HeartPulse,
@@ -47,6 +48,7 @@ const TIMELINE_META: Record<
   knockedout: { label: "기절", icon: HeartPulse, tone: "text-orange-300" },
   revived: { label: "부활", icon: UserPlus, tone: "text-emerald-300" },
   killer: { label: "가해자", icon: Target, tone: "text-red-300" },
+  bookmark: { label: "북마크", icon: Bookmark, tone: "text-sky-300" },
 };
 
 function formatDuration(seconds: number | null): string {
@@ -171,6 +173,9 @@ const SessionCard = ({ session }: { session: SessionSummaryView }) => {
   const analysisPath = buildAnalysisPath(session);
   const replayPath = buildReplayPath(session);
   const hasRank = session.rankPlace !== null;
+  // 북마크는 사용자가 남긴 표시라 교전 시점 수에서 빼고 따로 센다.
+  const bookmarkCount = session.timeline.filter((entry) => entry.kind === "bookmark").length;
+  const combatCount = session.timeline.length - bookmarkCount;
 
   return (
     <article className="rounded-lg border border-white/10 bg-[#161616] p-4">
@@ -229,7 +234,8 @@ const SessionCard = ({ session }: { session: SessionSummaryView }) => {
           className="flex items-center gap-1.5 rounded border border-white/10 px-2.5 py-1.5 text-xs font-bold text-white/70 transition-colors hover:border-white/25 hover:text-white"
         >
           <Activity className="h-3.5 w-3.5" aria-hidden="true" />
-          교전 시점 {session.timeline.length > 0 ? `${session.timeline.length}건` : "없음"}
+          교전 시점 {combatCount > 0 ? `${combatCount}건` : "없음"}
+          {bookmarkCount > 0 ? ` · 북마크 ${bookmarkCount}` : null}
         </button>
 
         {/* 맵 리플레이가 이 화면의 주된 행동이다. BGMS 고유 자산으로 바로 넘긴다. */}
