@@ -64,7 +64,7 @@ describe('single match counter comparison', () => {
 
   it('reports the first reply time against the first reply benchmark, not the penalty average', () => {
     const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { ...base, tradeStats: { reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 900, firstReplyEvidence:{version:1,eligibleCount:2,alreadyFiringCount:0,unknownCount:0,within3sCount:2,latencySumMs:900,noReplyCount:0} } } });
-    expect(playerReportSummary).toContain('0.45s (피격 전 사격을 구분한 교전 2회의 첫 피격부터 해당 상대에게 첫 명중까지의 평균, Elite Avg: 0.6s)');
+    expect(playerReportSummary).toContain('0.45s (피격 전 사격을 구분한 교전 2회의 첫 피격부터 해당 상대에게 첫 명중까지의 평균, 비슷한 성적 경기 평균: 0.6s)');
     expect(playerReportSummary).not.toContain('0.09s');
     expect(playerReportSummary).not.toContain('2.1s');
   });
@@ -77,7 +77,7 @@ describe('single match counter comparison', () => {
   it('compares a penalty match with the benchmark failure rate', () => {
     const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { ...base, tradeStats: { reactionLatencyMs: 3000 }, duelStats: { reversalAttempts: 2, firstReplyEvidence:{version:1,eligibleCount:2,alreadyFiringCount:0,unknownCount:0,within3sCount:0,latencySumMs:0,noReplyCount:2} } } });
     expect(playerReportSummary).toContain('3초 안에 첫 반격 없음(적격 교전 2회');
-    expect(playerReportSummary).toContain('Elite 3초 내 대응 실패율: 60%');
+    expect(playerReportSummary).toContain('비슷한 성적 경기 3초 내 대응 실패율: 60%');
   });
 
   it('withholds a reaction comparison when only the legacy penalty average was stored', () => {

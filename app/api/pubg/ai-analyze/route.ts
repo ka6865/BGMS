@@ -1,5 +1,6 @@
 import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
-import { applyMatchAiSceneRefs } from "@/lib/pubg-analysis/matchAiScenes";
+import { applyMatchAiClockPolicy, applyMatchAiSceneRefs } from "@/lib/pubg-analysis/matchAiScenes";
+import { applyMatchAiPercentiles, fetchMatchAiPercentiles, type MatchAiPercentile } from "@/lib/pubg-analysis/matchAiPercentiles";
 import { applyMatchSpicyJab } from "@/lib/pubg-analysis/spicyPunchlines";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
@@ -22,10 +23,14 @@ function withStyleJab(text: string, match: unknown, coachingStyle: string): stri
   return coachingStyle === "spicy" ? applyMatchSpicyJab(text, match) : text;
 }
 
-// 근거 정책 뒤에 장면 ID를 이 경기 장면 목록으로 검증하고, 정책이 바꾼 문장의 장면 ID는 버린다.
+// 근거 정책·백분위·경과 시각 검증 뒤에 장면 ID를 이 경기 장면 목록으로 검증하고, 정책이 바꾼 문장의 장면 ID는 버린다.
+// 시각·장면 ID 정리는 문장 뜻을 바꾸지 않으므로 정리한 원문과 비교해 장면 연결을 남긴다.
 // 새 응답과 캐시 응답에 같은 순서로 적용한다. 정책이 재적용에 안정적이라 이미 처리된 캐시 텍스트는 그대로 남는다.
-function finalizeMatchAiText(text: string, match: unknown, coachingStyle: string): string {
-  return withStyleJab(applyMatchAiSceneRefs(applyMatchAiEvidencePolicy(text, match), match, text), match, coachingStyle);
+// percentiles는 새 생성에서만 주고, 캐시 응답은 저장된 benchmarkPercentiles로 검증한다.
+function finalizeMatchAiText(text: string, match: unknown, coachingStyle: string, percentiles?: readonly MatchAiPercentile[]): string {
+  const tidied = applyMatchAiClockPolicy(text, match);
+  const checked = applyMatchAiClockPolicy(applyMatchAiPercentiles(applyMatchAiEvidencePolicy(tidied, match), percentiles), match);
+  return withStyleJab(applyMatchAiSceneRefs(checked, match, tidied), match, coachingStyle);
 }
 
 const CANONICAL_MATCH_ID = /^[A-Za-z0-9._-]{1,160}$/;
@@ -275,9 +280,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No API Key" }, { status: 500 });
     }
 
+    const percentiles = await fetchMatchAiPercentiles(supabase, { matchId, platform: cachePlatform, playerId }, routeSignal.signal);
     const { fullPrompt, backupContext } = buildMatchAiCoachingPrompt({
       matchData: canonicalFullResult,
       coachingStyle,
+      percentiles,
     });
 
     const genAI = new GoogleGenerativeAI(apiKey);
@@ -397,7 +404,7 @@ export async function POST(request: Request) {
               }
             }
             if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
-            const sanitizedText = finalizeMatchAiText(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(aiResponseText, backupContext)), canonicalFullResult, coachingStyle);
+            const sanitizedText = finalizeMatchAiText(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(aiResponseText, backupContext)), canonicalFullResult, coachingStyle, percentiles);
             aiResponseText = sanitizedText;
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: sanitizedText }) + "\n"));
 
@@ -416,7 +423,7 @@ export async function POST(request: Request) {
             }).catch((err: any) => console.error("[AI-ANALYZE] Usage fetch error:", err));
 
           } else if (fallbackText) { 
-            aiResponseText = finalizeMatchAiText(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(fallbackText, backupContext)), canonicalFullResult, coachingStyle);
+            aiResponseText = finalizeMatchAiText(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(fallbackText, backupContext)), canonicalFullResult, coachingStyle, percentiles);
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: aiResponseText }) + "\n"));
             
             if (nonStreamRes?.response?.usageMetadata) {
