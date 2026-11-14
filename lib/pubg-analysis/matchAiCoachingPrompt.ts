@@ -2,11 +2,14 @@ import { isEarlyElimination } from "@/lib/pubg-analysis/benchmarkScore";
 import { buildBackupCoachingContext, type BackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { hasComparableBenchmarkMetric, type NormalizedBenchmark, type ObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { firstReplyLatencyMs, readFirstReplyEvidence, firstReplyFailureRate } from "@/lib/pubg-analysis/firstReply";
-import { buildMatchAiSceneCatalog, formatMatchAiSceneLine } from "@/lib/pubg-analysis/matchAiScenes";
+import { buildMatchAiFlowLines, buildMatchAiSceneCatalog, formatMatchAiSceneLine } from "@/lib/pubg-analysis/matchAiScenes";
+import { formatMatchAiPercentileSection, type MatchAiPercentile } from "@/lib/pubg-analysis/matchAiPercentiles";
 
 interface MatchAiPromptInput {
   matchData: any;
   coachingStyle?: string;
+  /** 서버가 계산한 BGMS 기록 백분위. 없으면 백분위 섹션과 규칙을 넣지 않는다. */
+  percentiles?: readonly MatchAiPercentile[];
 }
 
 export interface MatchAiPromptResult {
@@ -15,7 +18,7 @@ export interface MatchAiPromptResult {
   backupContext: BackupCoachingContext;
 }
 
-export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" }: MatchAiPromptInput): MatchAiPromptResult {
+export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy", percentiles = [] }: MatchAiPromptInput): MatchAiPromptResult {
   const isMild = coachingStyle === "mild";
   const {
     stats,
@@ -156,31 +159,31 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 매치 임팩트: ${benchmark.impactScore ?? "측정 불가"} (${impactGradeLabel}, 안정도 대비 +${impactBonus})
 - 임팩트 근거: ${impactReasons}
 
-[전술 지표 (유저 vs DB 티어 평균)]
-- 1:1 교전 승률: ${formatPercent(matchData.duelStats?.duelWinRate)} (교전 ${formatCount(matchData.duelStats?.totalDuels)}회, Elite Avg: ${formatBenchmarkPercent("avgDuelWinRate")})
-- 복수(Trade) 성공률: ${formatPercent(tradeStats.tradeRate)} (Elite Avg: ${formatBenchmarkPercent("avgTradeRate")})
-- 선제 타격 성공률: ${formatPercent(matchData.initiative_rate)} (선제 시도 ${formatCount(matchData.initiativeSampleCount)}회, Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
+[전술 지표 (유저 vs 비슷한 성적 경기 평균: 같은 모드에서 이번 경기와 순위대가 비슷한 BGMS 기록의 평균이며 엘리트·상위권 평균이 아님)]
+- 1:1 교전 승률: ${formatPercent(matchData.duelStats?.duelWinRate)} (교전 ${formatCount(matchData.duelStats?.totalDuels)}회, 비슷한 성적 경기 평균: ${formatBenchmarkPercent("avgDuelWinRate")})
+- 복수(Trade) 성공률: ${formatPercent(tradeStats.tradeRate)} (비슷한 성적 경기 평균: ${formatBenchmarkPercent("avgTradeRate")})
+- 선제 타격 성공률: ${formatPercent(matchData.initiative_rate)} (선제 시도 ${formatCount(matchData.initiativeSampleCount)}회, 비슷한 성적 경기 평균: ${formatBenchmarkPercent("avgInitiativeRate")})
 - 반격 소요 시간: ${(() => {
   const firstReply = firstReplyLatencyMs(matchData);
   const evidence = readFirstReplyEvidence(matchData);
-  if (firstReply !== null) return `${(firstReply / 1000).toFixed(2)}s (피격 전 사격을 구분한 교전 ${evidence!.within3sCount}회의 첫 피격부터 해당 상대에게 첫 명중까지의 평균, Elite Avg: ${formatBenchmarkNumber("avgFirstReplyLatency", "s")})`;
+  if (firstReply !== null) return `${(firstReply / 1000).toFixed(2)}s (피격 전 사격을 구분한 교전 ${evidence!.within3sCount}회의 첫 피격부터 해당 상대에게 첫 명중까지의 평균, 비슷한 성적 경기 평균: ${formatBenchmarkNumber("avgFirstReplyLatency", "s")})`;
   if (!evidence) return "측정 불가(피격 전 사격 검증 기록 없음)";
-  if (firstReplyFailureRate(matchData) === 100) return `3초 안에 첫 반격 없음(적격 교전 ${evidence.eligibleCount}회, 실제 시간 측정 불가) (Elite 3초 내 대응 실패율: ${formatBenchmarkPercent("avgCounterFailureRate")})`;
+  if (firstReplyFailureRate(matchData) === 100) return `3초 안에 첫 반격 없음(적격 교전 ${evidence.eligibleCount}회, 실제 시간 측정 불가) (비슷한 성적 경기 3초 내 대응 실패율: ${formatBenchmarkPercent("avgCounterFailureRate")})`;
   return `측정 불가(이미 사격 중 ${evidence.alreadyFiringCount}회 제외, 사격 근거 부족 ${evidence.unknownCount}회)`;
 })()}
-- 백업(Trade) 속도: ${backupLatencyText} (Elite Avg: ${formatBenchmarkNumber("avgTradeLatency", "s")})
+- 백업(Trade) 속도: ${backupLatencyText} (비슷한 성적 경기 평균: ${formatBenchmarkNumber("avgTradeLatency", "s")})
 - 백업 결과 해석: 복수 처치까지의 시간이며, 소생·합류·복구에 걸린 시간은 측정하지 않음
 - 전술 지원: 아군 처치 지원 ${formatCount(tradeStats.suppCount)}회 / 아군 처치 ${formatCount(tradeStats.teammateKills)}회 중 지원 비율 ${formatPercent(tradeStats.suppRate)} (비교 자료 없음)
-- 위기 관리: 내가 한 소생률 ${formatPercent(personalReviveRate)} (아군 기절 ${formatCount(tradeStats.teammateKnocks)}회 중 내 소생 ${formatCount(tradeStats.revCount)}회, Elite Avg: ${formatBenchmarkPercent("avgReviveRate")}) / 내 연막 구출률 ${formatPercent(smokeOpportunityRate)} (아군 기절 대비 성공, Elite Avg: ${formatBenchmarkPercent("avgSmokeRate")}) / 구출 연막 시도 성공률 ${formatPercent(smokeAttemptSuccessRate)} (시도 ${formatCount(tradeStats.smokeCount)}회, 성공 ${formatCount(tradeStats.smokeRescues)}회)
-- 공간 전술: 고립 지수 ${isolationData?.isolationIndex ?? "데이터 부족"} (Elite Avg: ${formatBenchmarkNumber("avgIsolationIndex")}) / 가장 가까운 아군까지의 평균 거리: ${formatNumber(isolationData?.minDist, "m")} / 고도차 ${formatNumber(isolationData?.heightDiff, "m")} / 십자포화 노출: ${isCrossfireText}
+- 위기 관리: 내가 한 소생률 ${formatPercent(personalReviveRate)} (아군 기절 ${formatCount(tradeStats.teammateKnocks)}회 중 내 소생 ${formatCount(tradeStats.revCount)}회, 비슷한 성적 경기 평균: ${formatBenchmarkPercent("avgReviveRate")}) / 내 연막 구출률 ${formatPercent(smokeOpportunityRate)} (아군 기절 대비 성공, 비슷한 성적 경기 평균: ${formatBenchmarkPercent("avgSmokeRate")}) / 구출 연막 시도 성공률 ${formatPercent(smokeAttemptSuccessRate)} (시도 ${formatCount(tradeStats.smokeCount)}회, 성공 ${formatCount(tradeStats.smokeRescues)}회)
+- 공간 전술: 고립 지수 ${isolationData?.isolationIndex ?? "데이터 부족"} (비슷한 성적 경기 평균: ${formatBenchmarkNumber("avgIsolationIndex")}) / 가장 가까운 아군까지의 평균 거리: ${formatNumber(isolationData?.minDist, "m")} / 고도차 ${formatNumber(isolationData?.heightDiff, "m")} / 십자포화 노출: ${isCrossfireText}
 - 유틸리티 정밀: 총 투척 ${formatCount(totalThrows)}회 / 피해형 투척 ${formatCount(lethalThrows)}회 / 피해 적중 ${formatCount(utilityHits)}회 / 피해형 투척 적중률 ${formatPercent(utilityAccuracy)} / 피해형 투척당 평균 딜 ${formatNumber(avgDamagePerLethalThrow)}
 - 유틸리티 해석: ${utilityInterpretation}
-- 교전 압박: 압박 지수 ${formatNumber(combatPressure.pressureIndex)} (Elite Avg: ${formatBenchmarkNumber("avgPressureIndex")}) / 투척물 딜량 ${formatNumber(combatPressure.utilityDamage ?? combatPressure.utilityStats?.totalDamage)}
+- 교전 압박: 압박 지수 ${formatNumber(combatPressure.pressureIndex)} (비슷한 성적 경기 평균: ${formatBenchmarkNumber("avgPressureIndex")}) / 투척물 딜량 ${formatNumber(combatPressure.utilityDamage ?? combatPressure.utilityStats?.totalDamage)}
 - 운영 패턴: 사망 페이즈 ${(() => {
   // 구버전 저장 행은 첫 자기장 전 사망을 경기 종료 시점 페이즈로 기록할 수 있다. 생존 시간과 맞지 않는 값은 쓰지 않는다.
   const phase = finiteNonNegative(matchData.deathPhase), survived = finiteNonNegative(stats?.timeSurvived);
   return phase !== null && phase >= 3 && survived !== null && survived < 360 ? "측정 불가(생존 시간과 맞지 않음)" : formatNumber(matchData.deathPhase);
-})()} (Elite Avg: ${formatBenchmarkNumber("avgDeathPhase", " 페이즈")})
+})()} (비슷한 성적 경기 평균: ${formatBenchmarkNumber("avgDeathPhase", " 페이즈")})
 - 조기 탈락 분류: ${earlyElimination === null ? "측정 불가" : earlyElimination ? "해당" : "해당 없음"} (10분 미만 생존 또는 실제 사망 시 3페이즈 이하)
 - 팀 전멸 기여: ${formatCount(tradeStats.enemyTeamWipes)}회
 `.trim();
@@ -189,9 +192,10 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     ? `당신은 '다정한 코치'입니다. 유저의 플레이에서 전술적 가치를 찾아 따뜻하게 조언하십시오. 
        단, 상위권 지표와 큰 격차가 나는 수치(예: 너무 짧은 교전 거리, 낮은 주도권)를 무리하게 칭찬(억지 미화)하지 마십시오. 
        관측 기록이 부족하면 평가를 보류하십시오. 관측된 강점을 설명하고 다음 경기에 시도할 행동은 조건부 제안으로 구분하십시오.`
-    : `당신은 '매운맛 분석가'입니다. 팩트 중심의 냉혹한 실전 분석가입니다. 
-       관측된 수치와 비교 근거로 확인되는 개선점을 직설적으로 설명하십시오.
-       배지나 일부 낮은 지표만으로 경기 전체 기여도를 부정하거나 의도·성격을 단정하지 마십시오.`;
+    : `당신은 '매운맛 분석가'입니다. 같이 게임하는 친구가 리플레이를 보며 놀리듯 반말로 짚어 주는 말투입니다.
+       게임 밈과 과장된 비유를 써도 되지만, 놀리는 대상은 장면과 수치뿐입니다. 사람의 성격·의도·실력 전체를 비하하지 마십시오.
+       잘한 장면은 인정하는 척하다 한 번 꼬집고, 못한 장면은 무엇이 문제였는지 장면으로 콕 집으십시오. 존댓말 대신 반말(~했네, ~잖아, ~해 봐)로만 쓰십시오.
+       말투 예시(내용·숫자는 따라 하지 말 것): "먼저 쏘고도 쓰러진 건 좀 억울하겠다, 근데 그 교전 엄청 길었잖아." / "다음 판엔 원 밖에서 버티지 말고 먼저 들어가 봐."`;
 
   const promptLines = [
     `당신은 PUBG 전술 분석 전문가입니다. 이번 매치의 전술 데이터를 바탕으로 유저에게 [${isMild ? "다정한 맛" : "매운맛"}] 분석 리포트를 제공하십시오.`,
@@ -223,14 +227,21 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     "- [첫 반격 해석] 이미 사격 중이던 교전과 발사 근거가 부족한 교전은 반응 시간·실패율 평가에서 제외합니다. 반격 소요 시간은 인지·반사신경을 직접 측정한 값이 아닙니다. 측정 불가 값을 0초나 느린 반응으로 바꾸지 마십시오.",
     "- [표본과 비교] 투척 1~2회나 대응 사격 관측이 적을 때는 전반적인 능력을 단정하지 마십시오. 평균만으로 상위 백분위를 주장하지 말고, 선제 타격 성공률을 첫 발 명중률로 해석하지 마십시오.",
     "- [적은 표본] 1:1 교전·선제 시도·피해형 투척이 3회 미만인 지표는 횟수만 말하고, 능력이 부족하다거나 높이라는 평가·지시(actionItems 포함)의 근거로 쓰지 마십시오.",
-    "- [비교 없는 평가 금지] Elite Avg가 측정 불가인 지표(예: 반격 소요 시간)는 빠르다/느리다/미흡하다로 평가하지 말고 관측값만 말하십시오.",
+    "- [비교 없는 평가 금지] 비슷한 성적 경기 평균가 측정 불가인 지표(예: 반격 소요 시간)는 빠르다/느리다/미흡하다로 평가하지 말고 관측값만 말하십시오.",
     "- [기여 인정] 처치·어시스트·기절·소생·적 팀 전멸 기여 중 하나라도 1회 이상이면 '아무 기여도 없다', '아무것도 남기지 못했다'처럼 쓰지 마십시오. 피해량이나 1:1 교전 승리가 있으면 화력·교전 성과가 전무하다고 쓰지 마십시오. 조기 탈락은 서버의 조기 탈락 분류를 따르고, 생존 시간과 사망 페이즈 사실로만 말하십시오.",
     "- [인성 표현 금지] 무책임, 무능, 민폐, 한심, 이기적 같은 태도·인성 평가와 집중력·판단력·멘탈처럼 측정하지 않은 능력은 쓰지 마십시오.",
     "- [진입 추정 금지] 진입 시점이나 무리한 진입 여부는 측정하지 않았습니다. '무리한 진입'을 원인이나 행동 제안으로 쓰지 마십시오. 화력 비중으로 '전선 돌파자', '대치선돌파수' 같은 돌파·돌입·진입 칭호를 만들지 마십시오.",
-    "- [피드백 구성] briefFeedback 3개는 서로 다른 주제(화력·교전·팀플레이 또는 생존)를 다루고, 각 문장에 관측 수치와 그 수치가 이번 경기에서 뜻하는 바를 함께 쓰십시오. 같은 수치를 반복하지 마십시오.",
+    "- [피드백 구성] briefFeedback 3개는 서로 다른 주제(화력·교전·팀플레이 또는 생존)를 다룹니다. 화면에 이미 보이는 수치를 문장으로 다시 읽어 주지 마십시오. 각 문장은 '근거(장면 또는 수치) → 이번 경기에서 그것이 손해·이득이었던 이유'를 함께 쓰십시오. 같은 수치를 반복하지 마십시오.",
+    "- [장면 우선] [경기 흐름]에 교전·사망·자기장 기록이 있으면 briefFeedback 중 최소 2개는 그 기록의 한 교전이나 사망을 경과 시각과 함께 직접 가리키십시오(예: '13:05 교전은 상대가 먼저 쐈고 우리 팀만 2명 쓰러졌습니다'). 시각은 [장면 목록]·[경기 흐름]에 적힌 값만 그대로 쓰십시오.",
+    "- [장면 해석 한계] [경기 흐름]은 누가 먼저 쐈는지, 결과, 준·받은 피해, 쓰러진 수, 사망 유형, 팀원 거리, 자기장 위치만 측정합니다. 엄폐·시야·진입 각도·소통·판단은 측정하지 않았으므로 장면을 설명할 때도 단정하지 마십시오.",
     "- [마지막 한마디] finalVerdict는 이번 경기 기록에서 가장 중요한 사실 하나와 다음 경기 과제 하나를 한두 문장으로 쓰십시오. 분석 원칙이나 코치 자신의 태도를 말하지 마십시오.",
-    "- [행동 제안] actionItems는 이번 경기에서 표본이 충분한 지표 가운데 가장 아쉬운 1~2개만 골라, 다음 경기에서 확인하거나 시도할 구체 행동으로 쓰십시오. 근거가 없으면 1개만 쓰십시오.",
-    "- [장면 근거] briefFeedbackSceneIds는 briefFeedback과 같은 순서·개수로 채우십시오. 문장이 아래 [장면 목록]의 한 장면을 직접 가리킬 때만 그 장면 ID를 그대로 쓰고, 아니면 null을 쓰십시오. actionItems의 sceneId도 같은 규칙입니다. 목록에 없는 ID를 만들지 말고, 장면의 시각·위치·상황을 새로 지어 문장에 쓰지 마십시오. 장면 목록이 없으면 모두 null로 두십시오.",
+    "- [행동 제안] actionItems는 정확히 1개입니다. 이번 경기에서 가장 손해가 컸던 장면이나 표본이 충분한 지표 하나에서 나온, 다음 판에 바로 쓸 행동 하나로 좁히십시오. title은 행동 자체(12자 안팎), desc는 '어떤 상황이 오면 → 무엇을 한다'처럼 상황 조건과 행동을 함께 쓰십시오. '높이십시오', '개선하십시오'처럼 지표만 올리라는 막연한 지시는 금지합니다.",
+    "- [장면 근거] briefFeedbackSceneIds는 briefFeedback과 같은 순서·개수로 채우십시오. 문장이 아래 [장면 목록]의 한 장면을 직접 가리킬 때만 그 장면 ID를 그대로 쓰고, 아니면 null을 쓰십시오. [경기 흐름]의 교전·사망 줄에 적힌 장면 ID도 쓸 수 있습니다. actionItems의 sceneId도 같은 규칙입니다. 목록에 없는 ID를 만들지 말고, 장면의 시각·위치·상황을 새로 지어 문장에 쓰지 마십시오. 장면 ID는 sceneId 칸에만 쓰고 문장 본문에는 경과 시각만 쓰십시오. 장면 목록이 없으면 모두 null로 두십시오.",
+    ...(percentiles.length > 0 ? [
+      "- [BGMS 기록 비교] 아래 [BGMS 기록 비교]의 '상위/하위 N%'는 서버가 계산한 값입니다. 쓸 때는 값을 바꾸지 말고 'BGMS 기록 기준'을 붙여 한 번만 쓰십시오(예: 'BGMS 기록 기준 공식 피해량 상위 12%'). 목록에 없는 지표나 다른 퍼센트 순위를 만들지 마십시오. 공식 피해량은 유효 딜량과 기준이 다릅니다.",
+    ] : [
+      "- [순위 비교 금지] '상위 N%', '하위 N%' 같은 백분위 순위는 근거가 없으므로 쓰지 마십시오.",
+    ]),
     "- **핵심 규칙**: 불필요한 미사여구와 항목 나열을 절대 금지합니다. 칭호와 그에 대한 전술적 이유를 설명한 뒤, 하단에 정확히 3개의 핵심 피드백 문장만 제공하십시오.",
     "",
     "반드시 아래 구조의 JSON 객체로만 응답하세요. 백틱(```) 없이 순수 JSON만 출력하십시오.",
@@ -239,21 +250,24 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     '  "signature": "유저의 플레이 스타일 칭호 (배지 및 영향력 고려)",',
     '  "signatureSub": "칭호 부여 이유 (1문장, 배지 명칭 포함 권장)",',
     '  "briefFeedback": [',
-    '    "첫 번째 핵심 피드백 (데이터 수치 및 배지 언급, 1문장)",',
-    '    "두 번째 핵심 피드백 (데이터 수치 및 팀 영향력 언급, 1문장)",',
-    '    "세 번째 핵심 피드백 (데이터 수치 포함, 1문장)"',
+    '    "첫 번째 핵심 피드백 (장면 또는 수치 근거와 그것이 이번 경기에서 뜻한 바, 1~2문장)",',
+    '    "두 번째 핵심 피드백 (다른 주제, 장면 또는 수치 근거와 이유, 1~2문장)",',
+    '    "세 번째 핵심 피드백 (다른 주제, 장면 또는 수치 근거와 이유, 1~2문장)"',
     '  ],',
     '  "briefFeedbackSceneIds": ["첫 번째 피드백의 장면 ID 또는 null", "두 번째 피드백의 장면 ID 또는 null", "세 번째 피드백의 장면 ID 또는 null"],',
     '  "finalVerdict": "마지막 한마디 (짧게)",',
-    '  "actionItems": [ { "icon": "🎯", "title": "목표", "desc": "팁", "sceneId": "장면 ID 또는 null" } ]',
+    '  "actionItems": [ { "icon": "🎯", "title": "다음 판 행동 하나", "desc": "어떤 상황이 오면 → 무엇을 한다", "sceneId": "근거 장면 ID 또는 null" } ]',
     "}",
   ];
 
   const sceneLines = buildMatchAiSceneCatalog(matchData).map(formatMatchAiSceneLine);
   const sceneSection = `[장면 목록] (장면 ID | 경과 시각 | 사건)\n${sceneLines.length ? sceneLines.join("\n") : "없음"}`;
+  const flowLines = buildMatchAiFlowLines(matchData);
+  const flowSection = `[경기 흐름] (측정된 교전·사망·자기장 기록, 우리 팀 기준)\n${flowLines.length ? flowLines.join("\n") : "없음"}`;
+  const percentileSection = formatMatchAiPercentileSection(percentiles);
 
   return {
-    fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}\n\n${sceneSection}`,
+    fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}${percentileSection ? `\n\n${percentileSection}` : ""}\n\n${sceneSection}\n\n${flowSection}`,
     playerReportSummary,
     backupContext,
   };

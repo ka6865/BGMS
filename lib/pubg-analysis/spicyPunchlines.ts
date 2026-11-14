@@ -16,18 +16,19 @@ function pickVariant(variants: readonly string[], seed: string): string {
 
 const finite = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
 
+// 단일 경기 매운맛 응답은 반말이라 한마디도 반말로 맞춘다. 최근 요약 한마디는 존댓말 그대로다.
 const MATCH_JABS = {
-  early_exit: ["자기장 구경도 제대로 못 하고 일찍 로비로 퇴근했습니다.", "낙하산 접고 짐 풀자마자 귀가한 경기였습니다."],
-  duel_losing: ["1:1만 붙으면 상대 킬로그에 이름을 성실하게 올려 줬습니다.", "1:1 성적표는 상대 하이라이트 영상 재료에 가깝습니다."],
-  quiet_gun: ["오래 살아남긴 했는데 총구는 끝까지 얌전했습니다.", "생존 시간은 길었는데 딜량 칸은 관광 기록 수준입니다."],
-  share_tiny: ["팀 딜 그래프에서 본인 몫은 돋보기로 찾아야 보입니다."],
-  far_from_team: ["팀원과의 거리가 거의 장거리 연애 수준이었습니다."],
+  early_exit: ["자기장 구경도 제대로 못 하고 일찍 로비로 퇴근했네.", "낙하산 접고 짐 풀자마자 귀가한 판이었어."],
+  duel_losing: ["1:1만 붙으면 상대 킬로그에 이름을 성실하게 올려 줬네.", "1:1 성적표는 거의 상대 하이라이트 영상 재료야."],
+  quiet_gun: ["오래 살아남긴 했는데 총구는 끝까지 얌전했네.", "생존 시간은 긴데 딜량 칸은 관광 기록 수준이야."],
+  share_tiny: ["팀 딜 그래프에서 네 몫은 돋보기로 찾아야 보여."],
+  far_from_team: ["팀원이랑 거리가 거의 장거리 연애 수준이었어."],
 } as const;
 
 const MATCH_HYPES = {
-  chicken: ["치킨은 치킨입니다. 이건 인정합니다."],
-  duel_winning: ["1:1 붙는 족족 상대를 로비로 돌려보냈습니다. 이건 인정합니다."],
-  damage_carry: ["팀 딜의 절반을 혼자 짊어진 화력 엔진이었습니다. 이건 인정합니다."],
+  chicken: ["치킨은 치킨이지. 이건 인정."],
+  duel_winning: ["1:1 붙는 족족 상대를 로비로 돌려보냈네. 이건 인정."],
+  damage_carry: ["팀 딜 절반을 혼자 짊어진 화력 엔진이었어. 이건 인정."],
 } as const;
 
 /** 단일 경기 매운맛 한마디. 비꼴 재료가 있으면 그것을, 없으면 인정할 재료를, 둘 다 없으면 null. */

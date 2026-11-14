@@ -294,8 +294,8 @@ describe('AnalysisEngine observed benchmark contract', () => {
 
     const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: result });
     expect(playerReportSummary).toContain('측정 불가');
-    expect(playerReportSummary).not.toContain('Elite Avg: 55%');
-    expect(playerReportSummary).not.toContain('Elite Avg: 400');
+    expect(playerReportSummary).not.toContain('비슷한 성적 경기 평균: 55%');
+    expect(playerReportSummary).not.toContain('비슷한 성적 경기 평균: 400');
   });
 
   it('compares only a benchmark metric with at least five valid samples', () => {
@@ -336,8 +336,8 @@ describe('AnalysisEngine observed benchmark contract', () => {
     expect(result.badges.map((badge: any) => badge.id)).toContain('ace');
 
     const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: result });
-    expect(playerReportSummary).toContain('Elite Avg: 측정 불가');
-    expect(playerReportSummary).not.toContain('Elite Avg: 3%');
+    expect(playerReportSummary).toContain('비슷한 성적 경기 평균: 측정 불가');
+    expect(playerReportSummary).not.toContain('비슷한 성적 경기 평균: 3%');
   });
 });
 

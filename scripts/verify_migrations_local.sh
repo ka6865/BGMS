@@ -162,6 +162,7 @@ MIGRATIONS=(
   "20261111150000_lol_mayhem_offer_rules"
   "20261111200000_restore_weapon_patch_revert_applied_at"
   "20261111200100_analysis_calculation_v6"
+  "20261114120000_pubg_benchmark_percentiles"
 )
 
 cleanup() {
@@ -483,6 +484,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v4-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v5-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v6-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/benchmark-percentiles-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/counter-latency-split-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/first-reply-evidence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/benchmark-cohort-scenarios.sql
