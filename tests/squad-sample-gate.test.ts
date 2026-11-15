@@ -150,6 +150,6 @@ describe("squad evidence backup gate", () => {
     const mild = applySquadEvidencePolicy({ summary: "백업 속도는 15.34초입니다." }, stats({ totalTradeKills: 3 }), null, emptyScores, [], { coachingStyle: "mild" });
     expect(mild.summary).toBe("백업 속도는 15.34초입니다.");
     const spicy = applySquadEvidencePolicy({ summary: "백업 속도는 15.34초입니다." }, stats({ totalTradeKills: 1 }), null, emptyScores, [], { coachingStyle: "spicy" });
-    expect(spicy.summary).toBe("백업 속도 기록이 없어서 오늘은 봐드립니다.");
+    expect(spicy.summary).toBe("백업 속도 기록이 없어서 오늘은 봐준다.");
   });
 });

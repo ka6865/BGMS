@@ -116,7 +116,7 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   }
   // 우승이 1회 이상이면 뒤 사실과 대조가 아니므로 "기록했지만"으로 잇지 않고 문장을 나눈다. 0회 뒤의 대조는 그대로 둔다.
   const splitFalseContrast = (text: unknown) => typeof text === "string"
-    ? text.replace(/우승\s*([1-9]\d*)\s*회를?\s*(?:기록했|거두었|거뒀|달성했)지만\s*/gu, "우승 $1회를 기록했습니다. ")
+    ? text.replace(/우승\s*([1-9]\d*)\s*회를?\s*(?:기록했|거두었|거뒀|달성했)지만\s*/gu, coachingStyle === "spicy" ? "우승 $1회를 기록했네. " : "우승 $1회를 기록했습니다. ")
     : text;
   // 수치 뒤에 바로 "~면서"를 붙인 어색한 연결("기록이 5회면서")은 "~이고"로 고친다.
   const fixNumericMyeonseo = (text: unknown) => typeof text === "string" ? text.replace(/(\d+(?:\.\d+)?\s*(?:회|%|초|경기))면서\s/gu, "$1이고 ") : text;
@@ -140,7 +140,7 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
       roleProfiles.map(profile => profile.name).sort().join(","));
     const opinion = output.overallOpinion.trim();
     const closed = closer && !opinion.includes(closer) ? `${opinion} ${closer}`.trim() : opinion;
-    output.overallOpinion = closed || "기록부는 여기까지입니다.";
+    output.overallOpinion = closed || "기록부는 여기까지야.";
   }
   if (Array.isArray(data.memberFeedbacks)) {
     const cleanMember = (text: unknown) => {

@@ -90,13 +90,13 @@ describe("실데이터 평가에서 나온 문장 보정", () => {
 describe("스쿼드 총평 보정", () => {
   it("다른 칸 문장을 반복한 총평은 빼고, 대조가 아닌 '~지만'은 문장을 나눈다", () => {
     const spicy = applySquadEvidencePolicy({
-      summary: "최근 10경기에서 우승 2회를 기록했습니다. 치킨 기록이 있다는 건 부인할 수 없는 사실입니다.",
+      summary: "최근 10경기에서 우승 2회를 기록했습니다. 치킨 먹은 기록은 부정할 수가 없네.",
       strength: "연막 구출 성공 기록이 5회입니다.",
-      overallOpinion: "최근 10경기에서 우승 2회를 기록했습니다. 치킨 기록이 있다는 건 부인할 수 없는 사실입니다. 연막 구출 성공 기록이 5회입니다.",
+      overallOpinion: "최근 10경기에서 우승 2회를 기록했습니다. 치킨 먹은 기록은 부정할 수가 없네. 연막 구출 성공 기록이 5회입니다.",
     }, {}, null, undefined, [], { coachingStyle: "spicy" }) as any;
     // 반복만 있던 총평은 서버 마무리 한마디만 남고, 다시 적용해도 한 번만 붙는다.
     // 이 입력은 팀 재료가 없어 마무리 한마디 없이 짧은 마감 문장만 남는다.
-    expect(spicy.overallOpinion).toBe("기록부는 여기까지입니다.");
+    expect(spicy.overallOpinion).toBe("기록부는 여기까지야.");
     expect(applySquadEvidencePolicy(spicy, {}, null, undefined, [], { coachingStyle: "spicy" })).toEqual(spicy);
     const mild = applySquadEvidencePolicy({ overallOpinion: "최근 10경기에서 우승 2회를 거두었지만 다음 경기도 기대됩니다." }, {}, null, undefined, [], { coachingStyle: "mild" }) as any;
     expect(mild.overallOpinion).toBe("최근 10경기에서 우승 2회를 기록했습니다. 다음 경기도 기대됩니다.");

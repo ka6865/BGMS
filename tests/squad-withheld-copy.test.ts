@@ -121,7 +121,7 @@ describe("squad withheld copy is a fixed point of the evidence policy", () => {
 describe("squad evidence copy by coaching style", () => {
   it("uses the spicy label copy for a missing metric and the mild copy otherwise", () => {
     const spicy = applySquadEvidencePolicy({ summary: "백업 속도가 빠릅니다." }, EMPTY_STATS, null, EMPTY_SCORES, [], { coachingStyle: "spicy" });
-    expect(spicy.summary).toBe("백업 속도 기록이 없어서 오늘은 봐드립니다.");
+    expect(spicy.summary).toBe("백업 속도 기록이 없어서 오늘은 봐준다.");
     const mild = applySquadEvidencePolicy({ summary: "백업 속도가 빠릅니다." }, EMPTY_STATS, null, EMPTY_SCORES, []);
     expect(mild.summary).toBe("백업 속도 평가는 근거가 부족해 보류합니다.");
   });
@@ -129,18 +129,18 @@ describe("squad evidence copy by coaching style", () => {
   it("uses the spicy rescue copy for both rescue branches", () => {
     const noOpportunity = { totalTeammateKnocks: 0, totalSmokeRescues: 0, totalRevives: 1, avgTradeLatency: 5000 };
     expect(applySquadEvidencePolicy({ weakness: "연막 구출 능력이 부족합니다." }, noOpportunity, null, undefined, [], { coachingStyle: "spicy" }).weakness)
-      .toBe("연막 구출 기회가 안 잡혀서 오늘은 봐드립니다.");
+      .toBe("연막 구출 기회가 안 잡혀서 오늘은 봐준다.");
     expect(applySquadEvidencePolicy({ weakness: "연막 구출 능력이 부족합니다." }, noOpportunity, null, undefined, [], { coachingStyle: "mild" }).weakness)
       .toBe("연막 구출 기회가 관측되지 않아 해당 평가는 보류합니다.");
     // 연막 기록이 관측되지 않은 경우에만 기록 부족 분기가 열린다.
     const lowRecord = { totalTeammateKnocks: 4, totalSmokeRescues: null, totalRevives: 1, avgTradeLatency: 5000 };
     expect(applySquadEvidencePolicy({ weakness: "연막 구출 능력이 부족합니다." }, lowRecord, null, undefined, [], { coachingStyle: "spicy" }).weakness)
-      .toBe("연막 구출 기록이 모자라 이번 판은 봐드립니다.");
+      .toBe("연막 구출 기록이 모자라서 이번 판은 봐준다.");
   });
 
   it("uses the spicy grade copy when the grade is withheld", () => {
     const spicy = applySquadEvidencePolicy({ summary: "종합 등급은 A입니다." }, EMPTY_STATS, null, EMPTY_SCORES, [], { coachingStyle: "spicy" });
-    expect(spicy.summary).toBe("종합 등급은 증거가 부족해 이번엔 면제입니다.");
+    expect(spicy.summary).toBe("종합 등급은 증거가 부족해서 이번엔 면제야.");
     const mild = applySquadEvidencePolicy({ summary: "종합 등급은 A입니다." }, EMPTY_STATS, null, EMPTY_SCORES, []);
     expect(mild.summary).toBe("미측정 지표가 있어 종합 등급은 보류합니다.");
   });

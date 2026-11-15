@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
-import { formatSquadPunchlineBlock, selectSquadMemberPunchlines, selectSquadPunchlines, SQUAD_PUNCHLINE_KIND_LIMIT, SQUAD_PUNCHLINE_LIMIT } from "@/lib/pubg-analysis/squadPunchlines";
+import { formatSquadPunchlineBlock, toSpicySquadFact, selectSquadMemberPunchlines, selectSquadPunchlines, SQUAD_PUNCHLINE_KIND_LIMIT, SQUAD_PUNCHLINE_LIMIT } from "@/lib/pubg-analysis/squadPunchlines";
 
 // 테스트 입력은 필요한 값만 바꿔 쓰므로 느슨한 타입을 쓴다.
 type LooseInput = Record<string, any>;
@@ -238,9 +238,14 @@ describe("squad prompt punchline block", () => {
   it.each(["spicy", "mild"] as const)("puts the measured facts into the user prompt (%s)", (style) => {
     const { prompt } = promptFor(style);
     expect(prompt).toContain("[PUNCHLINE FACTS]");
-    expect(prompt).toContain("backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느립니다.");
-    expect(prompt).toContain("damage_spread: 팀 딜 비중이 73%(KangHeeSung_)와 27%(MiaeQ_Q)로 갈렸습니다.");
-    expect(prompt).toContain("KangHeeSung_ [hype] member_damage_carry: 팀 딜 비중이 73%입니다.");
+    // 매운맛은 사실 문장의 끝맺음만 반말로 넘긴다. 숫자와 라벨은 같다.
+    expect(prompt).toContain(style === "spicy"
+      ? "backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느려."
+      : "backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느립니다.");
+    expect(prompt).toContain(style === "spicy"
+      ? "damage_spread: 팀 딜 비중이 73%(KangHeeSung_)와 27%(MiaeQ_Q)로 갈렸어."
+      : "damage_spread: 팀 딜 비중이 73%(KangHeeSung_)와 27%(MiaeQ_Q)로 갈렸습니다.");
+    expect(prompt).toContain(`KangHeeSung_ [hype] member_damage_carry: 팀 딜 비중이 73%${style === "spicy" ? "야" : "입니다"}.`);
   });
 
   it("states an empty fact list explicitly so the model does not invent numbers", () => {
@@ -255,7 +260,7 @@ describe("squad prompt punchline block", () => {
     expect(systemInstruction).toContain("Copy every number from the facts exactly");
     // 근거 없는 칸은 넘김 문장이 아니라 빈 문자열로 둔다. 화면이 빈 칸을 숨긴다.
     expect(systemInstruction).toContain('output an empty string ("") for that field');
-    expect(systemInstruction).not.toContain("이건 기록이 없어서 오늘은 봐드립니다.");
+    expect(systemInstruction).not.toContain("이건 기록이 없어서 오늘은 봐준다.");
     expect(systemInstruction).not.toContain("증거 불충분, 이번 판은 무죄 방면.");
     expect(systemInstruction).not.toContain("현재 기록만으로 개인의 약점을 단정하기 어렵습니다.");
     expect(systemInstruction).not.toContain("장부");
@@ -291,18 +296,34 @@ describe("매운맛 한마디", () => {
     { name: "B", id: "member_low_damage", kind: "roast" as const, metric: "damageShare", fact: "팀 딜 비중은 5%입니다." },
   ];
 
-  it("매운맛은 팀 재료 뒤에 서버가 쓴 한마디를 붙이고, 사실 문장은 그대로 둔다", () => {
+  it("매운맛은 팀 재료 뒤에 서버가 쓴 한마디를 붙이고, 사실 문장은 끝맺음만 반말로 바꾼다", () => {
     const block = formatSquadPunchlineBlock(team, members, { jabs: true });
-    expect(block).toContain("backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느립니다. → 한마디: 아군이 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었습니다.");
+    expect(block).toContain("backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느려. → 한마디: 아군 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었어.");
     // 개인 재료에는 한마디를 붙이지 않는다. 개인 칭찬은 서버가 따로 쓴다.
-    expect(block.split("\n")).toContain("- A [hype] member_damage_carry: 팀 딜 비중이 73%입니다.");
+    expect(block.split("\n")).toContain("- A [hype] member_damage_carry: 팀 딜 비중이 73%야.");
+  });
+
+  it("매운맛 사실 문장은 끝맺음만 반말로 바꾸고, 다시 적용해도 같다", () => {
+    const cases: Array<[string, string]> = [
+      ["백업 속도 평균 15.3초로 평균보다 빠릅니다.", "백업 속도 평균 15.3초로 평균보다 빨라."],
+      ["구조 성공률 25.9%로 평균보다 높습니다.", "구조 성공률 25.9%로 평균보다 높아."],
+      ["연막 구출 성공 기록이 5회입니다.", "연막 구출 성공 기록이 5회야."],
+      ["최근 7경기 중 최고 순위는 2위입니다.", "최근 7경기 중 최고 순위는 2위야."],
+      ["최근 10경기에서 우승 3회를 기록했습니다.", "최근 10경기에서 우승 3회를 기록했어."],
+      ["팀 딜 비중이 73%(A)와 27%(B)로 갈렸습니다.", "팀 딜 비중이 73%(A)와 27%(B)로 갈렸어."],
+      ["알 수 없는 재료입니다.", "알 수 없는 재료입니다."],
+    ];
+    for (const [fact, banmal] of cases) {
+      expect(toSpicySquadFact(fact)).toBe(banmal);
+      expect(toSpicySquadFact(banmal)).toBe(banmal);
+    }
   });
 
   it("한마디가 없는 재료와 낮은 딜 비중에는 붙이지 않는다", () => {
     const block = formatSquadPunchlineBlock(team, members, { jabs: true });
     const lines = block.split("\n");
     expect(lines).toContain("- [hype] unknown_id: 알 수 없는 재료입니다.");
-    expect(lines).toContain("- B [roast] member_low_damage: 팀 딜 비중은 5%입니다.");
+    expect(lines).toContain("- B [roast] member_low_damage: 팀 딜 비중은 5%야.");
   });
 
   it("옵션이 없으면 한마디 없이 기존 모양 그대로다", () => {

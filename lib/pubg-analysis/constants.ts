@@ -34,7 +34,7 @@ export const AI_CACHE_VERSION = "2026-10-28.first-reply-evidence-v6"; // 적격 
 // 단일 경기 코칭만의 프롬프트 버전. 문장별 장면 ID(briefFeedbackSceneIds, actionItems[].sceneId)를 출력에 더했으므로 단일 경기 캐시만 새로 만든다(스쿼드는 유지).
 // 이전 값 nearest-teammate-v1은 가장 가까운 아군 거리 표기 변경이었다.
 export const AI_MATCH_PROMPT_VERSION = `${AI_CACHE_VERSION}.scene-flow-pct-action-v3`; // 경기 흐름 장면·BGMS 기록 백분위·행동 하나·비교 평균 표기
-export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v16`; // 매운맛 총평을 서버 마무리 한마디로 끝낸다(v15: 총평 거짓 대조·반복 제거)
+export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v17`; // 매운맛을 반말로 쓴다(v16: 총평을 서버 마무리 한마디로 끝냄)
 export const AI_SUMMARY_CACHE_VERSION = "2026-11-15.spicy-banmal-v36"; // 매운맛 의견을 반말로 끝낸다(v35: 서버가 고른 비꼬는 한마디)
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache

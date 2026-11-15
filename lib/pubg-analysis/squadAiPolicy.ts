@@ -39,18 +39,18 @@ const MILD_WITHHELD_COPY: Record<SquadWithheldKey, string> = {
 // 매운맛 넘김 문장. 건조한 보류 문장 대신 캐릭터 말투로 짧게 넘긴다.
 // 수치·측정 지표 이름·능력 단정이 없어서 후처리 가드를 다시 통과하고, 두 번 적용해도 바뀌지 않는다.
 export const SQUAD_SPICY_PASS_LINES = [
-  "이건 기록이 없어서 오늘은 봐드립니다.",
+  "이건 기록이 없어서 오늘은 봐준다.",
   "증거 불충분, 이번 판은 무죄 방면.",
-  "측정된 게 없으니 이번엔 조용히 넘어갑니다.",
-  "기록이 안 남았으니 오늘은 면죄부 발급입니다.",
+  "측정된 게 없으니 이번엔 조용히 넘어갈게.",
+  "기록이 안 남았으니 오늘은 면죄부 발급이야.",
   "데이터가 입을 다물었으니 여기선 패스.",
-  "근거 없이 놀리면 저만 손해라 이번엔 패스합니다.",
+  "근거 없이 놀리면 나만 손해라 이번엔 패스.",
 ] as const;
 
 const SPICY_WITHHELD_COPY: Record<Exclude<SquadWithheldKey, "generic" | "member">, string> = {
-  grade: "종합 등급은 증거가 부족해 이번엔 면제입니다.",
-  rescueNoOpportunity: "연막 구출 기회가 안 잡혀서 오늘은 봐드립니다.",
-  rescueLow: "연막 구출 기록이 모자라 이번 판은 봐드립니다.",
+  grade: "종합 등급은 증거가 부족해서 이번엔 면제야.",
+  rescueNoOpportunity: "연막 구출 기회가 안 잡혀서 오늘은 봐준다.",
+  rescueLow: "연막 구출 기록이 모자라서 이번 판은 봐준다.",
 };
 
 // 측정 지표 이름별 보류 문구. 생존 케어는 평가 지표 목록 밖이지만 같은 형식을 쓴다.
@@ -59,7 +59,7 @@ const SQUAD_METRIC_LABELS = ["대열 유지", "백업 속도", "연막 구출", 
 /** 지표 이름이 든 보류 문구다. 매운맛은 같은 뜻을 넘김 말투로 바꾼다. */
 export function squadMetricWithheldCopy(coachingStyle: string | undefined, label: string): string {
   return coachingStyle === "spicy"
-    ? `${label} 기록이 없어서 오늘은 봐드립니다.`
+    ? `${label} 기록이 없어서 오늘은 봐준다.`
     : `${label} 평가는 근거가 부족해 보류합니다.`;
 }
 
