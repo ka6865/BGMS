@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMatchSpicyJab, matchSpicyJab, summaryCardSpicyJab } from "@/lib/pubg-analysis/spicyPunchlines";
+import { applyMatchSpicyJab, matchSpicyJab, summaryCardSpicyJab, toSummarySpicyBanmal } from "@/lib/pubg-analysis/spicyPunchlines";
 import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
 import { findAiCoachingQualityFindings, sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
 import { hasUnsupportedSummaryAdvice, hasUnsupportedSummaryInference } from "@/lib/pubg-analysis/aiSummaryJudgment";
@@ -44,6 +44,15 @@ describe("spicy punchlines", () => {
     }
     expect(summaryCardSpicyJab([], true, "ctx")).toMatch(/인정|머쓱/);
     expect(summaryCardSpicyJab([], false, "ctx")).toBeNull();
+  });
+
+  it("요약 매운맛 의견은 문장 끝만 반말로 바꾸고, 다시 적용해도 같다", () => {
+    const text = "백업 속도는 비교 평균보다 느립니다. 선제 타격 성공률은 비교 평균과 같습니다. 다음 교전 전에 팀원 위치를 확인하세요. 상대 위치를 확인해 보세요. 마지막 교전을 돌아보세요.";
+    const banmal = "백업 속도는 비교 평균보다 느려. 선제 타격 성공률은 비교 평균과 같아. 다음 교전 전에 팀원 위치를 확인해. 상대 위치를 확인해 봐. 마지막 교전을 돌아봐.";
+    expect(toSummarySpicyBanmal(text)).toBe(banmal);
+    expect(toSummarySpicyBanmal(banmal)).toBe(banmal);
+    // 문장 중간의 존댓말 어미는 건드리지 않는다.
+    expect(toSummarySpicyBanmal("높습니다만 확인하세요")).toBe("높습니다만 확인해");
   });
 });
 
