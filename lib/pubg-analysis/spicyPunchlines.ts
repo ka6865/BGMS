@@ -16,7 +16,7 @@ function pickVariant(variants: readonly string[], seed: string): string {
 
 const finite = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
 
-// 단일 경기 매운맛 응답은 반말이라 한마디도 반말로 맞춘다. 최근 요약 한마디는 존댓말 그대로다.
+// 단일 경기 매운맛 응답은 반말이라 한마디도 반말로 맞춘다.
 const MATCH_JABS = {
   early_exit: ["자기장 구경도 제대로 못 하고 일찍 로비로 퇴근했네.", "낙하산 접고 짐 풀자마자 귀가한 판이었어."],
   duel_losing: ["1:1만 붙으면 상대 킬로그에 이름을 성실하게 올려 줬네.", "1:1 성적표는 거의 상대 하이라이트 영상 재료야."],
@@ -72,22 +72,41 @@ export function applyMatchSpicyJab(text: string, match: any): string {
   }
 }
 
-// 최근 요약 카드: 비교 평균에 못 미친 지표별 한마디.
+// 최근 요약 카드: 비교 평균에 못 미친 지표별 한마디. 단일 경기처럼 반말이다.
 const SUMMARY_METRIC_JABS: Readonly<Record<string, readonly string[]>> = {
-  damage_average: ["평균 화력은 비교 평균 앞에서 조용히 고개를 숙였습니다.", "총은 들고 다녔는데 딜량은 소문만 무성했습니다."],
-  initiative_rate: ["선제 타격 기록만 보면 먼저 맞고 시작하는 게 국룰이었습니다."],
-  pressure_index: ["교전 압박은 상대에게 안부 인사 수준이었습니다."],
-  counter_failure_rate: ["기습당한 뒤 3초 동안은 관전 모드에 가까웠습니다."],
-  reaction_latency: ["반격 버튼이 한 박자씩 늦게 눌리는 기록입니다."],
-  duel_win_rate: ["1:1 성적표는 상대 하이라이트 영상 재료에 가깝습니다."],
-  solo_kill_share: ["킬로그에 혼자 이름 올린 장면은 손에 꼽힙니다."],
-  death_phase: ["자기장이 좁아지는 구경은 주로 관전 화면으로 하셨습니다."],
-  isolation_average: ["팀원과의 거리가 장거리 연애 수준이었습니다."],
-  trade_success_rate: ["쓰러진 아군의 복수는 대부분 다음 생으로 미뤄졌습니다."],
-  backup_latency: ["백업은 아군 장례식이 끝날 즈음 도착했습니다."],
-  smoke_opportunity_rate: ["아군이 쓰러져도 연막 구출 기록은 조용했습니다."],
+  damage_average: ["딜량 칸은 조용히 고개 숙이고 있었네.", "총은 들고 다녔는데 딜량은 소문만 무성했어."],
+  initiative_rate: ["선제 타격 기록만 보면 먼저 맞고 시작하는 게 국룰이었네."],
+  pressure_index: ["교전 압박은 상대한테 안부 인사 수준이었어."],
+  counter_failure_rate: ["기습당하고 3초 동안은 거의 관전 모드였네."],
+  reaction_latency: ["반격 버튼이 한 박자씩 늦게 눌리는 기록이야."],
+  duel_win_rate: ["1:1 성적표는 거의 상대 하이라이트 영상 재료야."],
+  solo_kill_share: ["킬로그에 혼자 이름 올린 장면은 손에 꼽혀."],
+  death_phase: ["자기장 좁아지는 구경은 주로 관전 화면으로 했네."],
+  isolation_average: ["팀원이랑 거리가 거의 장거리 연애 수준이었어."],
+  trade_success_rate: ["쓰러진 아군 복수는 대부분 다음 생으로 미뤘네."],
+  backup_latency: ["백업은 아군 장례식 끝날 즈음 도착했어."],
+  smoke_opportunity_rate: ["아군이 쓰러져도 연막 구출 기록은 조용했네."],
 };
-const SUMMARY_HYPES = ["이 항목은 트집 잡을 데가 없어 매운맛이 머쓱합니다.", "여기는 인정합니다. 맵게 할 말이 없습니다."];
+const SUMMARY_HYPES = ["이건 트집 잡을 데가 없어서 매운맛이 머쓱하네.", "여기는 인정. 맵게 할 말이 없어."];
+
+// 요약 카드 매운맛 의견의 서버 문장(비교·점검)과 모델 점검 문장은 존댓말로 만들어지므로 문장 끝만 반말로 바꾼다.
+// 이 목록에 없는 어미는 그대로 둔다(반존대 허용).
+const BANMAL_ENDINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/돌아보(?:세요|십시오)(?=[.!?]|$)/gu, "돌아봐"],
+  [/살펴보(?:세요|십시오)(?=[.!?]|$)/gu, "살펴봐"],
+  [/해\s*보(?:세요|십시오)(?=[.!?]|$)/gu, "해 봐"],
+  [/하(?:세요|십시오)(?=[.!?]|$)/gu, "해"],
+  [/높습니다(?=[.!?]|$)/gu, "높아"],
+  [/낮습니다(?=[.!?]|$)/gu, "낮아"],
+  [/빠릅니다(?=[.!?]|$)/gu, "빨라"],
+  [/느립니다(?=[.!?]|$)/gu, "느려"],
+  [/같습니다(?=[.!?]|$)/gu, "같아"],
+];
+
+/** 요약 카드 매운맛 의견의 문장 끝을 반말로 바꾼다. 이미 반말이면 그대로라 여러 번 적용해도 같다. */
+export function toSummarySpicyBanmal(text: string): string {
+  return BANMAL_ENDINGS.reduce((result, [pattern, replacement]) => result.replace(pattern, replacement), text);
+}
 
 /**
  * 요약 카드 매운맛 한마디. 못 미친 지표가 있으면 첫 지표를 비꼬고, 비교 지표가 모두 평균 이상이면 인정한다.
