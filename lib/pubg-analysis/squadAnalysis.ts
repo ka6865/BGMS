@@ -258,7 +258,8 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   if (calculationVersions.size > 0 && [...calculationVersions].every(isSupportedAnalysisCalculationVersion)) {
     const { data: benchmarkRows, error: benchmarkError } = await supabase
       .from("pubg_team_benchmarks")
-      .select("sample_team_matches, knocks, revives, trade_kills, trade_latency_total_ms, smoke_sample_team_matches, smoke_knocks, smoke_rescues")
+      // 잡을 수 있었던 기절 열은 migration 적용 전에도 조회가 실패하지 않도록 *로 읽는다.
+      .select("*")
       .eq("team_mode", selectedGroup.teamMode)
       .in("calculation_version", [...SUPPORTED_ANALYSIS_CALCULATION_VERSIONS])
       .eq("observation_version", SQUAD_OBSERVATION_VERSION);
@@ -418,6 +419,8 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     totalTeamWipes: null,
     totalTeammateKnocks: squadObservation.knocks,
     observedMatchCount: squadObservation.status === "observed" ? squadObservation.matchCount : null,
+    totalTradeableKnocks: squadObservation.eligibleKnocks,
+    totalTradeableTradeKills: squadObservation.eligibleTradeKills,
     totalTradeKills: squadObservation.tradeKills,
   };
   const scores = computeSquadScores({
@@ -496,6 +499,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       avgReviveRate: null,
       avgSmokeRate: null,
       avgTeammateKnocks: null,
+      avgTradeableTradeRate: null,
       avgTeamWipes: null,
     }
   };

@@ -1,22 +1,22 @@
 -- Runs only in the verifier's disposable PostgreSQL database.
 begin;
 delete from public.pubg_team_benchmarks;
-create temporary table team_fixture(match_id text, player_id text, mode text, calc integer, status text, team jsonb, knocks integer, revives integer, trades integer, latency integer, smokes integer);
+create temporary table team_fixture(match_id text, player_id text, mode text, calc integer, status text, team jsonb, knocks integer, revives integer, trades integer, latency integer, smokes integer, tradeable_knocks integer, tradeable_trades integer);
 insert into team_fixture values
   -- 같은 스쿼드 팀 경기를 팀원 두 명이 저장해도 한 번만 센다.
-  ('tb-1','player_a','squad',3,'observed','["a","b"]',4,2,1,6000,1),
-  ('tb-1','player_b','squad',3,'observed','["a","b"]',4,2,1,6000,1),
-  ('tb-2','player_a','squad-fpp',3,'observed','["a","c"]',2,0,1,4000,null),
-  ('tb-3','player_a','duo',3,'observed','["a","d"]',3,1,0,0,0),
+  ('tb-1','player_a','squad',3,'observed','["a","b"]',4,2,1,6000,1,3,1),
+  ('tb-1','player_b','squad',3,'observed','["a","b"]',4,2,1,6000,1,3,1),
+  ('tb-2','player_a','squad-fpp',3,'observed','["a","c"]',2,0,1,4000,null,null,null),
+  ('tb-3','player_a','duo',3,'observed','["a","d"]',3,1,0,0,0,2,0),
   -- 관측 실패·다른 계산 버전·솔로는 섞지 않는다.
-  ('tb-4','player_a','squad',3,'missing','["a","b"]',9,9,9,9000,9),
-  ('tb-5','player_a','squad',2,'observed','["a","b"]',5,1,1,1000,0),
-  ('tb-6','player_a','solo',3,'observed','["a"]',7,7,7,7000,7);
+  ('tb-4','player_a','squad',3,'missing','["a","b"]',9,9,9,9000,9,9,9),
+  ('tb-5','player_a','squad',2,'observed','["a","b"]',5,1,1,1000,0,null,null),
+  ('tb-6','player_a','solo',3,'observed','["a"]',7,7,7,7000,7,7,7);
 insert into public.processed_match_telemetry(match_id, platform, player_id, data)
 select match_id, 'steam', player_id, jsonb_build_object('fullResult', jsonb_build_object(
   'gameMode', mode, 'calculationVersion', calc,
   'squadObservation', jsonb_build_object('version', 1, 'scope', 'squad', 'status', status, 'teamAccountIds', team,
-    'knocks', knocks, 'revives', revives, 'tradeKills', trades, 'tradeLatencyTotalMs', latency, 'smokeRescues', smokes)))
+    'knocks', knocks, 'revives', revives, 'tradeKills', trades, 'tradeLatencyTotalMs', latency, 'smokeRescues', smokes, 'eligibleKnocks', tradeable_knocks, 'eligibleTradeKills', tradeable_trades)))
 from team_fixture;
 
 do $$
@@ -38,6 +38,11 @@ begin
   if squad.sample_team_matches <> 2 or squad.knocks <> 6 or squad.revives <> 2 or squad.trade_kills <> 2
     or squad.trade_latency_total_ms <> 10000 or squad.smoke_sample_team_matches <> 1 or squad.smoke_knocks <> 4 or squad.smoke_rescues <> 1 then
     raise exception 'FAIL: squad team benchmark %', row_to_json(squad);
+  end if;
+  -- 잡을 수 있었던 기절은 값이 있는 경기(tb-1)만 센다. 값이 없는 tb-2는 다른 비교값에만 들어간다.
+  if squad.tradeable_sample_team_matches <> 1 or squad.tradeable_knocks <> 3 or squad.tradeable_trade_kills <> 1
+    or legacy.tradeable_sample_team_matches <> 0 or legacy.tradeable_knocks <> 0 then
+    raise exception 'FAIL: tradeable knock benchmark %', row_to_json(squad);
   end if;
   if duo.sample_team_matches <> 1 or duo.knocks <> 3 or duo.revives <> 1 then raise exception 'FAIL: duo team benchmark %', row_to_json(duo); end if;
   if legacy.sample_team_matches <> 1 or legacy.knocks <> 5 then raise exception 'FAIL: calculation version separation %', row_to_json(legacy); end if;
