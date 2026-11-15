@@ -125,9 +125,9 @@ describe("squadFaultCandidates 말투", () => {
       digits.forEach(digit => { expect(mild[index]).toContain(digit); expect(spicy[index]).toContain(digit); });
     }
     expect(mild.join("")).not.toContain("상습 1위");
-    expect(spicy.join(" ")).toContain("같은 판에 아군이 있었는데 기록은 개인전이었습니다.");
-    expect(spicy.join(" ")).toContain("첫 퇴장 상습 1위라는 기록은 변명할 여지가 없습니다.");
-    expect(spicy.join(" ")).toContain("성공보다 실패가 더 많았고 선제권은 상대가 더 자주 챙겨 갔습니다.");
+    expect(spicy.join(" ")).toContain("같은 판에 아군이 있었는데 기록은 개인전이었네.");
+    expect(spicy.join(" ")).toContain("첫 퇴장 상습 1위라는 기록은 변명할 여지가 없네.");
+    expect(spicy.join(" ")).toContain("성공보다 실패가 더 많았고 선제권은 상대가 더 자주 챙겨 갔어.");
     spicy.forEach(text => { expect(text).toMatch(/낙제|합격점|초라/); expect(text.match(/[.!?]/g)).toHaveLength(2); });
     mild.forEach(text => expect(text).not.toMatch(/낙제|합격점|초라|성공보다 실패|변명/));
   });
@@ -226,16 +226,16 @@ describe("서버가 쓰는 개인 못한 점과 조언", () => {
 
   it("매운맛은 서버가 붙인 한마디까지 그대로 나가고 두 번 적용해도 같다", () => {
     const once: any = applySquadEvidencePolicy(modelResult, stats, "B", undefined, roleProfiles, { coachingStyle: "spicy" });
-    expect(once.memberFeedbacks[0].fault).toContain("같은 판에 아군이 있었는데 기록은 개인전이었습니다.");
-    expect(once.memberFeedbacks[0].fault).toContain("첫 퇴장 상습 1위라는 기록은 변명할 여지가 없습니다.");
-    expect(once.memberFeedbacks[0].fault).toContain("성공보다 실패가 더 많았고 선제권은 상대가 더 자주 챙겨 갔습니다.");
+    expect(once.memberFeedbacks[0].fault).toContain("같은 판에 아군이 있었는데 기록은 개인전이었네.");
+    expect(once.memberFeedbacks[0].fault).toContain("첫 퇴장 상습 1위라는 기록은 변명할 여지가 없네.");
+    expect(once.memberFeedbacks[0].fault).toContain("성공보다 실패가 더 많았고 선제권은 상대가 더 자주 챙겨 갔어.");
     expect(applySquadEvidencePolicy(once, stats, "B", undefined, roleProfiles, { coachingStyle: "spicy" })).toEqual(once);
   });
 
   it("조언은 맨 앞 후보 종류에 맞는 문장 하나다", () => {
     const onlyFirstDeath = [{ name: "A", shares: roleProfiles[0].shares, records: { ...records, farFromTeam: null, initiative: null } }, roleProfiles[1]];
     expect(squadMemberFaultFeedback(onlyFirstDeath, "mild").get("A")!.advice).toBe("다음 교전에서는 아군이 함께 사격할 수 있는지 확인한 뒤 들어가 보세요.");
-    expect(squadMemberFaultFeedback(onlyFirstDeath, "spicy").get("A")!.advice).toBe("다음 교전에서는 아군이 함께 쏠 수 있는지부터 확인하고 들어가세요.");
+    expect(squadMemberFaultFeedback(onlyFirstDeath, "spicy").get("A")!.advice).toBe("다음 교전에선 아군이 같이 쏠 수 있는지부터 확인하고 들어가.");
     const onlyInitiative = [{ name: "A", shares: roleProfiles[0].shares, records: { ...records, farFromTeam: null, firstDeaths: null } }, roleProfiles[1]];
     expect(squadMemberFaultFeedback(onlyInitiative, "mild").get("A")!.advice).toBe("먼저 사격할 수 있는 각도와 상대 위치를 확인해 보세요.");
   });
@@ -251,7 +251,7 @@ describe("매운맛 개인 칭찬", () => {
   const punch = (id: string, kind: "hype" | "roast", fact: string, name = "A") => ({ name, id, kind, fact });
 
   it("높은 비중과 꾸준한 팀원에게만 사실 문장과 칭찬을 한 문장으로 잇는다", () => {
-    expect(squadMemberPraise(punch("member_damage_carry", "hype", "팀 딜 비중이 73%입니다."))).toMatch(/^팀 딜 비중이 73%, .+(?:입니다|습니다)\.$/);
+    expect(squadMemberPraise(punch("member_damage_carry", "hype", "팀 딜 비중이 73%입니다."))).toMatch(/^팀 딜 비중이 73%, .+(?:야|네|어)\.$/);
     expect(squadMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다."))).toContain("팀 딜 비중 28%, 팀 킬 비중 26%, ");
   });
 
@@ -295,9 +295,9 @@ describe("매운맛 개인 칭찬", () => {
 
 describe("펀치라인 라벨 정리", () => {
   it("모델이 옮겨 적은 → 한마디: 라벨은 지우고 문장은 남긴다", () => {
-    const input = { summary: "구조 성공률 46.3%로 평균보다 높습니다. → 한마디: 일으켜 세우는 손만큼은 평균을 가볍게 넘겼습니다.", strength: "", weakness: "", coaching: "", overallOpinion: "총평", memberFeedbacks: [] };
+    const input = { summary: "구조 성공률 46.3%로 평균보다 높습니다. → 한마디: 일으켜 세우는 손만큼은 평균을 가볍게 넘겼네.", strength: "", weakness: "", coaching: "", overallOpinion: "총평", memberFeedbacks: [] };
     const result = sanitizeSquadAbilityClaims(input);
-    expect(result.summary).toBe("구조 성공률 46.3%로 평균보다 높습니다. 일으켜 세우는 손만큼은 평균을 가볍게 넘겼습니다.");
+    expect(result.summary).toBe("구조 성공률 46.3%로 평균보다 높습니다. 일으켜 세우는 손만큼은 평균을 가볍게 넘겼네.");
     expect(sanitizeSquadAbilityClaims(result)).toEqual(result);
   });
 });

@@ -119,23 +119,23 @@ type FaultItem = { kind: FaultKind; text: string };
 const FAULT_TEXT: Record<FaultKind, Record<SquadFaultTone, (a: number, b: number) => string>> = {
   far: {
     mild: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기입니다.`,
-    spicy: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기, 아군과의 거리 유지는 낙제입니다. 같은 판에 아군이 있었는데 기록은 개인전이었습니다.`,
+    spicy: (measured, count) => `기절·사망 순간 가장 가까운 생존 팀원이 ${TEAMMATE_FAR_DISTANCE_M}m 밖에 있던 경기가 측정된 ${measured}경기 중 ${count}경기, 아군이랑 거리 유지는 낙제야. 같은 판에 아군이 있었는데 기록은 개인전이었네.`,
   },
   firstDeath: {
     mild: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다입니다.`,
-    spicy: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다, 먼저 쓰러지는 부문은 합격점을 못 드립니다. 첫 퇴장 상습 1위라는 기록은 변명할 여지가 없습니다.`,
+    spicy: (matches, count) => `팀에서 가장 먼저 사망한 경기가 비교한 ${matches}경기 중 ${count}경기로 팀 최다, 먼저 쓰러지는 부문은 합격점 못 줘. 첫 퇴장 상습 1위라는 기록은 변명할 여지가 없네.`,
   },
   initiative: {
     mild: (attempts, successes) => `선제 타격 시도 ${attempts}회 중 ${successes}회만 성공했습니다.`,
-    spicy: (attempts, successes) => `선제 타격 ${attempts}회 시도에 ${successes}회 성공, 선제 타격 성적표는 초라합니다. 성공보다 실패가 더 많았고 선제권은 상대가 더 자주 챙겨 갔습니다.`,
+    spicy: (attempts, successes) => `선제 타격 ${attempts}회 시도에 ${successes}회 성공, 선제 타격 성적표는 초라해. 성공보다 실패가 더 많았고 선제권은 상대가 더 자주 챙겨 갔어.`,
   },
 };
 
 // 조언은 후보 종류마다 하나뿐인 조건부 확인 문장이다. 기준을 새로 만들거나 원인을 말하지 않는다.
 const ADVICE: Record<FaultKind, Record<SquadFaultTone, string>> = {
-  far: { mild: "다음 교전 전에 가장 가까운 아군의 위치를 확인해 보세요.", spicy: "다음 교전 전에 가장 가까운 아군의 위치부터 확인하세요." },
-  firstDeath: { mild: "다음 교전에서는 아군이 함께 사격할 수 있는지 확인한 뒤 들어가 보세요.", spicy: "다음 교전에서는 아군이 함께 쏠 수 있는지부터 확인하고 들어가세요." },
-  initiative: { mild: "먼저 사격할 수 있는 각도와 상대 위치를 확인해 보세요.", spicy: "먼저 쏠 수 있는 각도와 상대 위치부터 확인하세요." },
+  far: { mild: "다음 교전 전에 가장 가까운 아군의 위치를 확인해 보세요.", spicy: "다음 교전 전에 제일 가까운 아군 위치부터 확인해." },
+  firstDeath: { mild: "다음 교전에서는 아군이 함께 사격할 수 있는지 확인한 뒤 들어가 보세요.", spicy: "다음 교전에선 아군이 같이 쏠 수 있는지부터 확인하고 들어가." },
+  initiative: { mild: "먼저 사격할 수 있는 각도와 상대 위치를 확인해 보세요.", spicy: "먼저 쏠 수 있는 각도랑 상대 위치부터 확인해." },
 };
 
 type FaultMember = { name: string; records?: SquadMemberRecords | null };

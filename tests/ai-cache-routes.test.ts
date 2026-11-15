@@ -15,7 +15,7 @@ import { AI_CACHE_RETENTION_DAYS, AI_CACHE_TABLES, cleanupExpiredCache } from ".
 import crypto from "node:crypto";
 
 // 스쿼드 기본 매운맛은 보류 문장을 넘김 문장으로 바꾼다. 다정한맛의 보류 문장과 함께 확인한다.
-const squadWithheldWording = new RegExp(["보류", "오늘은 봐드립니다.", ...SQUAD_SPICY_PASS_LINES]
+const squadWithheldWording = new RegExp(["보류", "오늘은 봐준다.", ...SQUAD_SPICY_PASS_LINES]
   .map((text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
   .join("|"));
 

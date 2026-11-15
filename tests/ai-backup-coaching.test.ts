@@ -264,7 +264,7 @@ describe("AI coaching prompt utility metrics", () => {
 
     expect(systemInstruction).toContain("Current Average Isolation Index is 1.4");
     expect(systemInstruction).toContain("treat formation as good");
-    expect(systemInstruction).toContain("대열 이탈이 커서 동시 교전 합이 흔들립니다.");
+    expect(systemInstruction).toContain("대열 이탈이 커서 동시 교전 합이 흔들려.");
     expect(systemInstruction).not.toContain("혼자 정글북 찍으며 각개전투함");
     expect(systemInstruction).not.toContain("4인 스쿼드를 하는 게 아니라 1인 솔로 4개를 돌리는 오합지졸 상태입니다.");
   });

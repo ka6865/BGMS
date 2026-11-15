@@ -273,23 +273,23 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
 // 한마디는 기록된 지표만 놀리거나 띄우고, 숫자와 실력·의도·원인을 말하지 않는다(숫자는 사실 문장이 담는다).
 // 개인 재료에는 한마디를 붙이지 않는다. 개인 칭찬과 못한 점은 서버가 따로 쓴다.
 const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
-  backup_slow: ["아군이 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었습니다."],
-  backup_fast: ["백업만큼은 배달 앱보다 빨랐습니다."],
-  revive_high: ["일으켜 세우는 손만큼은 평균을 가볍게 넘겼습니다."],
-  revive_low: ["일으켜 세우기엔 평균보다 손이 한참 모자랐습니다."],
-  smoke_rescue_many: ["연막 구출 기록이 또렷하게 남았습니다. 연막 장인 인정입니다."],
-  smoke_rescue_zero: ["연막 구출 성공 칸은 아직 공란이라 기록부가 심심해합니다."],
-  damage_spread: ["화력 분포가 한쪽으로 쏠린 편향 스코어보드입니다."],
-  wins_zero: ["우승 트로피 진열장은 아직 비어 있습니다."],
-  wins_some: ["치킨 기록이 있다는 건 부인할 수 없는 사실입니다."],
-  best_rank_top: ["최고 순위만큼은 포디움에 올랐습니다."],
+  backup_slow: ["아군 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었어."],
+  backup_fast: ["백업만큼은 배달 앱보다 빨랐네."],
+  revive_high: ["일으켜 세우는 손만큼은 평균을 가볍게 넘겼네."],
+  revive_low: ["일으켜 세우기엔 평균보다 손이 한참 모자랐어."],
+  smoke_rescue_many: ["연막 구출 기록이 또렷하게 남았네. 연막 장인 인정."],
+  smoke_rescue_zero: ["연막 구출 성공 칸은 아직 공란이라 기록부가 심심해해."],
+  damage_spread: ["화력 분포가 한쪽으로 쏠린 편향 스코어보드야."],
+  wins_zero: ["우승 트로피 진열장은 아직 텅 비어 있어."],
+  wins_some: ["치킨 먹은 기록은 부정할 수가 없네."],
+  best_rank_top: ["최고 순위만큼은 포디움에 올랐네."],
 };
 
 // 개인 칭찬은 비꼬지 않는다. 진짜 칭찬 문장을 서버가 쓰고, 같은 재료여도 팀원 이름에 따라 표현이 달라진다.
 const SQUAD_MEMBER_PRAISE: Readonly<Record<string, readonly string[]>> = {
-  member_damage_carry: ["화력의 중심을 잡은 캐리입니다.", "팀 화력을 가장 크게 책임졌습니다.", "팀의 화력 엔진 역할을 해냈습니다."],
-  member_kill_share: ["킬을 가장 많이 책임진 해결사입니다.", "교전을 마무리 짓는 몫을 크게 해냈습니다."],
-  member_steady: ["딜과 킬 모두 안정적으로 제 몫을 해냈습니다.", "꾸준하게 팀 화력을 받쳐 주었습니다.", "무리 없이 팀의 교전에 보탬이 되었습니다."],
+  member_damage_carry: ["화력의 중심을 잡은 캐리야.", "팀 화력을 제일 크게 책임졌네.", "팀의 화력 엔진 역할을 해냈어."],
+  member_kill_share: ["킬을 제일 많이 책임진 해결사야.", "교전 마무리 몫을 크게 해냈네."],
+  member_steady: ["딜이랑 킬 모두 제 몫은 해냈네.", "꾸준하게 팀 화력을 받쳐 줬어.", "무리 없이 팀 교전에 보탬이 됐네."],
 };
 
 /** 같은 시드면 같은 한마디다(팀원 이름을 시드로 쓰면 같은 재료여도 팀원마다 한마디가 달라진다). */
@@ -310,12 +310,12 @@ function squadPunchlineJab(id: string, seed: string): string | null {
 // 매운맛 총평의 마무리 한마디. 놀릴 재료가 있으면 비꼬고, 칭찬 재료만 있으면 머쓱해한다. 숫자·능력·의도는 쓰지 않는다.
 const SQUAD_SPICY_CLOSERS: Readonly<Record<SquadPunchlineKind, readonly string[]>> = {
   roast: [
-    "기록부가 할 말이 많은 스쿼드입니다. 다음 판에는 핑계 말고 숫자로 반박하십시오.",
-    "매운맛이 할 일이 많았던 기록입니다. 다음 리포트는 좀 심심해지길 바랍니다.",
+    "기록부가 할 말이 많은 스쿼드네. 다음 판엔 핑계 말고 숫자로 반박해 봐.",
+    "매운맛이 할 일이 많았던 기록이야. 다음 리포트는 좀 심심해지길 빈다.",
   ],
   hype: [
-    "트집 잡을 데가 없어 매운맛이 체면을 구겼습니다. 다음 판에도 이 기록 그대로 들고 오십시오.",
-    "칭찬만 하다 끝나는 매운맛은 처음입니다. 다음 판엔 꼬투리 하나쯤은 남겨 주십시오.",
+    "트집 잡을 데가 없어서 매운맛 체면이 구겨졌네. 다음 판에도 이 기록 그대로 들고 와.",
+    "칭찬만 하다 끝나는 매운맛은 처음이야. 다음 판엔 꼬투리 하나쯤은 남겨 줘.",
   ],
 };
 
@@ -336,6 +336,18 @@ export function squadMemberPraise(punchline: Pick<SquadMemberPunchline, "name" |
   return `${punchline.fact.replace(/입니다\.$/, "")}, ${praise}`;
 }
 
+// 매운맛은 반말이라 재료 사실 문장의 끝맺음도 반말로 넘긴다. 모델은 사실 문장을 그대로 옮겨 쓰므로 여기서 바꿔야 말투가 섞이지 않는다.
+// 위 사실 문장들이 쓰는 끝맺음만 다룬다. 숫자·단위·라벨은 그대로다.
+const SPICY_FACT_ENDINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/느립니다\.$/u, "느려."], [/빠릅니다\.$/u, "빨라."], [/높습니다\.$/u, "높아."], [/낮습니다\.$/u, "낮아."],
+  [/([회위%])입니다\.$/u, "$1야."], [/([았었였했렸])습니다\.$/u, "$1어."],
+];
+
+/** 매운맛 재료 사실 문장을 반말로 바꾼다. 목록에 없는 끝맺음은 그대로 둔다. */
+export function toSpicySquadFact(fact: string): string {
+  return SPICY_FACT_ENDINGS.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), fact);
+}
+
 /** 매운맛 프롬프트에 넣을 재료 블록. 재료가 없으면 빈 칸을 명시해 모델이 수치를 만들지 않게 한다. */
 export function formatSquadPunchlineBlock(
   team: readonly SquadPunchline[],
@@ -346,11 +358,12 @@ export function formatSquadPunchlineBlock(
     const line = options.jabs ? squadPunchlineJab(id, seed) : null;
     return line ? ` → 한마디: ${line}` : "";
   };
+  const fact = (text: string) => options.jabs ? toSpicySquadFact(text) : text;
   const teamLines = team.length > 0
-    ? team.map((item) => `- [${item.kind}] ${item.id}: ${item.fact}${jab(item.id, item.id)}`).join("\n")
+    ? team.map((item) => `- [${item.kind}] ${item.id}: ${fact(item.fact)}${jab(item.id, item.id)}`).join("\n")
     : "- 측정 가능한 팀 재료가 없습니다.";
   const memberLines = members.length > 0
-    ? members.map((item) => `- ${item.name} [${item.kind}] ${item.id}: ${item.fact}${jab(item.id, item.name)}`).join("\n")
+    ? members.map((item) => `- ${item.name} [${item.kind}] ${item.id}: ${fact(item.fact)}${jab(item.id, item.name)}`).join("\n")
     : "- 측정 가능한 개인 재료가 없습니다.";
   return `[PUNCHLINE FACTS]
 (Only these facts and numbers may be used for jokes, exaggeration, metaphors and nicknames. Copy each number exactly.)
