@@ -18,7 +18,11 @@ import AdSenseBanner from "../../components/ads/AdSenseBanner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 import type { OfficialItem } from "@/lib/patch-notes/officialCatalog";
-import { CAPACITY_SOURCE, getSupportedSlots, isAttachmentCompatible, resolveOfficialWeaponId, simulateWeapon } from "@/lib/weapons/simulator";
+import { CAPACITY_SOURCE, getMissingOfficialParts, getOfficialDamage, getSupportedSlots, isAttachmentCompatible, resolveOfficialWeaponId, simulateWeapon } from "@/lib/weapons/simulator";
+import type { CompareEntry } from "@/components/game-data/WeaponCompare";
+
+export type OfficialStatus = "loading" | "error" | "ready";
+const SLOT_LABELS: Record<string, string> = { sight: "조준경", muzzle: "총구", grip: "손잡이", magazine: "탄창", stock: "개머리판" };
 
 // ----------------------------------------------------
 // 1. 파츠 DB 인터페이스 (Supabase attachments 테이블 기반)
@@ -35,7 +39,14 @@ interface AttachmentData {
   r2_key: string | null;
 }
 
-export default function WeaponsClient({ requestedItem, officialItems = [] }: { requestedItem?: OfficialItem | null; officialItems?: OfficialItem[] }) {
+export default function WeaponsClient({ requestedItem, officialItems = [], officialStatus = "ready", comparedKeys = [], compareFull = false, onToggleCompare }: {
+  requestedItem?: OfficialItem | null;
+  officialItems?: OfficialItem[];
+  officialStatus?: OfficialStatus;
+  comparedKeys?: readonly string[];
+  compareFull?: boolean;
+  onToggleCompare?: (entry: CompareEntry) => void;
+}) {
   const builderRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -189,6 +200,11 @@ export default function WeaponsClient({ requestedItem, officialItems = [] }: { r
       .filter((id): id is string => !!id).map((id) => attachmentMap[id]).filter(Boolean);
     return simulateWeapon(selectedWeapon.id, selectedOfficialItem, parts);
   }, [selectedWeapon, selectedOfficialItem, selectedAttachments, attachmentMap]);
+  const missingOfficialParts = useMemo(() => getMissingOfficialParts(selectedOfficialItem, attachmentList), [selectedOfficialItem, attachmentList]);
+  const officialDamage = getOfficialDamage(selectedOfficialItem);
+  const equippedPartIds = ["sight", "muzzle", "grip", "magazine", "stock"].map(getEquippedPart).filter((id): id is string => !!id);
+  const buildKey = selectedWeapon ? `build:${selectedWeapon.id}:${[...equippedPartIds].sort().join(",")}` : "";
+  const buildCompared = comparedKeys.includes(buildKey);
 
   const handleImageError = useCallback((id: string) => {
     setImageErrors(prev => ({ ...prev, [id]: true }));
@@ -287,7 +303,7 @@ export default function WeaponsClient({ requestedItem, officialItems = [] }: { r
         return (
           <div 
             key={w.id} 
-            className={`bg-slate-900/30 border rounded-2xl overflow-hidden shadow-lg transition-all duration-300 cursor-pointer flex flex-col justify-between ${
+            className={`bg-slate-900/30 border rounded-2xl overflow-hidden shadow-lg transition-all duration-300 flex flex-col justify-between ${
               isSelected 
                 ? "border-[#F2A900] shadow-[0_0_15px_rgba(242,169,0,0.15)] bg-slate-900/50 transform -translate-y-1" 
                 : "border-slate-850 hover:-translate-y-0.5 hover:border-slate-700"
@@ -509,6 +525,15 @@ export default function WeaponsClient({ requestedItem, officialItems = [] }: { r
                     <RotateCcw className="w-3 h-3" />
                     부품 일괄 제거
                   </button>
+                  {onToggleCompare && simulatedStats && <button type="button" aria-pressed={buildCompared} disabled={!buildCompared && compareFull}
+                    onClick={() => onToggleCompare({
+                      key: buildKey, item: selectedOfficialItem,
+                      name: equippedPartIds.length ? `${selectedWeapon.name} (파츠 ${equippedPartIds.length})` : selectedWeapon.name,
+                      build: { parts: equippedPartIds.map((id) => attachmentMap[id].name), damage: selectedWeapon.damage ?? null, bulletSpeed: selectedWeapon.bullet_speed ?? null, stats: simulatedStats },
+                    })}
+                    className="min-h-11 rounded-lg border border-slate-700 px-2.5 py-1.5 text-[11px] font-black text-slate-200 hover:border-[#F2A900] disabled:cursor-not-allowed disabled:opacity-50">
+                    {buildCompared ? "비교에서 빼기" : compareFull ? "비교 목록 가득 참" : "현재 구성 비교에 추가"}
+                  </button>}
                 </div>
 
                 {/* 파츠 슬롯별 장착 리스트 팝오버 확장 영역 */}
@@ -583,6 +608,7 @@ export default function WeaponsClient({ requestedItem, officialItems = [] }: { r
                         <span className="text-slate-400 font-semibold">데미지 (기본)</span>
                         <span className="text-red-400 font-black">{selectedWeapon.damage}</span>
                       </div>
+                      {officialDamage !== null && officialDamage !== selectedWeapon.damage && <p className="mb-1 text-[11px] text-amber-300">공식 도감 발 당 데미지는 {officialDamage}입니다. BGMS 기본 수치가 최신 패치와 다를 수 있습니다.</p>}
                       <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
                         <div className="bg-red-500 h-1.5 rounded-full" style={{ width: `${Math.min((selectedWeapon.damage / 105) * 100, 100)}%` }}></div>
                       </div>
@@ -675,18 +701,21 @@ export default function WeaponsClient({ requestedItem, officialItems = [] }: { r
                           )}
                         </div>
                       </div>
-                      <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden relative">
+                      {simulatedStats.capacity !== null && <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden relative">
                         <div 
                           className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300" 
-                          style={{ width: `${Math.min(((simulatedStats.capacity ?? 0) / 100) * 100, 100)}%` }}
+                          style={{ width: `${Math.min((simulatedStats.capacity / 100) * 100, 100)}%` }}
                         ></div>
-                      </div>
+                      </div>}
                     </div>
                   </div>
                 )}
 
                 <p className="text-xs leading-5 text-slate-400">호환은 수집된 공식 무기별 부착물 목록과 일치하는 BGMS 파츠만 표시합니다. 목록이나 파츠 식별이 없으면 장착을 허용하지 않습니다.</p>
-                {!selectedOfficialItem && <p className="mt-2 text-xs text-amber-300">이 무기의 공식 호환 자료를 확인할 수 없습니다.</p>}
+                {!selectedOfficialItem && <p role="status" className="mt-2 text-xs text-amber-300">{officialStatus === "loading" ? "공식 호환 자료를 불러오는 중입니다. 완료되면 장착 가능한 슬롯이 열립니다."
+                  : officialStatus === "error" ? "공식 도감을 불러오지 못해 파츠 장착을 막았습니다. 위 도감에서 다시 시도해 주세요."
+                  : "공식 도감에서 이 무기 항목을 찾지 못해 파츠 장착을 막았습니다."}</p>}
+                {missingOfficialParts.length > 0 && <p className="mt-2 text-xs leading-5 text-slate-300">공식 도감상 장착 가능하지만 BGMS 파츠 자료가 없어 고를 수 없는 부착물: {missingOfficialParts.map((part) => `${SLOT_LABELS[part.slot]} ${part.name}`).join(", ")}</p>}
                 {selectedWeapon.id === "ar_m416" && <a className="mt-2 text-xs text-amber-300 underline" href={CAPACITY_SOURCE} target="_blank" rel="noreferrer">탄창 용량 확인 근거: 공식 15.1 패치 노트 (현재 게임 실측 아님)</a>}
                 <p className="mt-2 text-xs text-slate-300">BGMS 무기 패치 적용: {selectedWeapon.patch_version || "버전 미확인"}{selectedWeapon.patch_applied_at ? ` · 적용일 ${new Date(selectedWeapon.patch_applied_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}` : " · 적용일 미확인"}</p>
                 <p className="mt-1 text-xs text-slate-400">파츠 보정 수치의 적용 버전은 별도로 확인되지 않았습니다.</p>

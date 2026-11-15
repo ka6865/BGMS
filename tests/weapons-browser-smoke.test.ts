@@ -140,6 +140,8 @@ describe.skipIf(process.env.RUN_WEAPONS_BROWSER_SMOKE !== "true")("도감 실제
       await page.waitForFunction((selector: string) => document.querySelectorAll(selector + " button").length === 1, {}, list);
       await page.focus(`${list} button`); await page.keyboard.press("Enter");
       await page.waitForSelector(`${catalog} article`, { visible: true });
+      await button(page, "비교에 추가", catalog);
+      await page.waitForSelector(`${catalog} button[aria-pressed="true"]::-p-text(비교에서 빼기)`);
       await button(page, "이 무기로 파츠 설정", catalog);
       await page.waitForSelector('[aria-label="탄창 파츠 선택"]');
       expect(await page.$eval('[aria-label="무기 파츠 조작 영역"] h2', (element) => element.textContent)).toContain("M416");
@@ -151,6 +153,8 @@ describe.skipIf(process.env.RUN_WEAPONS_BROWSER_SMOKE !== "true")("도감 실제
       await page.click('[aria-label="조준경 파츠 선택"]');
       expect(await page.$('button::-p-text(8배율 CQBSS 스코프)')).toBeNull();
       await button(page, "4배율 ACOG 스코프", "button");
+      // 장착 후 다음 프레임에 조준경 슬롯으로 포커스가 돌아온 뒤 탄창 슬롯으로 옮긴다.
+      await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "조준경 파츠 선택");
       await page.focus('[aria-label="탄창 파츠 선택"]'); await page.keyboard.press("Enter");
       await button(page, "대용량 퀵드로우 탄창", "button");
       await page.waitForSelector('[aria-label="탄창 파츠 선택"][aria-expanded="false"]');
@@ -158,6 +162,14 @@ describe.skipIf(process.env.RUN_WEAPONS_BROWSER_SMOKE !== "true")("도감 실제
       expect(await page.$eval('#weapon-simulator', (element) => element.textContent)).toContain("재장전 시간 지표70");
       await checkLayout(page);
       await page.screenshot({ path: `tmp/weapons-browser-qa/simulator-${viewport.width}.png`, fullPage: true });
+      // 도감 항목과 시뮬레이터 구성을 한 비교표에 모은다. 넓은 표는 자체 가로 스크롤로 처리한다.
+      await button(page, "현재 구성 비교에 추가", "#weapon-simulator");
+      await page.waitForFunction(() => document.querySelectorAll('section[aria-labelledby="weapon-compare-title"] thead th').length === 3);
+      expect(await page.$eval('#weapon-compare-title', (element) => element.textContent)).toContain("(2/4)");
+      expect(await page.$eval('section[aria-labelledby="weapon-compare-title"]', (element) => element.textContent)).toContain("4배율 ACOG 스코프, AR 보정기, 대용량 퀵드로우 탄창");
+      await checkLayout(page);
+      const compare = await page.$('section[aria-labelledby="weapon-compare-title"]');
+      await compare!.screenshot({ path: `tmp/weapons-browser-qa/compare-${viewport.width}.png` });
       await button(page, "다른 무기 선택·BGMS 수치 보기", "summary");
       await checkLayout(page);
       const choose = await page.waitForSelector('details button[aria-label="AKM 파츠 설정"]', { visible: true });
@@ -172,7 +184,8 @@ describe.skipIf(process.env.RUN_WEAPONS_BROWSER_SMOKE !== "true")("도감 실제
       await button(page, "다른 무기 선택·BGMS 수치 보기", "summary");
       // 탭을 왕복해도 도감 검색/필터와 파츠 선택을 보존한다.
       await button(page, "탈것", 'nav[aria-label="도감 분류"] button');
-      await page.waitForSelector('section[aria-label="탈것 목록"] select');
+      // 탈것은 탭을 처음 열 때 조회하므로 목록이 채워진 뒤 필터를 고른다.
+      await page.waitForSelector('section[aria-label="탈것 목록"] [aria-label="항목 선택"] button');
       await page.select('section[aria-label="탈것 목록"] select', "water");
       expect(await page.$$eval('section[aria-label="탈것 목록"] [aria-label="항목 선택"] button', (elements) => elements.map((element) => element.textContent?.trim()))).toEqual(["보트"]);
       await button(page, "무기", 'nav[aria-label="도감 분류"] button');

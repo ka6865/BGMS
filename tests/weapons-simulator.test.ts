@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OfficialItem } from "@/lib/patch-notes/officialCatalog";
-import { getExtendedCapacity, getMagazineKind, getSupportedSlots, getWeaponBaseCapacity, isAttachmentCompatible, resolveOfficialWeaponId, simulateWeapon, type SimulatorAttachment } from "@/lib/weapons/simulator";
+import { getExtendedCapacity, getMagazineKind, getMissingOfficialParts, getOfficialDamage, getOfficialSpec, getSupportedSlots, getWeaponBaseCapacity, isAttachmentCompatible, resolveOfficialWeaponId, simulateWeapon, type SimulatorAttachment } from "@/lib/weapons/simulator";
 import officialWeapons from "./fixtures/catalog/simulator-weapons.json";
 import storedAttachments from "./fixtures/catalog/simulator-attachments.json";
 
@@ -99,5 +99,22 @@ describe("탄창 종류와 상대 지표 계산", () => {
   it("하한 적용 후 표시 차이를 계산하고 비정상 보정을 무시한다", () => {
     const result = simulateWeapon("ar_m416", official("m416"), [part("수직 손잡이", "grip", { vertical_recoil: -90, horizontal_recoil: NaN }), part("전술 개머리판", "stock", { vertical_recoil: -40, reload_speed: -90 })]);
     expect(result).toMatchObject({ verticalRecoil: 30, verticalDiff: -70, horizontalRecoil: 100, horizontalDiff: 0, reloadSpeed: 40, reloadDiff: -60 });
+  });
+});
+
+describe("공식 자료 대조", () => {
+  it("공식상 장착 가능하지만 BGMS 파츠가 없는 부착물만 골라낸다", () => {
+    const missing = getMissingOfficialParts(official("m416"), storedAttachments);
+    expect(missing).toContainEqual({ slot: "grip", name: "레이저 사이트" });
+    expect(missing).toContainEqual({ slot: "magazine", name: "대용량 탄창(AR, DMR, LMG, S12K)" });
+    expect(missing.some((part) => part.name === "틸티드 그립" || part.name.startsWith("보정기"))).toBe(false);
+    expect(getMissingOfficialParts(null, storedAttachments)).toEqual([]);
+  });
+  it("공식 발 당 데미지는 숫자일 때만 읽고 100 상한값은 비교에서 제외한다", () => {
+    const item = (value: string) => ({ ...official("m416"), specs: { "발 당 데미지": value } });
+    expect(getOfficialDamage(item("40"))).toBe(40);
+    expect(getOfficialDamage(item("100"))).toBeNull();
+    expect(getOfficialDamage(item("미확인"))).toBeNull();
+    expect(getOfficialSpec(item("40"), "안정성")).toBeNull();
   });
 });

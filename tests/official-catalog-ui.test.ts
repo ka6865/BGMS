@@ -162,4 +162,25 @@ describe("공식 도감 탐색", () => {
     resolve(catalog([]));
     await waitFor(() => expect(screen.getByText("아직 등록된 공식 정보가 없습니다.")).toBeVisible());
   });
+
+  it("공식 수정일 접두어를 한 번만 표시하고 비교 추가·한도를 반영한다", async () => {
+    mocks.query.mockResolvedValue(catalog([{ ...weapons[0], updated: "마지막 업데이트: 2026-04-08" }]));
+    const onToggleCompare = vi.fn();
+    const { rerender } = render(createElement(OfficialCatalog, { category: "weapons", onToggleCompare, comparedKeys: [], compareFull: false }));
+    expect(await screen.findByText("공식 항목 수정일: 2026-04-08")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "비교에 추가" }));
+    expect(onToggleCompare).toHaveBeenCalledWith(expect.objectContaining({ key: "m416" }));
+    rerender(createElement(OfficialCatalog, { category: "weapons", onToggleCompare, comparedKeys: [], compareFull: true }));
+    expect(screen.getByRole("button", { name: "비교 목록이 가득 찼습니다" })).toBeDisabled();
+    rerender(createElement(OfficialCatalog, { category: "weapons", onToggleCompare, comparedKeys: ["official:m416"], compareFull: true }));
+    expect(screen.getByRole("button", { name: "비교에서 빼기" })).toBeEnabled();
+  });
+
+  it("조회 실패를 호출부에 알린다", async () => {
+    mocks.query.mockResolvedValue({ data: null, error: { message: "fail" } });
+    const onLoadError = vi.fn();
+    render(createElement(OfficialCatalog, { category: "weapons", onLoadError }));
+    await screen.findByRole("alert");
+    expect(onLoadError).toHaveBeenCalledTimes(1);
+  });
 });

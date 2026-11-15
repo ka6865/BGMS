@@ -50,4 +50,25 @@ describe("공식 선택 전달과 파츠 UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "탄창 파츠 제거" }));
     expect(screen.getByText("30발")).toBeTruthy();
   });
+  it("공식 도감 상태별 장착 차단 사유와 BGMS 파츠 누락을 구분해 안내한다", async () => {
+    const { rerender } = render(createElement(WeaponsClient, { officialItems: [], officialStatus: "loading" }));
+    expect(await screen.findByText(/공식 호환 자료를 불러오는 중입니다/)).toBeTruthy();
+    rerender(createElement(WeaponsClient, { officialItems: [], officialStatus: "error" }));
+    expect(screen.getByText(/공식 도감을 불러오지 못해 파츠 장착을 막았습니다/)).toBeTruthy();
+    rerender(createElement(WeaponsClient, { officialItems: officialWeapons, officialStatus: "ready" }));
+    expect(await screen.findByText(/BGMS 파츠 자료가 없어 고를 수 없는 부착물: .*손잡이 레이저 사이트/)).toBeTruthy();
+  });
+  it("공식 데미지와 다른 기본 수치를 표시하고 현재 구성을 비교로 넘긴다", async () => {
+    const onToggleCompare = vi.fn();
+    const withDamage = officialWeapons.map((item) => item.key === "m416" ? { ...item, specs: { "발 당 데미지": "40" } } : item) as OfficialItem[];
+    render(createElement(WeaponsClient, { requestedItem: official("m416"), officialItems: withDamage, onToggleCompare }));
+    expect(await screen.findByText(/공식 도감 발 당 데미지는 40입니다/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "총구 파츠 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: /AR 보정기/ }));
+    fireEvent.click(screen.getByRole("button", { name: "현재 구성 비교에 추가" }));
+    expect(onToggleCompare).toHaveBeenCalledWith(expect.objectContaining({
+      key: "build:ar_m416:ar_compensator", name: "M416 (파츠 1)",
+      build: expect.objectContaining({ parts: ["AR 보정기"], damage: 41, stats: expect.objectContaining({ verticalRecoil: 85 }) }),
+    }));
+  });
 });

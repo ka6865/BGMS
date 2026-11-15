@@ -7,11 +7,22 @@ import type { OfficialItem } from "@/lib/patch-notes/officialCatalog";
 type AddOn = { name?: string; description?: string };
 type AddOnGroup = { categories?: { name?: string; addOns?: AddOn[] }[] };
 
-type Props = { category: "weapons" | "vehicles"; onConfigureWeapon?: (item: OfficialItem) => void; onItemsLoaded?: (items: OfficialItem[]) => void };
+type Props = {
+  category: "weapons" | "vehicles";
+  onConfigureWeapon?: (item: OfficialItem) => void;
+  onItemsLoaded?: (items: OfficialItem[]) => void;
+  onLoadError?: () => void;
+  onToggleCompare?: (item: OfficialItem) => void;
+  comparedKeys?: readonly string[];
+  compareFull?: boolean;
+};
 const UNKNOWN = "__unknown__";
+// 공식 원문 updateDate에 이미 "마지막 업데이트:" 접두어가 붙어 있어 라벨 중복을 막는다.
+const officialUpdated = (value: string) => value.replace(/^\s*마지막 업데이트\s*:\s*/, "").trim() || "미확인";
+export const compareKey = (item: OfficialItem) => `official:${item.key}`;
 const classification = (item: OfficialItem) => typeof item.category?.key === "string" && item.category.key.trim() && typeof item.category.name === "string" && item.category.name.trim() ? item.category : undefined;
 
-export default function OfficialCatalog({ category, onConfigureWeapon, onItemsLoaded }: Props) {
+export default function OfficialCatalog({ category, onConfigureWeapon, onItemsLoaded, onLoadError, onToggleCompare, comparedKeys = [], compareFull = false }: Props) {
   const [items, setItems] = useState<OfficialItem[] | null>(null);
   const [source, setSource] = useState("");
   const [fetchedAt, setFetchedAt] = useState("");
@@ -41,15 +52,15 @@ export default function OfficialCatalog({ category, onConfigureWeapon, onItemsLo
     let live = true;
     supabase.from("official_game_catalog").select("items,source_url,fetched_at").eq("category", category).maybeSingle().then(({ data, error }) => {
       if (!live) return;
-      if (error) setError(true);
+      if (error) { setError(true); onLoadError?.(); }
       else {
         const loaded = (data?.items ?? []) as OfficialItem[];
         setItems(loaded); setSource(data?.source_url ?? ""); setFetchedAt(data?.fetched_at ?? "");
         onItemsLoaded?.(loaded);
       }
-    }, () => { if (live) setError(true); });
+    }, () => { if (live) { setError(true); onLoadError?.(); } });
     return () => { live = false; };
-  }, [category, retry, onItemsLoaded]);
+  }, [category, retry, onItemsLoaded, onLoadError]);
   const types = new Map((items ?? []).map((item) => {
     const type = classification(item);
     return [type?.key ?? UNKNOWN, type?.name ?? "분류 미확인"];
@@ -92,8 +103,12 @@ export default function OfficialCatalog({ category, onConfigureWeapon, onItemsLo
       </div>
       {active && <article ref={detailRef} tabIndex={-1} className={`min-w-0 scroll-mt-20 border border-zinc-800 bg-[#171717] p-5 sm:p-6 ${mobileDetail ? "block" : "hidden lg:block"}`} aria-label={`${active.name} 상세 정보`}>
         <button type="button" onClick={() => setMobileDetail(false)} className="mb-4 min-h-11 px-2 text-sm text-amber-400 underline lg:hidden">목록으로 돌아가기</button>
-        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs text-amber-400">{classification(active)?.name ?? "분류 미확인"}</p><h3 className="mt-1 text-2xl font-black text-white">{active.name}</h3></div><span className="text-right text-xs text-zinc-400">공식 항목 수정일: {active.updated || "미확인"}</span></div>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs text-amber-400">{classification(active)?.name ?? "분류 미확인"}</p><h3 className="mt-1 text-2xl font-black text-white">{active.name}</h3></div><span className="text-right text-xs text-zinc-400">공식 항목 수정일: {officialUpdated(active.updated)}</span></div>
         {category === "weapons" && onConfigureWeapon && <button type="button" onClick={() => onConfigureWeapon(active)} className="mt-4 min-h-11 rounded border border-amber-400 px-4 py-2 text-sm font-bold text-amber-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400">이 무기로 파츠 설정</button>}
+        {category === "weapons" && onToggleCompare && (() => {
+          const compared = comparedKeys.includes(compareKey(active));
+          return <button type="button" aria-pressed={compared} disabled={!compared && compareFull} onClick={() => onToggleCompare(active)} className="ml-2 mt-4 min-h-11 rounded border border-zinc-600 px-4 py-2 text-sm font-bold text-zinc-200 hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400">{compared ? "비교에서 빼기" : compareFull ? "비교 목록이 가득 찼습니다" : "비교에 추가"}</button>;
+        })()}
         <div className="my-5 flex h-44 items-center justify-center bg-[#111] sm:h-52">{imageUrl && <img src={imageUrl} alt={active.name} className="max-h-full max-w-full object-contain" />}</div>
         {description && <p className="mb-4 text-sm leading-6 text-zinc-300">{description}</p>}
         {active.ammunition && <p className="mb-3 text-sm text-zinc-300">탄약 <strong className="ml-2 text-white">{active.ammunition}</strong></p>}

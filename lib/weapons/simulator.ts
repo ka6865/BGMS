@@ -80,15 +80,40 @@ function partIdentity(name: string, slot: string): string {
   return normalized;
 }
 
-export function isAttachmentCompatible(item: OfficialItem | null | undefined, attachment: SimulatorAttachment): boolean {
-  if (!attachment.slot) return false;
+function attachmentIdentity(attachment: SimulatorAttachment): string | null {
+  if (!attachment.slot) return null;
   const identity = ATTACHMENT_IDENTITIES[attachment.id];
-  if (identity && identity.slot !== attachment.slot) return false;
-  return officialParts(item, attachment.slot).some((part) => partIdentity(part.name, attachment.slot!) === partIdentity(identity?.name ?? attachment.name, attachment.slot!));
+  if (identity && identity.slot !== attachment.slot) return null;
+  return partIdentity(identity?.name ?? attachment.name, attachment.slot);
+}
+
+export function isAttachmentCompatible(item: OfficialItem | null | undefined, attachment: SimulatorAttachment): boolean {
+  const identity = attachmentIdentity(attachment);
+  return !!identity && officialParts(item, attachment.slot!).some((part) => partIdentity(part.name, attachment.slot!) === identity);
 }
 
 export function getSupportedSlots(item: OfficialItem | null | undefined, attachments: readonly SimulatorAttachment[]): string[] {
   return Object.keys(SLOT_NAMES).filter((slot) => attachments.some((part) => part.slot === slot && isAttachmentCompatible(item, part)));
+}
+
+// 공식 도감에는 장착 가능하다고 나오지만 BGMS 파츠 자료에 대응 항목이 없는 부착물. 장착 불가와 자료 누락을 구분해 안내한다.
+export function getMissingOfficialParts(item: OfficialItem | null | undefined, attachments: readonly SimulatorAttachment[]): { slot: string; name: string }[] {
+  return Object.keys(SLOT_NAMES).flatMap((slot) => {
+    const known = new Set(attachments.filter((part) => part.slot === slot).map(attachmentIdentity));
+    return officialParts(item, slot).filter((part) => !known.has(partIdentity(part.name, slot))).map((part) => ({ slot, name: part.name }));
+  });
+}
+
+export const OFFICIAL_SPEC_KEYS = ["발 당 데미지", "초 당 데미지(DPS)", "연사속도", "안정성", "유효사거리", "탄속"] as const;
+export function getOfficialSpec(item: OfficialItem | null | undefined, key: string): number | null {
+  const value = Number(item?.specs?.[key]);
+  return item?.specs?.[key] !== undefined && Number.isFinite(value) ? value : null;
+}
+
+// 공식 도감의 발 당 데미지는 막대 표시용이라 100에서 잘린다. 100은 실제 수치로 비교하지 않는다.
+export function getOfficialDamage(item: OfficialItem | null | undefined): number | null {
+  const damage = getOfficialSpec(item, "발 당 데미지");
+  return damage !== null && damage < 100 ? damage : null;
 }
 
 export type MagazineKind = "quickdraw" | "extended" | "extendedQuickdraw";
