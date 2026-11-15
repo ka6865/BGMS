@@ -11,7 +11,12 @@ export type SquadObservation = {
   smokeRescues: number | null;
   tradeKills: number | null;
   tradeLatencyTotalMs: number | null;
+  // 잡을 수 있었던 기절: 적 플레이어가 100m 안에서 눕힌 기절과, 그 적을 30초 안에 팀원이 잡은 수. 이전 분석 결과에는 없다.
+  eligibleKnocks?: number | null;
+  eligibleTradeKills?: number | null;
 };
+// 공격자와 쓰러진 아군의 거리가 이 안이어야 백업으로 잡을 수 있었던 기절로 본다(cm).
+const TRADE_ELIGIBLE_MAX_DISTANCE_CM = 10_000;
 type Point = { x: number; y: number; z: number };
 type Knock = { ts: number; point: Point | null; smokes: Array<Point | null> };
 type TelemetryEvent = Record<string, any>;
@@ -29,7 +34,7 @@ export class SquadObservationCollector {
   private readonly team: Set<string>;
   private readonly issues = new Set<string>();
   private readonly knocks = new Map<string, Knock>();
-  private readonly revenge = new Map<string, { ts:number; victim:string }>();
+  private readonly revenge = new Map<string, { ts:number; victim:string; eligible:boolean }>();
   private readonly dead = new Set<string>();
   private readonly revived = new Set<string>();
   private readonly creditedKills = new Set<string>();
@@ -43,6 +48,9 @@ export class SquadObservationCollector {
   private smokeComplete = true;
   private tradeCount = 0;
   private tradeTotalMs = 0;
+  private eligibleKnockCount = 0;
+  private eligibleTradeCount = 0;
+  private eligibleComplete = true;
   constructor(teamAccountIds: ReadonlySet<string>, private readonly mode: string) {
     this.team = new Set([...teamAccountIds].filter(value=>typeof value==='string' && value.trim()));
   }
@@ -79,7 +87,15 @@ export class SquadObservationCollector {
       this.revived.delete(victim);
       this.knockCount++;
       this.knocks.set(victim,{ ts,point:point(e.victim),smokes:[] });
-      if (attacker && !this.team.has(attacker)) this.revenge.set(attacker,{ts,victim});
+      if (attacker && !this.team.has(attacker)) {
+        const from = point(e.attacker), to = point(e.victim);
+        const distance = from && to ? Math.hypot(from.x-to.x,from.y-to.y,from.z-to.z)
+          : finite(e.distance) && e.distance>=0 ? e.distance : null;
+        if (distance===null) this.eligibleComplete = false;
+        const eligible = distance!==null && distance<=TRADE_ELIGIBLE_MAX_DISTANCE_CM;
+        if (eligible) this.eligibleKnockCount++;
+        this.revenge.set(attacker,{ts,victim,eligible});
+      }
       else if (!attacker && !/groggy|bluezone|redzone|fall|drown/i.test(e.damageTypeCategory||'')) this.issues.add('missing_knock_attacker');
       return;
     }
@@ -93,6 +109,7 @@ export class SquadObservationCollector {
         if (this.team.has(killer) && !this.team.has(victim) && prior && killer!==prior.victim
           && ts>=prior.ts && ts-prior.ts<30_000) {
           this.tradeCount++; this.tradeTotalMs+=ts-prior.ts;
+          if (prior.eligible) this.eligibleTradeCount++;
         }
         this.revenge.delete(victim);
       }
@@ -141,7 +158,9 @@ export class SquadObservationCollector {
     return { version:SQUAD_OBSERVATION_VERSION,scope:'squad',teamAccountIds:[...this.team].sort(),status,issues,
       knocks:observed?this.knockCount:null,revives:observed?this.reviveCount:null,
       smokeRescues:observed&&this.smokeComplete?this.smokeCount:null,
-      tradeKills:observed?this.tradeCount:null,tradeLatencyTotalMs:observed?this.tradeTotalMs:null };
+      tradeKills:observed?this.tradeCount:null,tradeLatencyTotalMs:observed?this.tradeTotalMs:null,
+      eligibleKnocks:observed&&this.eligibleComplete?this.eligibleKnockCount:null,
+      eligibleTradeKills:observed&&this.eligibleComplete?this.eligibleTradeCount:null };
   }
 }
 
@@ -166,14 +185,21 @@ export function aggregateSquadObservations(matches: Array<{matchId:string;observ
     && count(row.knocks) && count(row.revives) && row.revives<=row.knocks
     && count(row.tradeKills) && row.tradeKills<=row.knocks && count(row.tradeLatencyTotalMs)
     && (row.tradeKills===0 ? row.tradeLatencyTotalMs===0 : row.tradeLatencyTotalMs<row.tradeKills*30_000)
-    && (row.smokeRescues===null || count(row.smokeRescues)&&row.smokeRescues<=row.revives));
+    && (row.smokeRescues===null || count(row.smokeRescues)&&row.smokeRescues<=row.revives)
+    && ((row.eligibleKnocks ?? null)===null && (row.eligibleTradeKills ?? null)===null
+      || count(row.eligibleKnocks) && count(row.eligibleTradeKills) && row.eligibleKnocks<=row.knocks
+        && row.eligibleTradeKills<=row.eligibleKnocks && row.eligibleTradeKills<=row.tradeKills));
   const sum = (key:'knocks'|'revives'|'smokeRescues'|'tradeKills'|'tradeLatencyTotalMs'):number|null => {
     if (!valid || values.some(row=>row![key]===null)) return null;
     const total=values.reduce((n,row)=>n+row![key]!,0);
     return Number.isSafeInteger(total)?total:null;
   };
   const trades=sum('tradeKills'),latency=sum('tradeLatencyTotalMs');
+  // 이전 분석 결과에는 잡을 수 있었던 기절 값이 없어, 값이 있는 경기만 따로 합친다.
+  const eligibleRows = valid ? values.filter(row=>count(row!.eligibleKnocks)) : [];
+  const eligibleSum = (key:'eligibleKnocks'|'eligibleTradeKills') => eligibleRows.length ? eligibleRows.reduce((n,row)=>n+row![key]!,0) : null;
   return { scope:'squad' as const,version:SQUAD_OBSERVATION_VERSION,status:valid?'observed' as const:'missing' as const,
     matchCount:values.length,knocks:sum('knocks'),revives:sum('revives'),smokeRescues:sum('smokeRescues'),tradeKills:trades,
-    avgTradeLatency:trades!==null&&trades>0&&latency!==null?latency/trades:null };
+    avgTradeLatency:trades!==null&&trades>0&&latency!==null?latency/trades:null,
+    eligibleMatchCount:eligibleRows.length,eligibleKnocks:eligibleSum('eligibleKnocks'),eligibleTradeKills:eligibleSum('eligibleTradeKills') };
 }

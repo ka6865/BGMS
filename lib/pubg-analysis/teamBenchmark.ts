@@ -10,6 +10,10 @@ export type TeamBenchmarkRow = {
   smoke_sample_team_matches: number;
   smoke_knocks: number;
   smoke_rescues: number;
+  // 잡을 수 있었던 기절 집계. migration 적용 전 행에는 없어 선택 값이다.
+  tradeable_sample_team_matches?: number;
+  tradeable_knocks?: number;
+  tradeable_trade_kills?: number;
 };
 
 export type TeamBenchmarkStats = {
@@ -22,6 +26,7 @@ export type TeamBenchmarkStats = {
   avgReviveRate: number | null;
   avgSmokeRate: number | null;
   avgTeammateKnocks: number | null;
+  avgTradeableTradeRate: number | null;
   avgTeamWipes: null;
 };
 
@@ -51,7 +56,21 @@ export function sumTeamBenchmarkRows(rows: readonly (TeamBenchmarkRow | null | u
     }
     total[key] = sum;
   }
+  // 잡을 수 있었던 기절 열이 하나라도 없으면 그 비교값만 비우고 나머지는 그대로 쓴다.
+  for (const key of ["tradeable_sample_team_matches", "tradeable_knocks", "tradeable_trade_kills"] as const) {
+    const values = valid.map((row) => nonNegative(row[key]));
+    if (values.every((value): value is number => value !== null)) total[key] = values.reduce((sum, value) => sum + value, 0);
+  }
   return total;
+}
+
+// 잡을 수 있었던 기절 대비 복수 성공 비율. 값이 기록된 경기가 표본 기준 미만이면 비교하지 않는다.
+function tradeableRate(row: TeamBenchmarkRow): number | null {
+  const sample = nonNegative(row.tradeable_sample_team_matches);
+  const knocks = nonNegative(row.tradeable_knocks);
+  const trades = nonNegative(row.tradeable_trade_kills);
+  if (sample === null || sample < TEAM_BENCHMARK_MIN_SAMPLE || !knocks || trades === null || trades > knocks) return null;
+  return percent(trades, knocks);
 }
 
 export function toTeamBenchmarkStats(row: TeamBenchmarkRow | null | undefined, teamMode: "duo" | "squad"): TeamBenchmarkStats | null {
@@ -76,6 +95,7 @@ export function toTeamBenchmarkStats(row: TeamBenchmarkRow | null | undefined, t
     avgSmokeRate: smokeSample !== null && smokeSample >= TEAM_BENCHMARK_MIN_SAMPLE && smokeKnocks && smokeRescues !== null
       && smokeRescues <= smokeKnocks ? percent(smokeRescues, smokeKnocks) : null,
     // 팀 경기당 아군 기절 수. 자기장·낙하 기절도 실제로 쓰러진 횟수라 함께 센다.
+    avgTradeableTradeRate: tradeableRate(row),
     avgTeammateKnocks: sample > 0 ? Math.round((knocks / sample) * 10) / 10 : null,
     avgTeamWipes: null,
   };

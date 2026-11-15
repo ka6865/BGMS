@@ -94,6 +94,22 @@ describe("squad punchline team facts", () => {
     expect(smoke(5, 40)?.fact).not.toMatch(/%|비율|률|아꼈|안 쓰|던졌/);
   });
 
+  it("compares the tradeable trade rate to the population rate", () => {
+    const trade = (totalTradeableKnocks: number | null, totalTradeableTradeKills: number, avgTradeableTradeRate: number | null = 30) =>
+      selectSquadPunchlines(teamInput({
+        stats: { ...teamInput().stats, totalTradeableKnocks, totalTradeableTradeKills },
+        benchmarkStats: { ...teamInput().benchmarkStats, avgTradeableTradeRate },
+      })).find((item) => item.metric === "tradeableTradeRate");
+    expect(trade(12, 1)).toMatchObject({ id: "trade_rate_low", kind: "roast",
+      fact: "100m 안에서 적에게 눕은 아군 기절 12회 중 1회를 30초 안에 갚아 복수 성공률 8.3%, 전체 팀 평균 30%로 평균보다 낮습니다." });
+    expect(trade(12, 6)).toMatchObject({ id: "trade_rate_high", kind: "hype" });
+    expect(trade(12, 4)).toBeUndefined();
+    expect(trade(9, 0)).toBeUndefined();
+    expect(trade(null, 0)).toBeUndefined();
+    expect(trade(12, 1, null)).toBeUndefined();
+    expect(trade(12, 1)?.fact).not.toMatch(/백업|속도|시간/);
+  });
+
   it("compares knocks per match to the population average", () => {
     const knocks = (totalTeammateKnocks: number, observedMatchCount: number | null, avgTeammateKnocks: number | null = 4.5) =>
       selectSquadPunchlines(teamInput({
@@ -366,5 +382,17 @@ describe("매운맛 한마디", () => {
     expect(promptFor("spicy").prompt).toContain("→ 한마디:");
     expect(promptFor("mild").prompt).not.toContain("한마디");
     expect(promptFor("spicy").systemInstruction).toContain("must contain that 한마디");
+  });
+});
+
+describe("tradeable trade rate facts survive the evidence policy", () => {
+  it("keeps the banmal fact even when backup latency has too few trades", async () => {
+    const { applySquadEvidencePolicy } = await import("@/lib/pubg-analysis/squadAiEvidence");
+    const fact = toSpicySquadFact("100m 안에서 적에게 눕은 아군 기절 12회 중 1회를 30초 안에 갚아 복수 성공률 8.3%, 전체 팀 평균 30%로 평균보다 낮습니다.");
+    expect(fact.endsWith("낮아.")).toBe(true);
+    const stats = { avgTradeLatency: 8000, totalTradeKills: 1, totalTeammateKnocks: 30, totalRevives: 10, totalSmokeRescues: 1,
+      totalTradeableKnocks: 12, totalTradeableTradeKills: 1 };
+    const result = applySquadEvidencePolicy({ weakness: fact }, stats, null, undefined, [], { coachingStyle: "spicy" });
+    expect(result.weakness).toBe(fact);
   });
 });

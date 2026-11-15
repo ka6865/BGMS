@@ -47,6 +47,9 @@ const MIN_REVIVE_RATE_GAP = 5;
 // 연막 구출 비율은 전체 팀 평균(약 7%)이 낮아 차이 3%p 이상, 성공 2회 이상일 때만 띄운다.
 const MIN_SMOKE_RATE_GAP = 3;
 const SMOKE_RESCUE_HYPE_MIN = 2;
+// 복수 성공률은 잡을 수 있었던 기절(적 플레이어가 100m 안에서 눕힘)이 10회 이상일 때만, 차이 5%p 이상이면 쓴다.
+const MIN_TRADEABLE_KNOCKS = 10;
+const MIN_TRADE_RATE_GAP = 5;
 // 경기당 기절 수는 관측 경기가 3경기 이상일 때만 평균과 비교한다.
 const MIN_KNOCK_MATCHES = 3;
 // 팀 딜 비중 차이가 40%p 이상이면 편차가 극단적인 것으로 본다(예: 73%와 27%는 46%p).
@@ -151,6 +154,31 @@ function teamCandidates(input: SquadPunchlineInput): Candidate[] {
         id: "smoke_rescue_high", kind: "hype", metric: "smokeRescueRate",
         fact: `아군 기절 ${knocks}회 중 연막 구출 ${smokeRescues}회로 전체 팀 평균보다 높습니다.`,
         weight: Math.min(1, gap / benchmarkSmokeRate),
+      });
+    }
+  }
+
+  // 복수 성공률: 잡을 수 있었던 기절 중 30초 안에 팀원이 그 적을 잡은 비율. 원거리·자기장 기절은 분모에서 뺐다.
+  // 근거 후처리가 백업 속도 표본이 모자란 문장의 "백업"을 지우므로 문장에는 "복수 성공률"만 쓴다.
+  const tradeableKnocks = finiteNonNegative(stats.totalTradeableKnocks);
+  const tradeableTrades = finiteNonNegative(stats.totalTradeableTradeKills);
+  const benchmarkTradeRate = finiteNonNegative(benchmark.avgTradeableTradeRate);
+  if (tradeableKnocks !== null && tradeableKnocks >= MIN_TRADEABLE_KNOCKS && tradeableTrades !== null
+    && tradeableTrades <= tradeableKnocks && benchmarkTradeRate !== null && benchmarkTradeRate > 0) {
+    const rate = (tradeableTrades / tradeableKnocks) * 100;
+    const gap = rate - benchmarkTradeRate;
+    const text = `100m 안에서 적에게 눕은 아군 기절 ${tradeableKnocks}회 중 ${tradeableTrades}회를 30초 안에 갚아 복수 성공률 ${formatRate(rate)}, 전체 팀 평균 ${formatRate(benchmarkTradeRate)}`;
+    if (rate * RATIO_THRESHOLD <= benchmarkTradeRate && -gap >= MIN_TRADE_RATE_GAP) {
+      candidates.push({
+        id: "trade_rate_low", kind: "roast", metric: "tradeableTradeRate",
+        fact: `${text}로 평균보다 낮습니다.`,
+        weight: Math.min(1, -gap / benchmarkTradeRate),
+      });
+    } else if (rate >= benchmarkTradeRate * RATIO_THRESHOLD && gap >= MIN_TRADE_RATE_GAP) {
+      candidates.push({
+        id: "trade_rate_high", kind: "hype", metric: "tradeableTradeRate",
+        fact: `${text}로 평균보다 높습니다.`,
+        weight: Math.min(1, gap / benchmarkTradeRate),
       });
     }
   }
@@ -294,6 +322,8 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
 const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
   backup_slow: ["아군 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었어."],
   backup_fast: ["백업만큼은 배달 앱보다 빨랐네."],
+  trade_rate_low: ["코앞에서 아군 눕힌 놈 얼굴은 다 봤을 텐데 복수는 끝내 안 왔어."],
+  trade_rate_high: ["아군 눕힌 놈은 끝까지 쫓아가서 갚았네. 뒤끝 하나는 인정."],
   knocks_many: ["바닥이랑 이렇게 친한 스쿼드는 오랜만이야. 눕는 것도 재능이면 재능이지."],
   knocks_few: ["좀처럼 안 눕는 스쿼드네. 바닥이 서운해하겠어."],
   revive_high: ["일으켜 세우는 손만큼은 평균을 가볍게 넘겼네."],
