@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyMatchAiPercentiles, formatMatchAiPercentileSection, toMatchAiPercentiles } from "@/lib/pubg-analysis/matchAiPercentiles";
-import { applyMatchAiClockPolicy, applyMatchAiSceneRefs, buildMatchAiActionHints, buildMatchAiFlowLines, buildMatchAiSceneCatalog, formatMatchAiSceneLine } from "@/lib/pubg-analysis/matchAiScenes";
+import { applyMatchAiClockPolicy, applyMatchAiSceneRefs, buildMatchAiActionHints, buildMatchAiFlowLines, buildMatchAiSceneCatalog, formatMatchAiSceneLine, unwrapMatchAiJson } from "@/lib/pubg-analysis/matchAiScenes";
 import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
 import { buildMatchAiCoachingPrompt } from "@/lib/pubg-analysis/matchAiCoachingPrompt";
 
@@ -89,6 +89,42 @@ describe("경기 흐름과 경과 시각", () => {
     ]);
     expect(lines.join("\n")).not.toMatch(/Enemy/u);
     expect(buildMatchAiFlowLines({ timeline: [] })).toEqual([]);
+  });
+
+  it("시각 표기로 바꾼 경과 시각은 되돌려 검증하고, 기록에 없는 거리는 숫자만 지운다", () => {
+    const text = JSON.stringify({
+      briefFeedback: ["12시 40분 교전은 졌어.", "13시 01분부터 밀렸어.", "60m 거리에서 쓰러졌고 136미터 거리에서 맞았어."],
+      finalVerdict: "3시 방향 220m 원 밖이었어.",
+    });
+    const parsed = JSON.parse(applyMatchAiClockPolicy(text, match));
+    expect(parsed.briefFeedback).toEqual(["12:40 교전은 졌어.", "밀렸어.", "60m 거리에서 쓰러졌고 거리에서 맞았어."]);
+    expect(parsed.finalVerdict).toBe("3시 방향 220m 원 밖이었어.");
+    const once = applyMatchAiClockPolicy(text, match);
+    expect(applyMatchAiClockPolicy(once, match)).toBe(once);
+    // 프롬프트에 적힌 대열 거리는 문자열로 저장돼 있어도 허용한다.
+    const spaced = { ...match, isolationData: { minDist: "33.7", heightDiff: 2 } };
+    const kept = JSON.stringify({ finalVerdict: "아군과 34m 평균 거리를 유지했어." });
+    expect(applyMatchAiClockPolicy(kept, spaced)).toBe(kept);
+  });
+
+  it("측정하지 않는 판단 단정은 그 쉼표 구간만 지운다", () => {
+    const text = JSON.stringify({ briefFeedback: [
+      "13:10 써드파티로 쓰러졌잖아, 교전 끝나고 방심하다가 누웠네.",
+      "집중력이 부족했어.",
+      "12:40 교전은 졌어. 멘탈이 흔들렸지.",
+    ] });
+    expect(JSON.parse(applyMatchAiClockPolicy(text, match)).briefFeedback).toEqual([
+      "13:10 써드파티로 쓰러졌잖아.",
+      "집중력이 부족했어.",
+      "12:40 교전은 졌어.",
+    ]);
+  });
+
+  it("```json 울타리를 벗겨 근거 정책이 JSON으로 읽게 한다", () => {
+    const fenced = "```json\n{\"finalVerdict\":\"7:15 교전은 졌어.\"}\n```";
+    expect(unwrapMatchAiJson(fenced)).toBe('{"finalVerdict":"7:15 교전은 졌어."}');
+    expect(JSON.parse(applyMatchAiClockPolicy(unwrapMatchAiJson(fenced), match)).finalVerdict).toBe("교전은 졌어.");
+    expect(unwrapMatchAiJson('{"a":1}')).toBe('{"a":1}');
   });
 
   it("차량으로 낸 킬은 사격이 아니라 차량 충돌로 적는다", () => {

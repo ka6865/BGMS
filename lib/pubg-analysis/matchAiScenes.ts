@@ -250,22 +250,64 @@ function allowedMatchClocks(match: unknown): Set<string> {
   return clocks;
 }
 
+/** 응답이 쓸 수 있는 거리(m). 장면·흐름·행동 후보와 프롬프트의 대열 거리에 적힌 값만 허용한다. */
+function allowedMatchDistances(match: unknown): Set<number> {
+  const distances = new Set<number>();
+  for (const scene of buildMatchAiSceneCatalog(match)) if (finite(scene.event.distance)) distances.add(Math.round(scene.event.distance));
+  for (const line of [...buildMatchAiFlowLines(match), ...buildMatchAiActionHints(match)]) {
+    for (const [, value] of line.matchAll(/(\d+(?:\.\d+)?)m/gu)) distances.add(Math.round(Number(value)));
+  }
+  const isolation = (match as { isolationData?: { minDist?: unknown; heightDiff?: unknown } } | null)?.isolationData;
+  // 프롬프트는 문자열 수치도 그대로 적으므로 숫자로 바꿔 비교한다.
+  for (const value of [isolation?.minDist, isolation?.heightDiff]) {
+    const meters = value === null || value === undefined || value === "" ? NaN : Number(value);
+    if (Number.isFinite(meters)) distances.add(Math.round(meters));
+  }
+  return distances;
+}
+
 const CLOCK_FIELDS = ["signature", "signatureSub", "finalVerdict"] as const;
+// 경과 시각을 "13시 01분"처럼 시각 표기로 바꿔 쓰면 m:ss로 되돌린 뒤 같은 규칙으로 검증한다. "3시 방향"은 건드리지 않는다.
+const KOREAN_CLOCK_TOKEN = /(\d{1,2})시\s*(\d{1,2})분/gu;
 // 목록에 없는 시각은 뒤에 붙은 조사까지 지운다. "12:40 교전에서" → "교전에서", "12:40에" → "".
-const CLOCK_TOKEN = /(?:약\s*)?(\d{1,3}:[0-5]\d)(?:\s*(?:초|분))?(?:쯤|경)?(?:에(?:는|서)?|의)?\s*/gu;
+const CLOCK_TOKEN = /(?:약\s*)?(\d{1,3}:[0-5]\d)(?:\s*(?:초|분))?(?:쯤|경)?(?:에(?:는|서)?|의|부터)?\s*/gu;
+// 목록에 없는 거리는 숫자와 단위만 지운다. "136미터 거리에서" → "거리에서". km는 건드리지 않는다.
+const DISTANCE_TOKEN = /(?:약\s*)?(?<![\d.])(\d{1,4}(?:\.\d+)?)\s*(?:m|미터)(?![A-Za-z])(?:\s*(?:정도|쯤))?(?:에서|의|까지|나)?\s*/gu;
 // 장면 ID는 sceneId 필드에만 쓴다. 문장에 섞인 ID는 괄호째 지운다. "교전(KNOCK-1)은" → "교전은".
 const SCENE_ID_TOKEN = new RegExp(`\\s*\\(?\\b(?:${Object.keys(SCENE_LABELS).join("|")})-\\d+\\b\\)?`, "gu");
+// 측정하지 않는 마음가짐·판단을 단정하는 표현. 이 표현이 든 쉼표 구간만 지운다.
+const JUDGMENT_TOKEN = /방심|집중력|멘탈|안일|판단 (?:미스|실수|착오)/u;
+
+/** 쉼표·문장 단위로 나눠 판단 단정 구간을 지운다. 모든 구간이 걸리면 원문을 둔다. */
+function dropJudgmentClauses(value: string): string {
+  if (!JUDGMENT_TOKEN.test(value)) return value;
+  const sentences = value.split(/(?<=[.!?])\s+/u).map((sentence) => {
+    const clauses = sentence.split(/,\s*/u);
+    const kept = clauses.filter((clause) => !JUDGMENT_TOKEN.test(clause));
+    if (kept.length === clauses.length) return sentence;
+    if (kept.length === 0) return "";
+    const joined = kept.join(", ").trim();
+    return /[.!?]$/u.test(joined) ? joined : `${joined}.`;
+  }).filter(Boolean);
+  return sentences.length > 0 ? sentences.join(" ") : value;
+}
 
 /**
- * 응답 문장의 경과 시각을 이 경기의 장면·흐름 시각으로 검증한다. 목록에 없는 시각은 지워
- * 모델이 시점을 지어내지 못하게 하고, 문장에 섞인 장면 ID도 지운다. JSON이 아니면 그대로 둔다. 재적용해도 결과가 같다.
+ * 응답 문장의 경과 시각·거리를 이 경기의 장면·흐름 값으로 검증한다. 목록에 없는 값은 지워 모델이 시점과 거리를
+ * 지어내지 못하게 하고, 문장에 섞인 장면 ID와 측정하지 않는 판단 단정 구간도 지운다. JSON이 아니면 그대로 둔다. 재적용해도 결과가 같다.
  */
 export function applyMatchAiClockPolicy(text: string, match: unknown): string {
   const record = parseRecord(text);
   if (!record) return text;
   const allowed = allowedMatchClocks(match);
+  const distances = allowedMatchDistances(match);
   const scrub = (value: unknown): unknown => (typeof value === "string"
-    ? value.replace(SCENE_ID_TOKEN, "").replace(CLOCK_TOKEN, (token, clock: string) => (allowed.has(clock) ? token : "")).replace(/\s{2,}/gu, " ").trim()
+    ? dropJudgmentClauses(value
+      .replace(SCENE_ID_TOKEN, "")
+      .replace(KOREAN_CLOCK_TOKEN, (_token, minutes: string, seconds: string) => `${Number(minutes)}:${seconds.padStart(2, "0")}`)
+      .replace(CLOCK_TOKEN, (token, clock: string) => (allowed.has(clock) ? token : ""))
+      .replace(DISTANCE_TOKEN, (token, meters: string) => (distances.has(Math.round(Number(meters))) ? token : ""))
+      .replace(/\s{2,}/gu, " ").trim())
     : value);
   const next: Record<string, unknown> = { ...record };
   for (const key of CLOCK_FIELDS) if (key in next) next[key] = scrub(next[key]);
@@ -276,6 +318,11 @@ export function applyMatchAiClockPolicy(text: string, match: unknown): string {
       : item));
   }
   return JSON.stringify(next) === JSON.stringify(record) ? text : JSON.stringify(next);
+}
+
+/** 모델이 응답을 ```json 울타리로 감싸면 근거 정책이 JSON으로 읽지 못하므로 먼저 벗긴다. */
+export function unwrapMatchAiJson(text: string): string {
+  return text.trim().replace(/^```(?:json)?\s*/u, "").replace(/\s*```$/u, "");
 }
 
 /** 화면 칩 문구: 경과 시각과 사건 종류. */
