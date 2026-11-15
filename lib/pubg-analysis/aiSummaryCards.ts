@@ -1,4 +1,4 @@
-import { summaryCardSpicyJab } from "./spicyPunchlines";
+import { summaryCardSpicyJab, toSummarySpicyBanmal } from "./spicyPunchlines";
 import { AI_SUMMARY_HIGHER_IS_BETTER } from "./aiSummaryDebate";
 import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText, summaryAdviceRuleId, summaryInferenceRuleId } from "./aiSummaryJudgment";
 import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
@@ -1341,7 +1341,8 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       comparableRows.length > 0 && comparableRows.every(row => isUnfavorable(row) === false),
       `${serverCard.context.contextId}:${serverCard.topicId}`,
     );
-    sanitizedTexts[1] = [spicyComparison, spicyJab, spicyCheck].filter(Boolean).join(" ");
+    // 매운맛 의견은 단일 경기처럼 반말로 끝낸다. 비교·점검 문장의 내용은 그대로다.
+    sanitizedTexts[1] = toSummarySpicyBanmal([spicyComparison, spicyJab, spicyCheck].filter(Boolean).join(" "));
     sanitizedTexts[2] = buildSummaryCardFactText(serverCard) || comparison || sanitizedTexts[2];
     sanitizedTexts[3] = cardEvaluation(serverCard);
     const readyCard: SummaryCard = {

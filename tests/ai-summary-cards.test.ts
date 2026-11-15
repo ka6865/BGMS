@@ -151,7 +151,7 @@ describe("ai summary v2 card catalog", () => {
     });
     expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete" } });
     // 수치가 든 모델 의견 대신 관측 한계만 쓰고, 수치는 reason에 둔다.
-    expect(result?.final.cards[2]).toMatchObject({ analysisStatus: "ready", kindOpinion: "비교 자료가 없어 관측 기록만 확인했습니다.", spicyOpinion: issues[2].spicyOpinion, reason: "평균 고립 지수: 2.5, 비교 자료 없음.", winner: null });
+    expect(result?.final.cards[2]).toMatchObject({ analysisStatus: "ready", kindOpinion: "비교 자료가 없어 관측 기록만 확인했습니다.", spicyOpinion: "다음 교전 전에 팀원 위치와 함께 대응할 수 있는지 확인해 봐.", reason: "평균 고립 지수: 2.5, 비교 자료 없음.", winner: null });
     expect(parseSummaryCards(result?.final)).not.toBeNull();
   });
 
@@ -418,9 +418,9 @@ describe("ai summary v2 card catalog", () => {
     const result = normalizeSummaryCardFinal(provider, cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => false });
     expect(result?.final.cards[0]).toMatchObject({ winner: expected, analysisStatus: "ready", evidence: cards[0].evidence });
     // 매운맛은 불리한 비교와 점검을, 다정한 코치는 유리한 비교만 말한다.
-    expect(result?.final.cards[0].spicyOpinion).toMatch(/다음 경기에서 교전 연계를 점검하세요\.$/u);
+    expect(result?.final.cards[0].spicyOpinion).toMatch(/다음 경기에서 교전 연계를 점검해\.$/u);
     // 모두 평균 이상이면 매운맛은 비꼬지 않고 인정한 뒤 점검한다.
-    if (expected === "kind") expect(result?.final.cards[0].spicyOpinion).toMatch(/^(?:이 항목은 트집 잡을 데가 없어 매운맛이 머쓱합니다\.|여기는 인정합니다\. 맵게 할 말이 없습니다\.) 다음 경기에서 교전 연계를 점검하세요\.$/u);
+    if (expected === "kind") expect(result?.final.cards[0].spicyOpinion).toMatch(/^(?:이건 트집 잡을 데가 없어서 매운맛이 머쓱하네\.|여기는 인정\. 맵게 할 말이 없어\.) 다음 경기에서 교전 연계를 점검해\.$/u);
     expect(result?.final.cards[0].kindOpinion).not.toMatch(/낮습니다|느립니다/u);
     expect(parseSummaryCards(result?.final)).not.toBeNull();
     expect(result?.final.finalVerdict).not.toContain("조율이 필요");
@@ -459,7 +459,7 @@ describe("ai summary v2 card catalog", () => {
     });
     // 비난 문장은 지워지고, 매운맛 자리는 서버 점검으로 채워 카드를 숨기지 않는다.
     expect(result?.cacheable).toBe(true);
-    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "ready", winner: null, evidence: cards[1].evidence, spicyOpinion: "아군이 기절했을 때 구출 접근이 가능했는지, 연막으로 가릴 수 있는 구간이 있었는지 확인하세요." });
+    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "ready", winner: null, evidence: cards[1].evidence, spicyOpinion: "아군이 기절했을 때 구출 접근이 가능했는지, 연막으로 가릴 수 있는 구간이 있었는지 확인해." });
     expect(JSON.stringify(result?.final)).not.toContain("국 끓여");
     expect(result?.final.cards[0].analysisStatus).toBe("ready");
     expect(result?.final.cards[2].analysisStatus).toBe("ready");
