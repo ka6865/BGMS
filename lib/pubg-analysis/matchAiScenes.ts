@@ -2,6 +2,7 @@
 // 화면은 같은 규칙으로 타임라인에서 장면을 다시 찾는다. 모델은 목록 안에서 ID를 고르기만 한다.
 import { ISOLATION_MIN_DISTANCE_M, type MatchFight, type MatchReport } from "./matchReport";
 import { DEATH_TYPE_LABELS, describeDeath, FIGHT_OUTCOME_LABELS, formatMatchClock } from "./matchReportView";
+import { WEAPON_NAMES } from "./constants";
 import type { TimelineEvent } from "./types";
 
 const SCENE_LABELS: Partial<Record<TimelineEvent["type"], string>> = {
@@ -58,10 +59,14 @@ export function buildMatchAiSceneCatalog(match: unknown): MatchAiScene[] {
   return scenes.sort((a, b) => scenePriority(a) - scenePriority(b)).slice(0, MAX_SCENES).sort((a, b) => a.ts - b.ts);
 }
 
+// 차량 이름이 무기 칸에 오면 모델이 사격으로 읽으므로 차량 충돌로 적는다.
+const VEHICLE_NAMES = new Set(Object.entries(WEAPON_NAMES).filter(([key]) => key.startsWith("Vehicle_")).map(([, name]) => name));
+
 /** 프롬프트용 장면 한 줄. 상대 닉네임은 넣지 않는다. */
 export function formatMatchAiSceneLine(scene: MatchAiScene): string {
+  const weapon = scene.event.weapon;
   const details = [
-    scene.event.weapon,
+    weapon && VEHICLE_NAMES.has(weapon) ? `차량 충돌: ${weapon}` : weapon,
     finite(scene.event.distance) ? `${Math.round(scene.event.distance)}m` : null,
   ].filter(Boolean);
   return `- ${scene.id} | ${formatMatchClock(scene.ts)} | ${scene.label}${details.length ? ` (${details.join(", ")})` : ""}`;
@@ -80,6 +85,26 @@ const isFight = (fight: unknown): fight is MatchFight => {
     && finite(value.dealt) && finite(value.taken) && finite(value.enemyDowns) && finite(value.teamDowns)
     && Object.hasOwn(FIGHT_OUTCOME_LABELS, value.outcome) && (value.openedBy === "us" || value.openedBy === "them");
 };
+
+/** 경기 중 받은 자기장 피해 합계. 피격 목록은 앞 60개만 남지만 출처별 합계는 전체다. */
+function zoneDamageTaken(report: MatchReport): number {
+  const sources = Array.isArray(report.damageTaken?.sources) ? report.damageTaken.sources : [];
+  return Math.round(sources.reduce((sum, source) => sum + (source?.cause === "zone" && finite(source.damage) ? source.damage : 0), 0));
+}
+
+/** 사망 시각을 포함한 교전에서 우리 팀이 쓰러진 수. */
+function lastFightTeamDowns(report: MatchReport, deathMs: number): number {
+  const fight = (Array.isArray(report.fights) ? report.fights : []).filter(isFight).find((item) => item.startMs <= deathMs && deathMs <= item.endMs);
+  return fight ? fight.teamDowns : 0;
+}
+
+/** 내가 자기장 피해로 기절한 시각. 사망 유형이 다른 원인이어도 실제 원인일 수 있어 따로 찾는다. */
+function zoneKnockMs(match: unknown): number | null {
+  const timeline = (match as { timeline?: unknown } | null)?.timeline;
+  if (!Array.isArray(timeline)) return null;
+  const event = timeline.find((item) => item?.type === "DOWNED" && item?.weapon === "자기장" && finite(item?.ts));
+  return event ? event.ts : null;
+}
 
 /**
  * 프롬프트용 경기 흐름. 경기 리포트의 교전 결과·사망 유형·자기장 이탈·착지를 측정값 그대로 쓰고,
@@ -127,6 +152,7 @@ export function buildMatchAiFlowLines(match: unknown): string[] {
     if (circle?.status !== "outside" || !finite(circle.timeMs) || !finite(circle.phase) || circle.phase < 2 || !finite(circle.outsideByM)) continue;
     lines.push(`- 자기장 ${formatMatchClock(circle.timeMs)} | ${circle.phase}페이즈 새 원이 정해질 때 원 밖 ${Math.round(circle.outsideByM)}m`);
   }
+  lines.push(`- 경기 중 받은 자기장 피해 합계 ${zoneDamageTaken(report)}`);
   return lines;
 }
 
@@ -134,6 +160,8 @@ const MAX_ACTION_HINTS = 3;
 // 2페이즈까지는 원 밖이 흔하므로 3페이즈부터 300m 이상 벗어난 경우만 쓴다.
 const FAR_OUTSIDE_CIRCLE_PHASE = 3;
 const FAR_OUTSIDE_CIRCLE_M = 300;
+// 원 밖 거리는 새 원이 정해진 순간의 위치라 실수의 근거가 아니다. 실제 자기장 피해가 있을 때만 이동 후보를 만든다.
+const ZONE_DAMAGE_EVIDENCE = 30;
 const HOT_LANDING_ENEMIES = 4;
 const WASTED_OPENING_DEALT = 150;
 
@@ -146,6 +174,10 @@ export function buildMatchAiActionHints(match: unknown): string[] {
   if (!report) return [];
   const hints: string[] = [];
   const death = report.death;
+  const zoneKnock = zoneKnockMs(match);
+  if (zoneKnock !== null && death?.type !== "zone") {
+    hints.push(`${formatMatchClock(zoneKnock)} 자기장 피해로 기절 → 원이 줄어들 때는 교전보다 원 안 진입을 먼저 한다`);
+  }
   if (death && finite(death.timeMs) && Object.hasOwn(DEATH_TYPE_LABELS, death.type)) {
     const at = formatMatchClock(death.timeMs);
     const teammate = finite(death.nearestTeammateM) ? `${death.nearestTeammateM}m` : null;
@@ -154,9 +186,11 @@ export function buildMatchAiActionHints(match: unknown): string[] {
         hints.push(`${at} 자기장 사망 → 새 원이 정해지면 교전보다 이동을 먼저 시작한다`);
         break;
       case "bledOut":
-        // 팀원이 가까이 있었다면 거리 문제가 아니라 측정하지 않은 상황이라 후보를 만들지 않는다.
         if (finite(death.nearestTeammateM) && death.nearestTeammateM >= ISOLATION_MIN_DISTANCE_M) {
           hints.push(`${at} 기절 뒤 소생을 못 받고 사망(가장 가까운 팀원 ${teammate}) → 교전 전에 소생 가능한 거리로 팀원과 붙는다`);
+        } else if (lastFightTeamDowns(report, death.timeMs) >= 2) {
+          // 팀원이 가까웠는데 못 살렸다면 같은 교전에서 함께 쓰러진 경우다.
+          hints.push(`${at} 팀원${teammate ? ` ${teammate}` : ""} 옆에서 같은 교전에 함께 쓰러져 소생을 못 받음 → 한 명이 기절하면 남은 사람은 맞서기 전에 연막부터 깔고 살린다`);
         }
         break;
       case "thirdParty":
@@ -172,7 +206,8 @@ export function buildMatchAiActionHints(match: unknown): string[] {
         hints.push(`${at} 팀원과 ${teammate ?? "멀리"} 떨어져 사망 → 팀원과 거리를 좁힌 뒤에 교전을 연다`);
         break;
       case "outfought":
-        hints.push(`${at} 정면 교전에서 사망 → 상대 수가 같거나 많으면 먼저 쏘지 말고 유리한 조건이 올 때 교전을 연다`);
+        // 상대 수는 측정하지 않는다. 먼저 쏘고 진 경우만 사격 집중을 권한다.
+        if (death.openedBy === "us") hints.push(`${at} 먼저 쏘고도 정면 교전에서 사망 → 먼저 쏠 때는 한 명에게 사격을 모아 숫자 우위부터 만든다`);
         break;
     }
   }
@@ -182,14 +217,21 @@ export function buildMatchAiActionHints(match: unknown): string[] {
       && finite(circle.outsideByM) && circle.outsideByM >= FAR_OUTSIDE_CIRCLE_M
       ? [{ timeMs: circle.timeMs, phase: circle.phase, outsideByM: circle.outsideByM }] : []));
   const farthest = circles.sort((a, b) => b.outsideByM - a.outsideByM)[0];
-  if (farthest && death?.type !== "zone") {
-    hints.push(`${formatMatchClock(farthest.timeMs)} ${farthest.phase}페이즈 원 밖 ${Math.round(farthest.outsideByM)}m → 원이 정해지면 파밍·교전을 끊고 원 쪽으로 먼저 이동한다`);
+  const zoneDamage = zoneDamageTaken(report);
+  if (farthest && zoneDamage >= ZONE_DAMAGE_EVIDENCE && death?.type !== "zone" && zoneKnock === null) {
+    hints.push(`${formatMatchClock(farthest.timeMs)} ${farthest.phase}페이즈 원 밖 ${Math.round(farthest.outsideByM)}m, 경기 중 자기장 피해 ${zoneDamage} → 원이 정해지면 교전을 끊고 원 쪽으로 먼저 이동한다`);
   }
 
   const fights = (Array.isArray(report.fights) ? report.fights : []).filter(isFight);
   const wasted = fights.filter((fight) => fight.openedBy === "us" && fight.enemyDowns === 0 && fight.dealt >= WASTED_OPENING_DEALT);
   if (wasted.length > 0) {
     hints.push(`먼저 쏘고도 아무도 못 쓰러뜨린 교전 ${wasted.length}번(첫 번째 ${formatMatchClock(wasted[0].startMs)}) → 먼저 쏠 때는 한 명에게 사격을 모으거나 투척물로 마무리한다`);
+  }
+
+  // 다른 후보가 없을 때만 쓴다. 먼저 맞아 진 교전은 흔해서 사망·자기장 후보보다 뒤에 둔다.
+  const shotFirstLosses = fights.filter((fight) => fight.openedBy === "them" && fight.outcome === "lost" && fight.teamDowns > 0);
+  if (hints.length === 0 && shotFirstLosses.length > 0) {
+    hints.push(`상대가 먼저 쏴서 우리 팀만 쓰러진 교전 ${shotFirstLosses.length}번(첫 번째 ${formatMatchClock(shotFirstLosses[0].startMs)}) → 넓은 곳은 다음 멈출 지점을 정하고 짧게 끊어 지난다`);
   }
 
   const landing = report.landing;
