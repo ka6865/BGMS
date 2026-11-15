@@ -6,6 +6,7 @@ export interface OfficialItem {
   name: string;
   updated: string;
   ammunition: string | null;
+  category?: { key: string; name: string };
   specs: Record<string, string>;
   official: Record<string, unknown>;
 }
@@ -44,15 +45,16 @@ export function parseOfficialCatalog(html: string): OfficialItem[] {
   const entry = Object.values(data.fetch ?? {}).find((value) => value.weaponCategories || value.vehicleCategories);
   const categories = entry?.weaponCategories ?? entry?.vehicleCategories;
   if (!Array.isArray(categories)) throw new Error("공식 도감 분류를 찾지 못했습니다.");
-  const items = categories.flatMap((category) => category.weapons ?? category.vehicles ?? []);
+  const items = categories.flatMap((category) => (category.weapons ?? category.vehicles ?? []).map((item) => ({ item, category })));
   if (!items.length) throw new Error("공식 도감 항목을 찾지 못했습니다.");
-  return [...new Map(items.map((item) => {
+  return [...new Map(items.map(({ item, category }) => {
     if (typeof item.key !== "string" || typeof item.name !== "string" || typeof item.updateDate !== "string" || !Array.isArray(item.feature?.specs)) throw new Error("공식 도감 항목이 누락되었습니다.");
     const specs = Object.fromEntries(item.feature.specs.map((spec) => [spec.title, spec.data]));
     const result: OfficialItem = { key: item.key, name: item.name, updated: item.updateDate, ammunition: typeof item.ammunition === "string" ? item.ammunition : null, specs, official: item };
+    if (typeof category.key === "string" && category.key.trim() && typeof category.name === "string" && category.name.trim()) result.category = { key: category.key, name: category.name };
     return [item.key, result] as const;
   })).values()];
 }
 
 type RawItem = Record<string, unknown> & { key: string; name: string; updateDate: string; feature: { specs: { title: string; data: string }[] } };
-type Category = { weapons?: RawItem[]; vehicles?: RawItem[] };
+type Category = { key?: string; name?: string; weapons?: RawItem[]; vehicles?: RawItem[] };
