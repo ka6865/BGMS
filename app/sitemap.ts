@@ -2,6 +2,7 @@ import { MetadataRoute } from 'next';
 import { createClient } from '@/utils/supabase/server';
 import { getLolChampions } from '@/lib/lol/champions.server';
 import { listMayhemTipSitemap } from '@/lib/lol/mayhemTips.server';
+import { listPublicPlayersForSitemap } from '@/lib/stats/playerSeo.server';
 import { MAYHEM_PATH, mayhemChampionPath, mayhemTipPath } from '@/lib/lol/mayhemSeo';
 
 export const dynamic = 'force-dynamic';
@@ -81,6 +82,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error('[Sitemap] Failed to fetch posts:', error);
   }
 
+  // 최근 30일 안에 2번 이상 검색된 공개 플레이어 전적 페이지(최대 1000명, 하루 캐시)
+  const playerEntries: MetadataRoute.Sitemap = (await listPublicPlayersForSitemap().catch((error) => {
+    console.error('[Sitemap] Failed to fetch players:', error);
+    return [];
+  })).map((player) => ({
+    url: `${siteUrl}/stats/${player.platform}/${encodeURIComponent(player.nickname)}`,
+    ...(player.updatedAt ? { lastModified: new Date(player.updatedAt) } : {}),
+    changeFrequency: 'daily',
+    priority: 0.5,
+  }));
+
   // LoL은 증바람 페이지만 검색에 싣고, 공개 설정이 꺼져 있으면 넣지 않는다.
   const mayhemEntries: MetadataRoute.Sitemap = [];
   if (process.env.LOL_PUBLIC_ENABLED === 'true') {
@@ -97,5 +109,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   }
 
-  return [...staticEntries, ...mapEntries, ...postEntries, ...mayhemEntries];
+  return [...staticEntries, ...mapEntries, ...postEntries, ...playerEntries, ...mayhemEntries];
 }
