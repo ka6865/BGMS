@@ -1,5 +1,5 @@
 import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
-import { applyMatchAiClockPolicy, applyMatchAiSceneRefs } from "@/lib/pubg-analysis/matchAiScenes";
+import { applyMatchAiClockPolicy, unwrapMatchAiJson, applyMatchAiSceneRefs } from "@/lib/pubg-analysis/matchAiScenes";
 import { applyMatchAiPercentiles, fetchMatchAiPercentiles, type MatchAiPercentile } from "@/lib/pubg-analysis/matchAiPercentiles";
 import { applyMatchSpicyJab } from "@/lib/pubg-analysis/spicyPunchlines";
 import { NextResponse } from "next/server";
@@ -28,7 +28,7 @@ function withStyleJab(text: string, match: unknown, coachingStyle: string): stri
 // 새 응답과 캐시 응답에 같은 순서로 적용한다. 정책이 재적용에 안정적이라 이미 처리된 캐시 텍스트는 그대로 남는다.
 // percentiles는 새 생성에서만 주고, 캐시 응답은 저장된 benchmarkPercentiles로 검증한다.
 function finalizeMatchAiText(text: string, match: unknown, coachingStyle: string, percentiles?: readonly MatchAiPercentile[]): string {
-  const tidied = applyMatchAiClockPolicy(text, match);
+  const tidied = applyMatchAiClockPolicy(unwrapMatchAiJson(text), match);
   const checked = applyMatchAiClockPolicy(applyMatchAiPercentiles(applyMatchAiEvidencePolicy(tidied, match), percentiles), match);
   return withStyleJab(applyMatchAiSceneRefs(checked, match, tidied), match, coachingStyle);
 }
@@ -316,7 +316,8 @@ export async function POST(request: Request) {
       const modelSignal = composeAbortSignals([overallSignal, modelTimeoutController.signal]);
       let preserveModelSignal = false;
       try {
-        const model = genAI.getGenerativeModel({ model: modelName, safetySettings });
+        // 응답을 JSON 본문만으로 받아 근거 정책이 항상 JSON으로 읽게 한다.
+        const model = genAI.getGenerativeModel({ model: modelName, safetySettings, generationConfig: { responseMimeType: "application/json" } });
         try {
           streamResult = await awaitWithAbort(model.generateContentStream(fullPrompt, {
             signal: modelSignal.signal,
