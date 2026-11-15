@@ -417,6 +417,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     avgCoverRate: null,
     totalTeamWipes: null,
     totalTeammateKnocks: squadObservation.knocks,
+    observedMatchCount: squadObservation.status === "observed" ? squadObservation.matchCount : null,
     totalTradeKills: squadObservation.tradeKills,
   };
   const scores = computeSquadScores({
@@ -494,6 +495,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       avgTradeLatency: null,
       avgReviveRate: null,
       avgSmokeRate: null,
+      avgTeammateKnocks: null,
       avgTeamWipes: null,
     }
   };

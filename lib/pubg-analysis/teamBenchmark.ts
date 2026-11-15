@@ -21,6 +21,7 @@ export type TeamBenchmarkStats = {
   avgTradeLatency: number | null;
   avgReviveRate: number | null;
   avgSmokeRate: number | null;
+  avgTeammateKnocks: number | null;
   avgTeamWipes: null;
 };
 
@@ -74,6 +75,8 @@ export function toTeamBenchmarkStats(row: TeamBenchmarkRow | null | undefined, t
     avgReviveRate: knocks > 0 ? percent(revives, knocks) : null,
     avgSmokeRate: smokeSample !== null && smokeSample >= TEAM_BENCHMARK_MIN_SAMPLE && smokeKnocks && smokeRescues !== null
       && smokeRescues <= smokeKnocks ? percent(smokeRescues, smokeKnocks) : null,
+    // 팀 경기당 아군 기절 수. 자기장·낙하 기절도 실제로 쓰러진 횟수라 함께 센다.
+    avgTeammateKnocks: sample > 0 ? Math.round((knocks / sample) * 10) / 10 : null,
     avgTeamWipes: null,
   };
 }

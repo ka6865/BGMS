@@ -94,6 +94,25 @@ describe("squad punchline team facts", () => {
     expect(smoke(5, 40)?.fact).not.toMatch(/%|비율|률|아꼈|안 쓰|던졌/);
   });
 
+  it("compares knocks per match to the population average", () => {
+    const knocks = (totalTeammateKnocks: number, observedMatchCount: number | null, avgTeammateKnocks: number | null = 4.5) =>
+      selectSquadPunchlines(teamInput({
+        stats: { ...teamInput().stats, totalTeammateKnocks, observedMatchCount },
+        benchmarkStats: { ...teamInput().benchmarkStats, avgTeammateKnocks },
+      })).find((item) => item.metric === "knocksPerMatch");
+    expect(knocks(20, 3)).toMatchObject({ id: "knocks_many", kind: "roast", fact: "팀 경기당 아군 기절 6.7회, 전체 팀 평균 4.5회로 평균보다 많습니다." });
+    expect(knocks(24, 10)).toMatchObject({ id: "knocks_few", kind: "hype", fact: "팀 경기당 아군 기절 2.4회, 전체 팀 평균 4.5회로 평균보다 적습니다." });
+    expect(knocks(45, 10)).toBeUndefined();
+    expect(knocks(20, 2)).toBeUndefined();
+    expect(knocks(20, null)).toBeUndefined();
+    expect(knocks(20, 3, null)).toBeUndefined();
+  });
+
+  it("turns knock facts into banmal for spicy prompts", () => {
+    expect(toSpicySquadFact("팀 경기당 아군 기절 6.7회, 전체 팀 평균 4.5회로 평균보다 많습니다.")).toBe("팀 경기당 아군 기절 6.7회, 전체 팀 평균 4.5회로 평균보다 많아.");
+    expect(toSpicySquadFact("팀 경기당 아군 기절 2.4회, 전체 팀 평균 4.5회로 평균보다 적습니다.")).toBe("팀 경기당 아군 기절 2.4회, 전체 팀 평균 4.5회로 평균보다 적어.");
+  });
+
   it("roasts a damage spread of forty points or more between measured members", () => {
     const picks = selectSquadPunchlines(teamInput({ roleProfiles: duoProfiles }));
     expect(picks.find((item) => item.id === "damage_spread")).toEqual({

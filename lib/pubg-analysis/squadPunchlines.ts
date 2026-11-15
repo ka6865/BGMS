@@ -47,6 +47,8 @@ const MIN_REVIVE_RATE_GAP = 5;
 // 연막 구출 비율은 전체 팀 평균(약 7%)이 낮아 차이 3%p 이상, 성공 2회 이상일 때만 띄운다.
 const MIN_SMOKE_RATE_GAP = 3;
 const SMOKE_RESCUE_HYPE_MIN = 2;
+// 경기당 기절 수는 관측 경기가 3경기 이상일 때만 평균과 비교한다.
+const MIN_KNOCK_MATCHES = 3;
 // 팀 딜 비중 차이가 40%p 이상이면 편차가 극단적인 것으로 본다(예: 73%와 27%는 46%p).
 const DAMAGE_SPREAD_MIN_GAP = 40;
 // 우승 0회 놀림은 최근 5경기 이상일 때만 쓴다. 최고 순위 띄움은 3위 이내일 때만 쓴다.
@@ -149,6 +151,28 @@ function teamCandidates(input: SquadPunchlineInput): Candidate[] {
         id: "smoke_rescue_high", kind: "hype", metric: "smokeRescueRate",
         fact: `아군 기절 ${knocks}회 중 연막 구출 ${smokeRescues}회로 전체 팀 평균보다 높습니다.`,
         weight: Math.min(1, gap / benchmarkSmokeRate),
+      });
+    }
+  }
+
+  // 경기당 기절 수: 원거리·자기장 기절도 실제로 쓰러진 횟수라 판단 문제로 생기는 예외가 적다. 많으면 놀리고 적으면 띄운다.
+  const observedMatches = finiteNonNegative(stats.observedMatchCount);
+  const benchmarkKnocks = finiteNonNegative(benchmark.avgTeammateKnocks);
+  if (knocks !== null && observedMatches !== null && observedMatches >= MIN_KNOCK_MATCHES
+    && benchmarkKnocks !== null && benchmarkKnocks > 0) {
+    const perMatch = Math.round((knocks / observedMatches) * 10) / 10;
+    const text = `팀 경기당 아군 기절 ${perMatch}회, 전체 팀 평균 ${benchmarkKnocks}회`;
+    if (perMatch >= benchmarkKnocks * RATIO_THRESHOLD) {
+      candidates.push({
+        id: "knocks_many", kind: "roast", metric: "knocksPerMatch",
+        fact: `${text}로 평균보다 많습니다.`,
+        weight: Math.min(1, (perMatch - benchmarkKnocks) / benchmarkKnocks),
+      });
+    } else if (perMatch * RATIO_THRESHOLD <= benchmarkKnocks) {
+      candidates.push({
+        id: "knocks_few", kind: "hype", metric: "knocksPerMatch",
+        fact: `${text}로 평균보다 적습니다.`,
+        weight: Math.min(1, (benchmarkKnocks - perMatch) / benchmarkKnocks),
       });
     }
   }
@@ -270,6 +294,8 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
 const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
   backup_slow: ["아군 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었어."],
   backup_fast: ["백업만큼은 배달 앱보다 빨랐네."],
+  knocks_many: ["바닥이랑 이렇게 친한 스쿼드는 오랜만이야. 눕는 것도 재능이면 재능이지."],
+  knocks_few: ["좀처럼 안 눕는 스쿼드네. 바닥이 서운해하겠어."],
   revive_high: ["일으켜 세우는 손만큼은 평균을 가볍게 넘겼네."],
   smoke_rescue_high: ["연막 구출 기록이 또렷하게 남았네. 연막 장인 인정."],
   damage_spread: ["화력 분포가 한쪽으로 쏠린 편향 스코어보드야."],
@@ -333,6 +359,7 @@ export function squadMemberPraise(punchline: Pick<SquadMemberPunchline, "name" |
 // 위 사실 문장들이 쓰는 끝맺음만 다룬다. 숫자·단위·라벨은 그대로다.
 const SPICY_FACT_ENDINGS: ReadonlyArray<readonly [RegExp, string]> = [
   [/느립니다\.$/u, "느려."], [/빠릅니다\.$/u, "빨라."], [/높습니다\.$/u, "높아."], [/낮습니다\.$/u, "낮아."],
+  [/많습니다\.$/u, "많아."], [/적습니다\.$/u, "적어."],
   [/([회위%])입니다\.$/u, "$1야."], [/([았었였했렸])습니다\.$/u, "$1어."],
 ];
 

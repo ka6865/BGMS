@@ -8,7 +8,7 @@ describe("팀 비교 기준", () => {
   it("팀 관측 합계로 소생률·복수 시간·연막 구출률을 만든다", () => {
     expect(toTeamBenchmarkStats(row, "squad")).toEqual({
       tier: null, scope: "team_population", teamMode: "squad", sampleCount: 833, avgIsolation: null,
-      avgTradeLatency: 12_300, avgReviveRate: 36.3, avgSmokeRate: 3.2, avgTeamWipes: null,
+      avgTradeLatency: 12_300, avgReviveRate: 36.3, avgSmokeRate: 3.2, avgTeammateKnocks: 4.6, avgTeamWipes: null,
     });
   });
   it("표본이 부족하면 비교값을 만들지 않는다", () => {
