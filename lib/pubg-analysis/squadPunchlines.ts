@@ -44,9 +44,9 @@ const MIN_KNOCKS = SQUAD_MIN_KNOCKS;
 const RATIO_THRESHOLD = 1.3;
 // 구조 성공률 차이는 최소 5%p 이상일 때만 쓴다.
 const MIN_REVIVE_RATE_GAP = 5;
-// 연막 구출 성공이 3회 이상이면 띄우는 재료가 된다. 0회는 기절 5회 이상일 때만 놀린다.
-const SMOKE_RESCUE_HYPE_MIN = 3;
-const SMOKE_ZERO_MIN_KNOCKS = 5;
+// 연막 구출 비율은 전체 팀 평균(약 7%)이 낮아 차이 3%p 이상, 성공 2회 이상일 때만 띄운다.
+const MIN_SMOKE_RATE_GAP = 3;
+const SMOKE_RESCUE_HYPE_MIN = 2;
 // 팀 딜 비중 차이가 40%p 이상이면 편차가 극단적인 것으로 본다(예: 73%와 27%는 46%p).
 const DAMAGE_SPREAD_MIN_GAP = 40;
 // 우승 0회 놀림은 최근 5경기 이상일 때만 쓴다. 최고 순위 띄움은 3위 이내일 때만 쓴다.
@@ -117,6 +117,7 @@ function teamCandidates(input: SquadPunchlineInput): Candidate[] {
   }
 
   // 구조 성공률: 아군 소생 수를 아군 기절 수로 나눠 전체 팀 평균 구조율과 비교한다.
+  // 높을 때만 띄운다. 안 살린 기절에는 확킬·살릴 수 없는 위치·일부러 포기한 판단이 섞여 낮다고 놀리지 않는다.
   const knocks = finiteNonNegative(stats.totalTeammateKnocks);
   const revives = finiteNonNegative(stats.totalRevives);
   const benchmarkReviveRate = finiteNonNegative(benchmark.avgReviveRate);
@@ -131,29 +132,23 @@ function teamCandidates(input: SquadPunchlineInput): Candidate[] {
         fact: `${text}로 평균보다 높습니다.`,
         weight: Math.min(1, gap / benchmarkReviveRate),
       });
-    } else if (rate * RATIO_THRESHOLD <= benchmarkReviveRate && -gap >= MIN_REVIVE_RATE_GAP) {
-      candidates.push({
-        id: "revive_low", kind: "roast", metric: "reviveRate",
-        fact: `${text}로 평균보다 낮습니다.`,
-        weight: Math.min(1, -gap / benchmarkReviveRate),
-      });
     }
   }
 
-  // 연막 구출은 성공 기록 수만 쓴다. 연막을 던진 횟수나 아낀 이유는 측정하지 않으므로 말하지 않는다.
+  // 연막 구출: 아군 기절 대비 연막 구출 비율을 전체 팀 평균과 비교해 높을 때만 띄운다.
+  // 연막 없이 건물 안에서 살리거나 살리지 않는 판단도 있어 낮다고 놀리지 않는다. 던진 횟수는 측정하지 않으므로 말하지 않는다.
+  // 연막 구출률 수치는 근거 후처리가 소생률 외 비율로 보고 지우므로 문장에 넣지 않는다.
   const smokeRescues = finiteNonNegative(stats.totalSmokeRescues);
-  if (smokeRescues !== null) {
-    if (smokeRescues >= SMOKE_RESCUE_HYPE_MIN) {
+  const benchmarkSmokeRate = finiteNonNegative(benchmark.avgSmokeRate);
+  if (smokeRescues !== null && smokeRescues >= SMOKE_RESCUE_HYPE_MIN && knocks !== null && knocks >= MIN_KNOCKS
+    && smokeRescues <= knocks && benchmarkSmokeRate !== null && benchmarkSmokeRate > 0) {
+    const rate = (smokeRescues / knocks) * 100;
+    const gap = rate - benchmarkSmokeRate;
+    if (rate >= benchmarkSmokeRate * RATIO_THRESHOLD && gap >= MIN_SMOKE_RATE_GAP) {
       candidates.push({
-        id: "smoke_rescue_many", kind: "hype", metric: "smokeRescues",
-        fact: `연막 구출 성공 기록이 ${smokeRescues}회입니다.`,
-        weight: Math.min(1, smokeRescues / 10),
-      });
-    } else if (smokeRescues === 0 && knocks !== null && knocks >= SMOKE_ZERO_MIN_KNOCKS) {
-      candidates.push({
-        id: "smoke_rescue_zero", kind: "roast", metric: "smokeRescues",
-        fact: `아군 기절 ${knocks}회 중 연막 구출 성공 기록은 0회입니다.`,
-        weight: 0.3,
+        id: "smoke_rescue_high", kind: "hype", metric: "smokeRescueRate",
+        fact: `아군 기절 ${knocks}회 중 연막 구출 ${smokeRescues}회로 전체 팀 평균보다 높습니다.`,
+        weight: Math.min(1, gap / benchmarkSmokeRate),
       });
     }
   }
@@ -276,9 +271,7 @@ const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
   backup_slow: ["아군 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었어."],
   backup_fast: ["백업만큼은 배달 앱보다 빨랐네."],
   revive_high: ["일으켜 세우는 손만큼은 평균을 가볍게 넘겼네."],
-  revive_low: ["일으켜 세우기엔 평균보다 손이 한참 모자랐어."],
-  smoke_rescue_many: ["연막 구출 기록이 또렷하게 남았네. 연막 장인 인정."],
-  smoke_rescue_zero: ["연막 구출 성공 칸은 아직 공란이라 기록부가 심심해해."],
+  smoke_rescue_high: ["연막 구출 기록이 또렷하게 남았네. 연막 장인 인정."],
   damage_spread: ["화력 분포가 한쪽으로 쏠린 편향 스코어보드야."],
   wins_zero: ["우승 트로피 진열장은 아직 텅 비어 있어."],
   wins_some: ["치킨 먹은 기록은 부정할 수가 없네."],
