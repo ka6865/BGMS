@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyMatchAiPercentiles, formatMatchAiPercentileSection, toMatchAiPercentiles } from "@/lib/pubg-analysis/matchAiPercentiles";
-import { applyMatchAiClockPolicy, applyMatchAiSceneRefs, buildMatchAiFlowLines } from "@/lib/pubg-analysis/matchAiScenes";
+import { applyMatchAiClockPolicy, applyMatchAiSceneRefs, buildMatchAiActionHints, buildMatchAiFlowLines } from "@/lib/pubg-analysis/matchAiScenes";
 import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
 import { buildMatchAiCoachingPrompt } from "@/lib/pubg-analysis/matchAiCoachingPrompt";
 
@@ -118,6 +118,30 @@ describe("경기 흐름과 경과 시각", () => {
   });
 });
 
+describe("행동 후보", () => {
+  it("사망 유형·먼 원 밖·헛친 선제 교전·뜨거운 착지에서 측정값으로 최대 3개를 만든다", () => {
+    const report = { ...match.matchReport, landing: { timeMs: 64_000, enemiesNear: 16, enemiesFar: 5, teamsNear: 4 },
+      circles: [{ index: 3, phase: 3, timeMs: 790_000, status: "outside", outsideByM: 440 }, { index: 2, phase: 2, timeMs: 460_000, status: "outside", outsideByM: 1743 }],
+      fights: [...match.matchReport.fights, { startMs: 400_000, endMs: 420_000, opponentTeamIds: [9], opponents: [], dealt: 180, taken: 30, enemyDowns: 0, teamDowns: 0, openedBy: "us", outcome: "brokeOff" }] };
+    expect(buildMatchAiActionHints({ ...match, matchReport: report })).toEqual([
+      "13:10 최근 1분간 2팀이 얽힌 교전에서 사망 → 교전을 끝내면 바로 자리를 옮기거나 다른 팀이 올 방향부터 확인한다",
+      "13:10 3페이즈 원 밖 440m → 원이 정해지면 파밍·교전을 끊고 원 쪽으로 먼저 이동한다",
+      "먼저 쏘고도 아무도 못 쓰러뜨린 교전 1번(첫 번째 6:40) → 먼저 쏠 때는 한 명에게 사격을 모으거나 투척물로 마무리한다",
+    ]);
+  });
+
+  it("팀원이 가까운 출혈 사망과 2페이즈 원 밖으로는 후보를 만들지 않고, 후보 시각은 응답에 남긴다", () => {
+    const near = { ...match, matchReport: { ...match.matchReport, death: { ...match.matchReport.death, type: "bledOut", nearestTeammateM: 13 },
+      circles: [{ index: 2, phase: 2, timeMs: 460_000, status: "outside", outsideByM: 4335 }] } };
+    expect(buildMatchAiActionHints(near)).toEqual([]);
+    const far = { ...near, matchReport: { ...near.matchReport, death: { ...near.matchReport.death, nearestTeammateM: 140 } } };
+    expect(buildMatchAiActionHints(far)[0]).toBe("13:10 기절 뒤 소생을 못 받고 사망(가장 가까운 팀원 140m) → 교전 전에 소생 가능한 거리로 팀원과 붙는다");
+    const hot = { ...match, matchReport: { ...match.matchReport, landing: { timeMs: 64_000, enemiesNear: 8, enemiesFar: 0, teamsNear: 2 } } };
+    const text = JSON.stringify({ actionItems: [{ icon: "🪂", title: "착지", desc: "1:04 착지처럼 적이 많으면 무기부터 줍는다" }] });
+    expect(JSON.parse(applyMatchAiClockPolicy(text, hot)).actionItems[0].desc).toBe("1:04 착지처럼 적이 많으면 무기부터 줍는다");
+  });
+});
+
 describe("단일 경기 코칭 프롬프트", () => {
   const base = { ...match, mapName: "Erangel", gameMode: "squad" };
 
@@ -129,6 +153,8 @@ describe("단일 경기 코칭 프롬프트", () => {
     expect(fullPrompt).toContain("[BGMS 기록 비교] (스쿼드 경쟁전 BGMS 기록 1000경기 기준");
     expect(fullPrompt).toContain("actionItems는 정확히 1개");
     expect(fullPrompt).not.toContain("Elite");
+    expect(fullPrompt).toContain("[행동 후보]");
+    expect(fullPrompt).toContain("'엄폐물로 숨는다', '엄폐 후 반격'처럼 어느 경기에나 맞는 행동은 쓰지 마십시오");
     const none = buildMatchAiCoachingPrompt({ matchData: base, coachingStyle: "spicy" }).fullPrompt;
     expect(none).not.toContain("[BGMS 기록 비교] (");
     expect(none).toContain("[순위 비교 금지]");

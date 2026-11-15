@@ -1,6 +1,6 @@
 // 단일 경기 AI 코칭 문장이 가리킬 수 있는 장면 목록. 서버는 이 목록을 프롬프트에 넣고 응답의 장면 ID를 검증하며,
 // 화면은 같은 규칙으로 타임라인에서 장면을 다시 찾는다. 모델은 목록 안에서 ID를 고르기만 한다.
-import type { MatchFight, MatchReport } from "./matchReport";
+import { ISOLATION_MIN_DISTANCE_M, type MatchFight, type MatchReport } from "./matchReport";
 import { DEATH_TYPE_LABELS, describeDeath, FIGHT_OUTCOME_LABELS, formatMatchClock } from "./matchReportView";
 import type { TimelineEvent } from "./types";
 
@@ -130,10 +130,79 @@ export function buildMatchAiFlowLines(match: unknown): string[] {
   return lines;
 }
 
-/** 응답이 쓸 수 있는 경과 시각. 장면 목록과 경기 흐름에 적힌 시각만 허용한다. */
+const MAX_ACTION_HINTS = 3;
+// 2페이즈까지는 원 밖이 흔하므로 3페이즈부터 300m 이상 벗어난 경우만 쓴다.
+const FAR_OUTSIDE_CIRCLE_PHASE = 3;
+const FAR_OUTSIDE_CIRCLE_M = 300;
+const HOT_LANDING_ENEMIES = 4;
+const WASTED_OPENING_DEALT = 150;
+
+/**
+ * 프롬프트용 행동 후보. 사망 유형·자기장 이탈·교전 결과·착지에서 이 경기에만 해당하는 조건을 골라
+ * 모델이 '엄폐물로 숨기' 같은 일반 조언 대신 측정된 상황에 묶인 행동을 고르게 한다. 사망 원인을 먼저 둔다.
+ */
+export function buildMatchAiActionHints(match: unknown): string[] {
+  const report = readMatchReport(match);
+  if (!report) return [];
+  const hints: string[] = [];
+  const death = report.death;
+  if (death && finite(death.timeMs) && Object.hasOwn(DEATH_TYPE_LABELS, death.type)) {
+    const at = formatMatchClock(death.timeMs);
+    const teammate = finite(death.nearestTeammateM) ? `${death.nearestTeammateM}m` : null;
+    switch (death.type) {
+      case "zone":
+        hints.push(`${at} 자기장 사망 → 새 원이 정해지면 교전보다 이동을 먼저 시작한다`);
+        break;
+      case "bledOut":
+        // 팀원이 가까이 있었다면 거리 문제가 아니라 측정하지 않은 상황이라 후보를 만들지 않는다.
+        if (finite(death.nearestTeammateM) && death.nearestTeammateM >= ISOLATION_MIN_DISTANCE_M) {
+          hints.push(`${at} 기절 뒤 소생을 못 받고 사망(가장 가까운 팀원 ${teammate}) → 교전 전에 소생 가능한 거리로 팀원과 붙는다`);
+        }
+        break;
+      case "thirdParty":
+        hints.push(`${at} 최근 1분간 ${finite(death.teamsInLastMinute) ? `${death.teamsInLastMinute}팀` : "여러 팀"}이 얽힌 교전에서 사망 → 교전을 끝내면 바로 자리를 옮기거나 다른 팀이 올 방향부터 확인한다`);
+        break;
+      case "rotating":
+        hints.push(`${at} ${death.inVehicle ? "차량 이동 중" : `직전 ${finite(death.movedBeforeFightM) ? `${death.movedBeforeFightM}m ` : ""}이동 중`} 사망 → 이동 전에 경로의 교전 소리·킬로그를 확인하고 짧게 끊어 이동한다`);
+        break;
+      case "ambushed":
+        hints.push(`${at} 상대가 먼저 쏘고 반격 피해가 거의 없이 사망 → 이동을 시작하기 전에 다음 멈출 지점을 먼저 정한다`);
+        break;
+      case "isolated":
+        hints.push(`${at} 팀원과 ${teammate ?? "멀리"} 떨어져 사망 → 팀원과 거리를 좁힌 뒤에 교전을 연다`);
+        break;
+      case "outfought":
+        hints.push(`${at} 정면 교전에서 사망 → 상대 수가 같거나 많으면 먼저 쏘지 말고 유리한 조건이 올 때 교전을 연다`);
+        break;
+    }
+  }
+
+  const circles = (Array.isArray(report.circles) ? report.circles : []).flatMap((circle) => (
+    circle?.status === "outside" && finite(circle.timeMs) && finite(circle.phase) && circle.phase >= FAR_OUTSIDE_CIRCLE_PHASE
+      && finite(circle.outsideByM) && circle.outsideByM >= FAR_OUTSIDE_CIRCLE_M
+      ? [{ timeMs: circle.timeMs, phase: circle.phase, outsideByM: circle.outsideByM }] : []));
+  const farthest = circles.sort((a, b) => b.outsideByM - a.outsideByM)[0];
+  if (farthest && death?.type !== "zone") {
+    hints.push(`${formatMatchClock(farthest.timeMs)} ${farthest.phase}페이즈 원 밖 ${Math.round(farthest.outsideByM)}m → 원이 정해지면 파밍·교전을 끊고 원 쪽으로 먼저 이동한다`);
+  }
+
+  const fights = (Array.isArray(report.fights) ? report.fights : []).filter(isFight);
+  const wasted = fights.filter((fight) => fight.openedBy === "us" && fight.enemyDowns === 0 && fight.dealt >= WASTED_OPENING_DEALT);
+  if (wasted.length > 0) {
+    hints.push(`먼저 쏘고도 아무도 못 쓰러뜨린 교전 ${wasted.length}번(첫 번째 ${formatMatchClock(wasted[0].startMs)}) → 먼저 쏠 때는 한 명에게 사격을 모으거나 투척물로 마무리한다`);
+  }
+
+  const landing = report.landing;
+  if (landing && finite(landing.timeMs) && finite(landing.enemiesNear) && landing.enemiesNear >= HOT_LANDING_ENEMIES) {
+    hints.push(`착지 ${formatMatchClock(landing.timeMs)} 300m 안 적 ${landing.enemiesNear}명 → 같은 곳에 내리면 무기 하나를 먼저 줍고 첫 교전 위치를 정한다`);
+  }
+  return hints.slice(0, MAX_ACTION_HINTS);
+}
+
+/** 응답이 쓸 수 있는 경과 시각. 장면 목록·경기 흐름·행동 후보에 적힌 시각만 허용한다. */
 function allowedMatchClocks(match: unknown): Set<string> {
   const clocks = new Set(buildMatchAiSceneCatalog(match).map((scene) => formatMatchClock(scene.ts)));
-  for (const line of buildMatchAiFlowLines(match)) {
+  for (const line of [...buildMatchAiFlowLines(match), ...buildMatchAiActionHints(match)]) {
     for (const clock of line.match(/\d{1,3}:[0-5]\d/gu) ?? []) clocks.add(clock);
   }
   return clocks;

@@ -2,7 +2,7 @@ import { isEarlyElimination } from "@/lib/pubg-analysis/benchmarkScore";
 import { buildBackupCoachingContext, type BackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { hasComparableBenchmarkMetric, type NormalizedBenchmark, type ObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { firstReplyLatencyMs, readFirstReplyEvidence, firstReplyFailureRate } from "@/lib/pubg-analysis/firstReply";
-import { buildMatchAiFlowLines, buildMatchAiSceneCatalog, formatMatchAiSceneLine } from "@/lib/pubg-analysis/matchAiScenes";
+import { buildMatchAiActionHints, buildMatchAiFlowLines, buildMatchAiSceneCatalog, formatMatchAiSceneLine } from "@/lib/pubg-analysis/matchAiScenes";
 import { formatMatchAiPercentileSection, type MatchAiPercentile } from "@/lib/pubg-analysis/matchAiPercentiles";
 
 interface MatchAiPromptInput {
@@ -235,7 +235,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
     "- [장면 우선] [경기 흐름]에 교전·사망·자기장 기록이 있으면 briefFeedback 중 최소 2개는 그 기록의 한 교전이나 사망을 경과 시각과 함께 직접 가리키십시오(예: '13:05 교전은 상대가 먼저 쐈고 우리 팀만 2명 쓰러졌습니다'). 시각은 [장면 목록]·[경기 흐름]에 적힌 값만 그대로 쓰십시오.",
     "- [장면 해석 한계] [경기 흐름]은 누가 먼저 쐈는지, 결과, 준·받은 피해, 쓰러진 수, 사망 유형, 팀원 거리, 자기장 위치만 측정합니다. 엄폐·시야·진입 각도·소통·판단은 측정하지 않았으므로 장면을 설명할 때도 단정하지 마십시오.",
     "- [마지막 한마디] finalVerdict는 이번 경기 기록에서 가장 중요한 사실 하나와 다음 경기 과제 하나를 한두 문장으로 쓰십시오. 분석 원칙이나 코치 자신의 태도를 말하지 마십시오.",
-    "- [행동 제안] actionItems는 정확히 1개입니다. 이번 경기에서 가장 손해가 컸던 장면이나 표본이 충분한 지표 하나에서 나온, 다음 판에 바로 쓸 행동 하나로 좁히십시오. title은 행동 자체(12자 안팎), desc는 '어떤 상황이 오면 → 무엇을 한다'처럼 상황 조건과 행동을 함께 쓰십시오. '높이십시오', '개선하십시오'처럼 지표만 올리라는 막연한 지시는 금지합니다.",
+    "- [행동 제안] actionItems는 정확히 1개입니다. 이번 경기에서 가장 손해가 컸던 장면이나 표본이 충분한 지표 하나에서 나온, 다음 판에 바로 쓸 행동 하나로 좁히십시오. title은 행동 자체(12자 안팎), desc는 '어떤 상황이 오면 → 무엇을 한다'처럼 상황 조건과 행동을 함께 쓰십시오. '높이십시오', '개선하십시오'처럼 지표만 올리라는 막연한 지시는 금지합니다. [행동 후보]가 있으면 그중 하나를 골라 이 경기의 시각·수치를 살려 코치 말투로 다시 쓰십시오. '엄폐물로 숨는다', '엄폐 후 반격'처럼 어느 경기에나 맞는 행동은 쓰지 마십시오.",
     "- [장면 근거] briefFeedbackSceneIds는 briefFeedback과 같은 순서·개수로 채우십시오. 문장이 아래 [장면 목록]의 한 장면을 직접 가리킬 때만 그 장면 ID를 그대로 쓰고, 아니면 null을 쓰십시오. [경기 흐름]의 교전·사망 줄에 적힌 장면 ID도 쓸 수 있습니다. actionItems의 sceneId도 같은 규칙입니다. 목록에 없는 ID를 만들지 말고, 장면의 시각·위치·상황을 새로 지어 문장에 쓰지 마십시오. 장면 ID는 sceneId 칸에만 쓰고 문장 본문에는 경과 시각만 쓰십시오. 장면 목록이 없으면 모두 null로 두십시오.",
     ...(percentiles.length > 0 ? [
       "- [BGMS 기록 비교] 아래 [BGMS 기록 비교]의 '상위/하위 N%'는 서버가 계산한 값입니다. 쓸 때는 값을 바꾸지 말고 'BGMS 기록 기준'을 붙여 한 번만 쓰십시오(예: 'BGMS 기록 기준 공식 피해량 상위 12%'). 목록에 없는 지표나 다른 퍼센트 순위를 만들지 마십시오. 공식 피해량은 유효 딜량과 기준이 다릅니다.",
@@ -265,9 +265,11 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
   const flowLines = buildMatchAiFlowLines(matchData);
   const flowSection = `[경기 흐름] (측정된 교전·사망·자기장 기록, 우리 팀 기준)\n${flowLines.length ? flowLines.join("\n") : "없음"}`;
   const percentileSection = formatMatchAiPercentileSection(percentiles);
+  const actionHints = buildMatchAiActionHints(matchData);
+  const actionSection = actionHints.length ? `\n\n[행동 후보] (측정된 상황 → 행동 방향, actionItems는 이 중 하나에서 고른다)\n${actionHints.map((hint) => `- ${hint}`).join("\n")}` : "";
 
   return {
-    fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}${percentileSection ? `\n\n${percentileSection}` : ""}\n\n${sceneSection}\n\n${flowSection}`,
+    fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}${percentileSection ? `\n\n${percentileSection}` : ""}\n\n${sceneSection}\n\n${flowSection}${actionSection}`,
     playerReportSummary,
     backupContext,
   };
