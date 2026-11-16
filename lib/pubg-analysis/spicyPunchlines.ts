@@ -26,7 +26,7 @@ const MATCH_JABS = {
 } as const;
 
 const MATCH_HYPES = {
-  chicken: ["치킨은 치킨이지. 이건 인정."],
+  chicken: ["치킨은 치킨이지. 이건 인정.", "치킨 챙긴 판이네. 이건 인정.", "결국 치킨은 네 몫이었네. 이 판은 인정."],
   duel_winning: ["1:1 붙는 족족 상대를 로비로 돌려보냈네. 이건 인정."],
   damage_carry: ["팀 딜 절반을 혼자 짊어진 화력 엔진이었어. 이건 인정."],
 } as const;
@@ -66,6 +66,10 @@ export function applyMatchSpicyJab(text: string, match: any): string {
   try {
     const parsed = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || typeof parsed.finalVerdict !== "string" || parsed.finalVerdict.includes(jab)) return text;
+    if (finite(match?.stats?.winPlace) === 1 && (
+      MATCH_HYPES.chicken.some((variant) => parsed.finalVerdict.includes(variant))
+      || (MATCH_HYPES.chicken as readonly string[]).includes(jab) && /우승|치킨/u.test(parsed.finalVerdict)
+    )) return text;
     return JSON.stringify({ ...parsed, finalVerdict: `${parsed.finalVerdict.trim()} ${jab}`.trim() });
   } catch {
     return text;

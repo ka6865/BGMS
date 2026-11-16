@@ -4,6 +4,7 @@ import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
 import { ANALYSIS_CALCULATION_VERSION, AI_SQUAD_CACHE_VERSION, AI_MATCH_PROMPT_VERSION, AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import { buildMatchAiActionHints } from "../lib/pubg-analysis/matchAiScenes";
 import { fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
 import { SQUAD_SPICY_PASS_LINES } from "../lib/pubg-analysis/squadAiPolicy";
 import {
@@ -780,6 +781,58 @@ describe("AI cache route stabilization", () => {
     expect(text).not.toContain("팀 지원 지표 보완이 필요");
     expect(text).not.toContain("혼자 다 해먹");
     expect(text).not.toContain("팀 지원 지표가 바닥");
+  });
+
+  it.each([
+    { label: "후보 있음과 무근거 제안", candidate: true, actionCandidateId: null, finalVerdict: "교전 기록을 확인해 봐." },
+    { label: "잘못된 후보 ID", candidate: true, actionCandidateId: "unknown", finalVerdict: "교전 기록을 확인해 봐." },
+    { label: "유효 후보와 무관한 장면", candidate: true, actionCandidateId: "third-party-790000", finalVerdict: "교전 기록을 확인해 봐." },
+    { label: "후보 없는 관측 지표 점검", candidate: false, actionCandidateId: "unknown", finalVerdict: "교전 기록을 확인해 봐." },
+    { label: "우승 언급", candidate: false, actionCandidateId: null, finalVerdict: "우승까지 잘 마무리했네.", winner: true },
+    { label: "구캐시 치킨 문구", candidate: false, actionCandidateId: null, finalVerdict: "치킨은 치킨이지. 이건 인정.", winner: true },
+    { label: "치킨 마무리 추가", candidate: false, actionCandidateId: null, finalVerdict: "화력 기록이 좋았네.", winner: true },
+  ])("ai-analyze는 $label 결과를 신규·원본 캐시·2회 정규화에서 동일하게 반환한다", async ({ candidate, actionCandidateId, finalVerdict, winner }) => {
+    const row = createCanonicalAnalyzeRow("match-action-contract", {
+      ...(winner ? { stats: { ...createSummaryMatch().stats, winPlace: 1, deathType: "alive" } } : {}),
+      timeline: [{ ts: 790_000, type: "DIED", x: 120, y: 340 }],
+      ...(candidate ? { matchReport: { death: { type: "thirdParty", timeMs: 790_000, teamsInLastMinute: 2 } } } : {}),
+    });
+    const raw = JSON.stringify({
+      briefFeedback: ["첫 문장", "둘째 문장", "셋째 문장"], briefFeedbackSceneIds: [null, null, null], finalVerdict,
+      actionItems: [{ title: "점검", desc: candidate ? "엄폐한 적을 상대할 때 → 수류탄 궤적을 미리 계산해서 던진다" : "7:15 공식 피해량 320의 교전별 분포를 다음 경기에도 점검한다", actionCandidateId, sceneId: "DIED-1" }],
+    });
+    mockSummaryGeminiRawText(raw);
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: row, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ match_ai_coaching_cache: matchCache, processed_match_telemetry: telemetry }) });
+    const read = async () => {
+      const response = await aiAnalyzePOST(createRequest({ nickname: "Player_A", platform: "kakao", coachingStyle: "spicy", matchData: { matchId: row.match_id } }));
+      expect(response.status).toBe(200);
+      const chunk = parseSummaryNdjson(await response.text()).find((line) => line.type === "chunk");
+      expect(chunk).toBeDefined();
+      return chunk!.data as string;
+    };
+    const fresh = await read();
+    expect(matchCache.upsert.mock.calls[0][0].ai_result.text).toBe(fresh);
+    const generatedCalls = mockGenerateContentStream.mock.calls.length;
+    matchCache.maybeSingle.mockResolvedValue({ data: { ai_result: { text: raw } }, error: null });
+    expect(await read()).toBe(fresh);
+    matchCache.maybeSingle.mockResolvedValue({ data: { ai_result: { text: fresh } }, error: null });
+    expect(await read()).toBe(fresh);
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(generatedCalls);
+    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_MATCH_PROMPT_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`);
+    const result = JSON.parse(fresh);
+    if (candidate) {
+      const hint = buildMatchAiActionHints(row.data.fullResult)[0];
+      expect(result.actionItems).toEqual([{ icon: "🎯", title: hint.title, desc: hint.text, actionCandidateId: hint.id, sceneId: "DIED-790000" }]);
+    } else {
+      expect(result.actionItems).toEqual([{ title: "점검", desc: "공식 피해량 320의 교전별 분포를 다음 경기에도 점검한다" }]);
+    }
+    if (winner) {
+      if (/우승|치킨/u.test(finalVerdict)) expect(result.finalVerdict).toBe(finalVerdict);
+      else expect(result.finalVerdict).toContain("치킨");
+    }
+    expect(result.briefFeedbackSceneIds).toBeUndefined();
   });
 
   it("ai-analyze는 캐시 응답의 장면 ID를 canonical 타임라인으로 다시 검증한다", async () => {
