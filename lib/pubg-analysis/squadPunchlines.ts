@@ -312,6 +312,9 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
     if (damage !== null) {
       return [make("member_steady", "hype", "damageShare", `팀 딜 비중 ${damage}%입니다.`)];
     }
+    if (kill !== null) {
+      return [make("member_steady", "hype", "killShare", `팀 킬 비중 ${kill}%입니다.`)];
+    }
     return [];
   });
 }
@@ -320,10 +323,10 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
 // 한마디는 기록된 지표만 놀리거나 띄우고, 숫자와 실력·의도·원인을 말하지 않는다(숫자는 사실 문장이 담는다).
 // 개인 재료에는 한마디를 붙이지 않는다. 개인 칭찬과 못한 점은 서버가 따로 쓴다.
 const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
-  backup_slow: ["아군 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었어."],
+  backup_slow: ["아군 기절 뒤 복수까지, 이 정도면 기록부도 기다리다 지치겠어."],
   backup_fast: ["백업만큼은 배달 앱보다 빨랐네."],
-  trade_rate_low: ["코앞에서 아군 눕힌 놈 얼굴은 다 봤을 텐데 복수는 끝내 안 왔어."],
-  trade_rate_high: ["아군 눕힌 놈은 끝까지 쫓아가서 갚았네. 뒤끝 하나는 인정."],
+  trade_rate_low: ["가까운 거리 기절 기록에 비해 복수 기록은 한참 모자라네."],
+  trade_rate_high: ["아군 기절 뒤 30초 안에 갚은 기록은 평균을 넘겼네."],
   knocks_many: ["바닥이랑 이렇게 친한 스쿼드는 오랜만이야. 눕는 것도 재능이면 재능이지."],
   knocks_few: ["좀처럼 안 눕는 스쿼드네. 바닥이 서운해하겠어."],
   revive_high: ["일으켜 세우는 손만큼은 평균을 가볍게 넘겼네."],
@@ -336,9 +339,9 @@ const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
 
 // 개인 칭찬은 비꼬지 않는다. 진짜 칭찬 문장을 서버가 쓰고, 같은 재료여도 팀원 이름에 따라 표현이 달라진다.
 const SQUAD_MEMBER_PRAISE: Readonly<Record<string, readonly string[]>> = {
-  member_damage_carry: ["화력의 중심을 잡은 캐리야.", "팀 화력을 제일 크게 책임졌네.", "팀의 화력 엔진 역할을 해냈어."],
-  member_kill_share: ["킬을 제일 많이 책임진 해결사야.", "교전 마무리 몫을 크게 해냈네."],
-  member_steady: ["딜이랑 킬 모두 제 몫은 해냈네.", "꾸준하게 팀 화력을 받쳐 줬어.", "무리 없이 팀 교전에 보탬이 됐네."],
+  member_damage_carry: ["화력의 중심을 잡은 캐리야.", "팀 화력을 크게 책임졌네.", "팀의 화력 엔진 역할을 해냈어."],
+  member_kill_share: ["킬 기록에서 큰 몫을 남겼네.", "교전 마무리 몫을 크게 해냈네."],
+  member_steady: ["팀 기록에 이 비중을 남겼네.", "팀 기록에서 맡은 몫이 이렇게 남았어.", "기록된 비중은 이만큼이야."],
 };
 
 /** 같은 시드면 같은 한마디다(팀원 이름을 시드로 쓰면 같은 재료여도 팀원마다 한마디가 달라진다). */
@@ -375,14 +378,39 @@ export function squadSpicyCloser(team: readonly Pick<SquadPunchline, "kind">[], 
   return pickVariant(SQUAD_SPICY_CLOSERS[kind], seed) ?? SQUAD_SPICY_CLOSERS[kind][0];
 }
 
-/**
- * 매운맛 개인 칭찬 문장. 개인 딜·킬 비중이 높거나 꾸준한 팀원에게만 만든다. 낮은 딜 비중과 킬로그 배달부에는 만들지 않는다.
- * 사실 문장의 끝맺음을 떼어 칭찬과 한 문장으로 잇는다.
- */
-export function squadMemberPraise(punchline: Pick<SquadMemberPunchline, "name" | "id" | "kind" | "fact">): string | null {
-  const praise = pickVariant(SQUAD_MEMBER_PRAISE[punchline.id], punchline.name);
-  if (!praise || punchline.kind !== "hype") return null;
-  return `${punchline.fact.replace(/입니다\.$/, "")}, ${praise}`;
+/** 두 맛 모두 같은 실측 비중을 쓰고, 높은 기여 분류에만 평가어를 붙인다. */
+export function squadMemberPraise(
+  punchline: Pick<SquadMemberPunchline, "name" | "id" | "kind" | "fact">,
+  coachingStyle?: string,
+  shares?: Record<string, number | null>,
+): string {
+  const damage = shareOf(shares?.damage);
+  const kill = shareOf(shares?.kill);
+  const measured = [damage === null ? null : `딜 ${damage}%`, kill === null ? null : `킬 ${kill}%`].filter(Boolean);
+  const spicy = coachingStyle !== "mild";
+  const fact = measured.length ? `팀 ${measured.join("와 ")}` : punchline.fact.replace(/입니다\.$/u, "");
+  const high = punchline.id === "member_damage_carry" || punchline.id === "member_kill_share";
+  if (high) {
+    const praise = pickVariant(SQUAD_MEMBER_PRAISE[punchline.id], punchline.name)!;
+    return `${fact}, ${spicy ? praise : praise.replace(/야\.$/u, "입니다.").replace(/(?:네|어)\.$/u, "습니다.")}`;
+  }
+  if (measured.length) return `${fact}를 ${spicy ? "기록했네." : "기록했습니다."}`;
+  const praise = spicy ? pickVariant(SQUAD_MEMBER_PRAISE[punchline.id], punchline.name) : null;
+  return praise ? `${fact}, ${praise}` : `${fact}${spicy ? "를 기록했네." : "를 기록했습니다."}`;
+}
+
+/** 첫 근거의 방향과 둘째 근거의 방향이 같을 때만 나열로 잇는다. */
+export function squadOverallOpinion(facts: readonly SquadPunchline[], coachingStyle?: string): string {
+  const [first, second] = facts;
+  if (!first) return "";
+  const sentence = (fact: string) => coachingStyle === "spicy" ? toSpicySquadFact(fact) : fact;
+  if (!second) return sentence(first.fact);
+  const endings: Record<string, string> = {
+    "느립니다.": "느렸", "빠릅니다.": "빨랐", "높습니다.": "높았", "낮습니다.": "낮았",
+    "많습니다.": "많았", "적습니다.": "적었", "입니다.": "였", "했습니다.": "했",
+  };
+  const stem = first.fact.replace(/느립니다\.$|빠릅니다\.$|높습니다\.$|낮습니다\.$|많습니다\.$|적습니다\.$|입니다\.$|했습니다\.$/u, ending => endings[ending]);
+  return `${stem}${first.kind === second.kind ? "고" : "지만"} ${sentence(second.fact)}`;
 }
 
 // 매운맛은 반말이라 재료 사실 문장의 끝맺음도 반말로 넘긴다. 모델은 사실 문장을 그대로 옮겨 쓰므로 여기서 바꿔야 말투가 섞이지 않는다.

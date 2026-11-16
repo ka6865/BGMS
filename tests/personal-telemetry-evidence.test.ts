@@ -146,7 +146,8 @@ it('repairs unsupported rear-position titles and smoke-only utility dismissal',(
 
 it('binds squad member contribution numbers to their own metric, including cache responses',()=>{
   const result=applySquadEvidencePolicy({memberFeedbacks:[{name:'MiaeQ_Q',praise:'평균 357 데미지와 21%의 킬 기여도를 기록했습니다.',fault:'킬 비중 21%입니다.',advice:'어시스트 비중 9%입니다.'}]},{},null,{},[{name:'MiaeQ_Q',shares:{damage:25,kill:36,assist:9,dbno:21}}]);
-  expect(result.memberFeedbacks[0].praise).toContain('킬 비중 36%');
+  expect(result.memberFeedbacks[0].praise).toBe('팀 딜 25%와 킬 36%를 기록했습니다.');
+  expect(applySquadEvidencePolicy(result,{},null,{},[{name:'MiaeQ_Q',shares:{damage:25,kill:36,assist:9,dbno:21}}])).toEqual(result);
   expect(result.memberFeedbacks[0].fault).toContain('킬 비중 36%');
   expect(result.memberFeedbacks[0].advice).toContain('어시스트 비중 9%');
 });

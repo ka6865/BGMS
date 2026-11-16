@@ -216,7 +216,7 @@ describe("서버가 쓰는 개인 못한 점과 조언", () => {
   it("모델이 쓴 못한 점과 조언은 버리고 서버 문장으로 바꾼다", () => {
     const result: any = applySquadEvidencePolicy(modelResult, stats, "B", undefined, roleProfiles, { coachingStyle: "mild" });
     const [a, b] = result.memberFeedbacks;
-    expect(a.praise).toBe(modelResult.memberFeedbacks[0].praise);
+    expect(a.praise).toBe("팀 딜 43%와 킬 36%를 기록했습니다.");
     expect(a.fault).toBe(squadMemberFaultFeedback(roleProfiles, "mild").get("A")!.fault);
     expect(a.fault).toContain("80m 밖");
     expect(a.advice).toBe("다음 교전 전에 가장 가까운 아군의 위치를 확인해 보세요.");
@@ -255,9 +255,9 @@ describe("매운맛 개인 칭찬", () => {
     expect(squadMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다."))).toContain("팀 딜 비중 28%, 팀 킬 비중 26%, ");
   });
 
-  it("낮은 딜 비중과 킬로그 배달부에는 칭찬을 만들지 않는다", () => {
-    expect(squadMemberPraise(punch("member_low_damage", "roast", "팀 딜 비중은 5%입니다."))).toBeNull();
-    expect(squadMemberPraise(punch("member_kill_log", "roast", "팀 딜 비중은 5%인데 팀 킬 비중은 60%입니다."))).toBeNull();
+  it("낮은 딜 비중과 킬로그 분포는 평가 없이 기록으로 서술한다", () => {
+    expect(squadMemberPraise(punch("member_low_damage", "roast", "팀 딜 비중은 5%입니다."))).toBe("팀 딜 비중은 5%를 기록했네.");
+    expect(squadMemberPraise(punch("member_kill_log", "roast", "팀 딜 비중은 5%인데 팀 킬 비중은 60%입니다."))).not.toMatch(/캐리|화력|해결사|배달부/);
   });
 
   it("칭찬은 비꼬는 말투가 아니다", () => {
@@ -276,7 +276,7 @@ describe("매운맛 개인 칭찬", () => {
     expect(squadMemberPraise(punch("member_steady", "hype", "팀 딜 비중 28%, 팀 킬 비중 26%입니다.", "MiaeQ_Q"))).toBe(lines[2]);
   });
 
-  it("정책은 매운맛에서만 칭찬을 서버 문장으로 확정하고 다정한맛은 모델 문장을 둔다", () => {
+  it("정책은 두 맛의 칭찬을 같은 실측 비중과 기여 분류로 확정한다", () => {
     const profiles = [
       { name: "A", totalKills: 8, shares: { damage: 75, kill: 75, assist: 50, dbno: 75 }, records: null },
       { name: "B", totalKills: 6, shares: { damage: 25, kill: 25, assist: 50, dbno: 25 }, records: null },
@@ -285,11 +285,11 @@ describe("매운맛 개인 칭찬", () => {
       memberFeedbacks: [{ name: "A", praise: "모델이 쓴 평범한 칭찬입니다.", fault: "", advice: "" }, { name: "B", praise: "모델이 쓴 칭찬입니다.", fault: "", advice: "" }] };
     const stats = { avgTradeLatency: 9000, totalTradeKills: 12, totalTeammateKnocks: 41, totalRevives: 19 };
     const spicy: any = applySquadEvidencePolicy(result, stats, "B", undefined, profiles, { coachingStyle: "spicy" });
-    expect(spicy.memberFeedbacks[0].praise).toContain("팀 딜 비중이 75%");
+    expect(spicy.memberFeedbacks[0].praise).toContain("팀 딜 75%와 킬 75%");
     expect(spicy.memberFeedbacks[0].praise).not.toContain("모델이 쓴");
     expect(applySquadEvidencePolicy(spicy, stats, "B", undefined, profiles, { coachingStyle: "spicy" })).toEqual(spicy);
     const mild: any = applySquadEvidencePolicy(result, stats, "B", undefined, profiles, { coachingStyle: "mild" });
-    expect(mild.memberFeedbacks[0].praise).toBe("모델이 쓴 평범한 칭찬입니다.");
+    expect(mild.memberFeedbacks[0].praise).toBe("팀 딜 75%와 킬 75%, 화력의 중심을 잡은 캐리입니다.");
   });
 });
 

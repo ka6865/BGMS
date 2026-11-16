@@ -30,9 +30,9 @@ export function buildSquadOutputSchema(canonicalGrade: string | null): Schema<Sq
           type: "object",
           properties: {
             name: { type: "string", description: "Nickname of the squad member" },
-            praise: { type: "string", description: "Positive point that cites one measured stat of this member (칭찬할 점)" },
-            fault: { type: "string", description: "A weak point of this member backed by an individual measured stat (못한 점). Share, rank or team-lowest values never count. Empty string \"\" when none exists. Never filler or a pass line." },
-            advice: { type: "string", description: "A practice suggestion that follows from an individual measured weakness (개인 피드백). Never ask to raise a damage, kill or assist share. Empty string \"\" when none exists. No generic encouragement such as keep it up." },
+            praise: { type: "string", description: "Empty string \"\": the server writes praise from canonical measured shares" },
+            fault: { type: "string", description: "Empty string \"\": the server writes fault from canonical individual records. Share, rank or team-lowest values never count." },
+            advice: { type: "string", description: "Empty string \"\": the server writes advice from canonical individual records. Never ask to raise a damage, kill or assist share." },
           },
           required: ["name", "praise", "fault", "advice"],
         },
