@@ -2,7 +2,7 @@ import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from '.
 import { isSquadWithheldCopy, squadMetricWithheldCopy, squadWithheldCopy } from './squadAiPolicy';
 import { isSquadReviveRateEvaluable, isSquadTradeLatencyEvaluable } from './squadEvidenceSamples';
 import { squadMemberFaultFeedback, type SquadMemberRecords } from './squadMemberRecords';
-import { selectSquadMemberPunchlines, selectSquadPunchlines, squadMemberPraise, squadSpicyCloser } from './squadPunchlines';
+import { selectSquadMemberPunchlines, selectSquadPunchlines, squadMemberPraise, squadSpicyCloser, squadOverallOpinion, toSpicySquadFact } from './squadPunchlines';
 
 // Keep absent observations out of coaching, including results read from cache.
 const metrics = [
@@ -28,6 +28,8 @@ export interface SquadEvidencePolicyOptions {
   coachingStyle?: string;
   // 전체 팀 평균 소생률을 문장 속 퍼센트와 대조할 때 쓴다. 없으면 우리 팀 소생률만 인정한다.
   benchmarkStats?: Record<string, unknown> | null;
+  matchesSummary?: ReadonlyArray<{ winPlace?: unknown }> | null;
+  analyzedMatchCount?: number;
 }
 
 // 생존 케어 점수가 없을 때 막는 말: 능력 평가와 근거 없는 구조 비율. 측정된 소생률 문장은 아래에서 따로 살린다.
@@ -134,13 +136,35 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
       // 매운맛은 아래 마무리 한마디가 채우고, 재료가 없을 때만 짧은 마감 문장을 쓴다.
       : coachingStyle === "spicy" ? "" : "다음 경기에서도 지금의 호흡을 이어가 보세요.";
   }
-  // 매운맛 총평은 서버가 고른 마무리 한마디로 끝낸다. 모델 마무리는 밋밋해지기 쉽다. 이미 붙어 있으면 다시 붙이지 않는다(캐시 재적용).
-  if (coachingStyle === "spicy" && typeof output.overallOpinion === "string") {
-    const closer = squadSpicyCloser(selectSquadPunchlines({ stats, scores, squadGrade: grade, benchmarkStats: options.benchmarkStats, roleProfiles }),
-      roleProfiles.map(profile => profile.name).sort().join(","));
-    const opinion = output.overallOpinion.trim();
-    const closed = closer && !opinion.includes(closer) ? `${opinion} ${closer}`.trim() : opinion;
-    output.overallOpinion = closed || "기록부는 여기까지야.";
+  // 새 응답과 캐시에서 같은 canonical 기록으로 재료를 한 번만 고른다.
+  const teamPunchlines = selectSquadPunchlines({ stats, scores, squadGrade: grade, benchmarkStats: options.benchmarkStats, matchesSummary: options.matchesSummary, roleProfiles });
+  const scope = options.analyzedMatchCount && (options.matchesSummary?.length ?? 0) > options.analyzedMatchCount
+    ? `상세 분석 가능한 ${options.analyzedMatchCount}경기 기준 ` : "";
+  const scopedPunchlines = teamPunchlines.map(item => scope && !["wins", "bestRank"].includes(item.metric)
+    ? { ...item, fact: `${scope}${item.fact}` } : item);
+  // 분배 편차는 약점이 아니다. 구조율과 연막 구출은 선택기에서 칭찬 재료만 만든다.
+  const gap = scopedPunchlines.find(item => item.kind === "roast" && item.id !== "damage_spread");
+  if (coachingStyle === "spicy" && gap && typeof output.weakness === "string" && !output.weakness.trim()) {
+    output.weakness = toSpicySquadFact(gap.fact);
+    if (typeof output.coaching === "string" && !output.coaching.trim()) {
+      const advice: Record<string, string> = {
+        trade_rate_low: "다음에도 가까운 거리에서 아군이 눕는다면, 30초 안에 같은 적을 잡을 수 있는 상황인지 점검해 봐.",
+        knocks_many: "다음 경기에도 기절이 반복된다면, 쓰러지기 직전의 기록부터 함께 확인해 봐.",
+        backup_slow: "다음에도 복수가 늦어진다면, 아군 기절부터 복수까지 걸린 시간을 함께 확인해 봐.",
+        wins_zero: "다음 경기에도 우승이 없다면, 마지막 교전 기록부터 함께 점검해 봐.",
+      };
+      output.coaching = advice[gap.id] ?? "";
+    }
+  }
+  const opinionCandidates = scopedPunchlines.filter(item => item.id !== "damage_spread");
+  const opinionFacts = opinionCandidates.slice(0, 2);
+  if (typeof output.overallOpinion === "string" && opinionFacts.length > 0) {
+    const closer = coachingStyle === "spicy"
+      ? squadSpicyCloser(opinionCandidates, roleProfiles.map(profile => profile.name).sort().join(","))
+      : "다음 경기에서도 이 기록을 바탕으로 함께 점검해 보세요.";
+    output.overallOpinion = `${squadOverallOpinion(opinionFacts, coachingStyle)} ${closer}`.trim();
+  } else if (coachingStyle === "spicy" && typeof output.overallOpinion === "string") {
+    output.overallOpinion = output.overallOpinion.trim() || "기록부는 여기까지야.";
   }
   if (Array.isArray(data.memberFeedbacks)) {
     const cleanMember = (text: unknown) => {
@@ -158,13 +182,8 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
     // 모델이 없는 기준을 만들거나 비꼬는 말투를 지우는 일을 막고, 후보가 없는 팀원은 빈 칸으로 둔다.
     const recordsAware = roleProfiles.length > 0 && roleProfiles.every(profile => profile.records !== undefined);
     const fixedFeedback = recordsAware ? squadMemberFaultFeedback(roleProfiles, coachingStyle === "spicy" ? "spicy" : "mild") : null;
-    // 매운맛 칭찬도 서버가 쓴다. 모델에 맡기면 네 명 모두 똑같은 평범한 칭찬이 된다. 칭찬은 비꼬지 않는다.
-    const spicyPraise = coachingStyle === "spicy"
-      ? new Map(selectSquadMemberPunchlines({ roleProfiles }).flatMap(punchline => {
-        const praise = squadMemberPraise(punchline);
-        return praise ? [[punchline.name, praise] as const] : [];
-      }))
-      : null;
+    // 낮은 비중도 중립 기록으로 확정해 모델의 과찬과 잘못된 수치를 남기지 않는다.
+    const memberPunchlines = new Map(selectSquadMemberPunchlines({ roleProfiles }).map(item => [item.name, item]));
     output.memberFeedbacks = data.memberFeedbacks.map((member) => {
       const profile = roleProfiles.find(profile => profile.name.toLowerCase() === String(member.name).toLowerCase());
       const checkShare = (value: unknown) => {
@@ -181,7 +200,8 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
           .replace(/(킬|기절|녹다운|어시스트|딜량|데미지|대미지|피해량)\s*(?:지분|비중|기여도)\s*(\d+(?:\.\d+)?)%/g, reconcile);
       };
       const fixed = profile ? fixedFeedback?.get(profile.name) : undefined;
-      const praise = profile && spicyPraise?.get(profile.name) ? spicyPraise.get(profile.name) : checkShare(member.praise);
+      const punchline = profile && memberPunchlines.get(profile.name);
+      const praise = punchline ? squadMemberPraise(punchline, coachingStyle === "spicy" ? "spicy" : "mild", profile?.shares) : "";
       if (fixed) return { ...member, praise, fault: fixed.fault, advice: fixed.advice };
       return { ...member, praise, fault: checkShare(member.fault), advice: checkShare(member.advice) };
     });

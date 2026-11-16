@@ -4,6 +4,7 @@ import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
 import { ANALYSIS_CALCULATION_VERSION, AI_SQUAD_CACHE_VERSION, AI_MATCH_PROMPT_VERSION, AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import { buildMatchAiActionHints } from "../lib/pubg-analysis/matchAiScenes";
 import { fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
 import { SQUAD_SPICY_PASS_LINES } from "../lib/pubg-analysis/squadAiPolicy";
 import {
@@ -780,6 +781,58 @@ describe("AI cache route stabilization", () => {
     expect(text).not.toContain("팀 지원 지표 보완이 필요");
     expect(text).not.toContain("혼자 다 해먹");
     expect(text).not.toContain("팀 지원 지표가 바닥");
+  });
+
+  it.each([
+    { label: "후보 있음과 무근거 제안", candidate: true, actionCandidateId: null, finalVerdict: "교전 기록을 확인해 봐." },
+    { label: "잘못된 후보 ID", candidate: true, actionCandidateId: "unknown", finalVerdict: "교전 기록을 확인해 봐." },
+    { label: "유효 후보와 무관한 장면", candidate: true, actionCandidateId: "third-party-790000", finalVerdict: "교전 기록을 확인해 봐." },
+    { label: "후보 없는 관측 지표 점검", candidate: false, actionCandidateId: "unknown", finalVerdict: "교전 기록을 확인해 봐." },
+    { label: "우승 언급", candidate: false, actionCandidateId: null, finalVerdict: "우승까지 잘 마무리했네.", winner: true },
+    { label: "구캐시 치킨 문구", candidate: false, actionCandidateId: null, finalVerdict: "치킨은 치킨이지. 이건 인정.", winner: true },
+    { label: "치킨 마무리 추가", candidate: false, actionCandidateId: null, finalVerdict: "화력 기록이 좋았네.", winner: true },
+  ])("ai-analyze는 $label 결과를 신규·원본 캐시·2회 정규화에서 동일하게 반환한다", async ({ candidate, actionCandidateId, finalVerdict, winner }) => {
+    const row = createCanonicalAnalyzeRow("match-action-contract", {
+      ...(winner ? { stats: { ...createSummaryMatch().stats, winPlace: 1, deathType: "alive" } } : {}),
+      timeline: [{ ts: 790_000, type: "DIED", x: 120, y: 340 }],
+      ...(candidate ? { matchReport: { death: { type: "thirdParty", timeMs: 790_000, teamsInLastMinute: 2 } } } : {}),
+    });
+    const raw = JSON.stringify({
+      briefFeedback: ["첫 문장", "둘째 문장", "셋째 문장"], briefFeedbackSceneIds: [null, null, null], finalVerdict,
+      actionItems: [{ title: "점검", desc: candidate ? "엄폐한 적을 상대할 때 → 수류탄 궤적을 미리 계산해서 던진다" : "7:15 공식 피해량 320의 교전별 분포를 다음 경기에도 점검한다", actionCandidateId, sceneId: "DIED-1" }],
+    });
+    mockSummaryGeminiRawText(raw);
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: row, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ match_ai_coaching_cache: matchCache, processed_match_telemetry: telemetry }) });
+    const read = async () => {
+      const response = await aiAnalyzePOST(createRequest({ nickname: "Player_A", platform: "kakao", coachingStyle: "spicy", matchData: { matchId: row.match_id } }));
+      expect(response.status).toBe(200);
+      const chunk = parseSummaryNdjson(await response.text()).find((line) => line.type === "chunk");
+      expect(chunk).toBeDefined();
+      return chunk!.data as string;
+    };
+    const fresh = await read();
+    expect(matchCache.upsert.mock.calls[0][0].ai_result.text).toBe(fresh);
+    const generatedCalls = mockGenerateContentStream.mock.calls.length;
+    matchCache.maybeSingle.mockResolvedValue({ data: { ai_result: { text: raw } }, error: null });
+    expect(await read()).toBe(fresh);
+    matchCache.maybeSingle.mockResolvedValue({ data: { ai_result: { text: fresh } }, error: null });
+    expect(await read()).toBe(fresh);
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(generatedCalls);
+    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_MATCH_PROMPT_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`);
+    const result = JSON.parse(fresh);
+    if (candidate) {
+      const hint = buildMatchAiActionHints(row.data.fullResult)[0];
+      expect(result.actionItems).toEqual([{ icon: "🎯", title: hint.title, desc: hint.text, actionCandidateId: hint.id, sceneId: "DIED-790000" }]);
+    } else {
+      expect(result.actionItems).toEqual([{ title: "점검", desc: "공식 피해량 320의 교전별 분포를 다음 경기에도 점검한다" }]);
+    }
+    if (winner) {
+      if (/우승|치킨/u.test(finalVerdict)) expect(result.finalVerdict).toBe(finalVerdict);
+      else expect(result.finalVerdict).toContain("치킨");
+    }
+    expect(result.briefFeedbackSceneIds).toBeUndefined();
   });
 
   it("ai-analyze는 캐시 응답의 장면 ID를 canonical 타임라인으로 다시 검증한다", async () => {
@@ -6809,11 +6862,11 @@ describe("AI cache route stabilization", () => {
     const json = await response.json();
     expect(json.summary).toBe(generated.summary);
     // 매운맛 칭찬은 서버가 측정 비중과 한마디로 확정한다. 모델의 칭찬 문장은 쓰지 않는다.
-    expect(json.memberFeedbacks[0].praise).toContain("팀 딜 비중 55%");
+    expect(json.memberFeedbacks[0].praise).toBe("팀 딜 55%와 킬 50%를 기록했네.");
     expect(json.memberFeedbacks[0].praise).not.toContain(generated.memberFeedbacks[0].praise);
     expect(json.memberFeedbacks[0].fault).toMatch(squadWithheldWording);
     expect(json.memberFeedbacks[0].advice).toMatch(squadWithheldWording);
-    expect(json.memberFeedbacks[1].praise).toMatch(squadWithheldWording);
+    expect(json.memberFeedbacks[1].praise).toBe("");
     expect(json.memberFeedbacks[1].fault).toMatch(squadWithheldWording);
     // 측정하지 않은 명중률 평가는 원문 그대로 두지 않고 보류 문장으로 바꾼다.
     expect(json.memberFeedbacks[1].advice).toMatch(squadWithheldWording);
@@ -7175,15 +7228,14 @@ describe("AI cache route stabilization", () => {
     const cards = records.find(record => record.type === 'cards')?.data;
     const rows = cards.flatMap((card: any) => card.evidence);
     expect(cards.every((card: any) => card.context.userMatchCount === 2)).toBe(true);
-    expect(rows.find((row: any) => row.metricId === 'initiative_rate')).toMatchObject({ userValue: '100%', numerator: 2, denominator: 2, userMatchCount: 1 });
-    expect(rows.find((row: any) => row.metricId === 'duel_win_rate')).toMatchObject({ userValue: '50%', numerator: 1, denominator: 2, userMatchCount: 1 });
-    expect(rows.find((row: any) => row.metricId === 'solo_kill_share')).toMatchObject({ userValue: '50%', userMatchCount: 1 });
-    expect(rows.find((row: any) => row.metricId === 'damage_average')).toMatchObject({ userValue: '320', userMatchCount: 1 });
+    expect(cards.map((card: any) => card.topicId)).not.toContain('duel');
+    expect(cards.map((card: any) => card.topicId)).not.toContain('firepower');
+    expect(rows.filter((row: any) => row.status === 'comparable')).toEqual([]);
   });
-  it.each(['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance', 'wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'malformed-action', 'all-neutral', 'duplicate-topic', 'unknown-topic', 'two-cards', 'non-json'])(
+  it.each(['valid', 'lean', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance', 'wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'malformed-action', 'all-neutral', 'duplicate-topic', 'unknown-topic', 'two-cards', 'non-json'])(
     'ai-summary v2 %s preserves server evidence and validates interpretation/cache separately', async (scenario) => {
       const summaryCache = createQueryChain();
-      const telemetry = createQueryChain({ data: [{ match_id: 'id-contract', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('id-contract', { deathPhase: 4 }) } }], error: null });
+      const telemetry = createQueryChain({ data: ['id-contract', 'id-contract-2'].map(matchId => ({ match_id: matchId, player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch(matchId, { deathPhase: 4 }) } })), error: null });
       const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 30, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 30, avg_trade_rate: 20, avg_trade_rate_count: 30, avg_duel_win_rate: 10, avg_duel_win_rate_count: 30, avg_solo_kill_rate: 40, avg_solo_kill_rate_count: 30 }, error: null });
       mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
       let providerFinal: any;
@@ -7200,6 +7252,16 @@ describe("AI cache route stabilization", () => {
         expect(prompt).not.toContain('### [SQUAD 모드 분석]');
         const issues = plan.map((card: any) => ({ topicId: card.topicId, evidenceIds: [...card.evidenceIds], kindOpinion: '교전을 마무리하는 강점이 있습니다.', spicyOpinion: '합류 시점을 더 점검하세요.', winner: 'kind', reason: '관측된 기록에 근거합니다.', evaluation: '다음 경기에서 합류를 점검하세요.' }));
         providerFinal = { ...createValidSummaryFinal(), debateIssues: issues };
+        if (scenario === 'lean') {
+          delete providerFinal.signatureSub;
+          delete providerFinal.finalVerdict;
+          for (const issue of issues) {
+            delete (issue as any).winner;
+            delete (issue as any).reason;
+            delete (issue as any).evaluation;
+          }
+          expect(prompt).not.toMatch(/"(?:signatureSub|finalVerdict|winner|reason|evaluation)"\s*:/);
+        }
         if (scenario === 'balanced' || scenario === 'withheld') {
           for (const issue of issues) issue.winner = scenario === 'balanced' ? 'draw' : null;
         }
@@ -7224,7 +7286,7 @@ describe("AI cache route stabilization", () => {
         if (scenario === 'two-cards') issues.pop();
         return { stream: (async function* () { yield { text: () => scenario === 'non-json' ? 'not-json' : JSON.stringify(providerFinal) }; })(), response: Promise.resolve({ usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } }) };
       });
-      const requestBody = { matchIds: ['id-contract'], nickname: 'Player_A', platform: 'kakao', force: true, summaryContractVersion: 2 };
+      const requestBody = { matchIds: ['id-contract', 'id-contract-2'], nickname: 'Player_A', platform: 'kakao', force: true, summaryContractVersion: 2 };
       const response = await aiSummaryPOST(createRequest(requestBody));
       const records = parseSummaryNdjson(await response.text());
       expect(response.status).toBe(200);
@@ -7234,7 +7296,7 @@ describe("AI cache route stabilization", () => {
       expect(damage).toMatchObject({ metricId: 'damage_average', userValue: '320', benchmarkValue: '100', status: 'comparable' });
       // 중립 의견과 잘못된 행동 제안은 서버 근거·점검으로 대신하므로 완료로 끝난다.
       const partialSuccess = ['wrong-reference', 'missing-reference', 'foreign-mode', 'invented-match-count'].includes(scenario);
-      const success = partialSuccess || ['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance', 'neutral-opinion', 'malformed-action', 'all-neutral', 'cross-card-prose'].includes(scenario);
+      const success = partialSuccess || ['valid', 'lean', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance', 'neutral-opinion', 'malformed-action', 'all-neutral', 'cross-card-prose'].includes(scenario);
       expect(records.find(record => record.type === 'done')?.valid).toBe(success);
       if (success) {
         expect(mockTrackAiFailure).not.toHaveBeenCalled();
@@ -7260,7 +7322,8 @@ describe("AI cache route stabilization", () => {
         if (scenario === 'unsafe-advice') {
           const card = final.cards.find((card: any) => card.topicId === 'firepower');
           expect(card.winner).toBe('kind');
-          expect(card.spicyOpinion).toContain('다음 교전이 끝난 뒤');
+          expect(card.spicyOpinion).toContain('이번 관측');
+          expect(card.spicyOpinion).not.toContain('다음 교전');
           expect(final.actionItems[0].desc).not.toContain('공격 기회를 늘리세요');
           expect(final.actionItems[0].desc).toContain('확인');
         }
@@ -7315,6 +7378,60 @@ describe("AI cache route stabilization", () => {
     },
   );
 
+  it('ai-summary v37은 정상 보류와 빈 행동을 fresh·레거시 cache에서 완료로 유지한다', async () => {
+    const summaryCache = createQueryChain();
+    const match = createSummaryMatch('summary-held', { deathPhase: 4 });
+    const telemetry = createQueryChain({ data: [{ match_id: match.matchId, player_id: 'player_a', platform: 'kakao', data: { fullResult: match } }], error: null });
+    const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 40, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 40 }, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
+    mockGenerateContentStream.mockImplementation(async (prompt: string) => {
+      const plan = JSON.parse(prompt.split('### [SERVER_CARD_PLAN_V2]\n')[1].split('\n### [END_SERVER_CARD_PLAN_V2]')[0]);
+      const provider = { signature: '경기 탐험가', debateIssues: plan.map((card: any) => ({ topicId: card.topicId, evidenceIds: card.evidenceIds, kindOpinion: '관측한 기록의 범위를 확인했습니다.', spicyOpinion: '이번 관측 범위를 확인했어.' })), actionItems: [] };
+      return { stream: (async function* () { yield { text: () => JSON.stringify(provider) }; })(), response: Promise.resolve({ usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } }) };
+    });
+    const request = { matchIds: [match.matchId], nickname: 'Player_A', platform: 'kakao', summaryContractVersion: 2 };
+    const fresh = parseSummaryNdjson(await (await aiSummaryPOST(createRequest({ ...request, force: true }))).text());
+    const final = JSON.parse(fresh.find(record => record.type === 'final')?.data || '{}');
+    expect(final.analysisStatus).toBe('complete');
+    expect(final.cards.every((card: any) => card.winner === null)).toBe(true);
+    expect(final.actionItems).toEqual([]);
+    expect(fresh.find(record => record.type === 'done')).toEqual({ type: 'done', valid: true });
+    expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
+    const stored = summaryCache.upsert.mock.calls[0][0];
+    const oldProvider = JSON.parse(stored.ai_result.providerFinal);
+    oldProvider.signatureSub = '예전 캐시의 칭호 설명';
+    oldProvider.finalVerdict = '예전 캐시의 평가';
+    for (const issue of oldProvider.debateIssues) Object.assign(issue, { reason: '', evaluation: '', winner: 'old' });
+    configureSummaryCacheHitForHash(summaryCache, stored.match_ids_hash, { ...stored.ai_result, providerFinal: JSON.stringify(oldProvider) });
+    mockGenerateContentStream.mockClear();
+    const cached = parseSummaryNdjson(await (await aiSummaryPOST(createRequest(request))).text());
+    expect(JSON.parse(cached.find(record => record.type === 'final')?.data || '{}')).toEqual(final);
+    expect(cached.find(record => record.type === 'done')).toEqual({ type: 'done', valid: true });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('ai-summary 모드별 benchmark를 최대 두 개씩 병렬 조회한다', async () => {
+    const matches = ['solo', 'duo', 'squad'].map((gameMode, index) => createSummaryMatch(`parallel-${index}`, { gameMode }));
+    const telemetry = createQueryChain({ data: matches.map(fullResult => ({ match_id: fullResult.matchId, player_id: 'player_a', platform: 'kakao', data: { fullResult } })), error: null });
+    const tier = createQueryChain({ data: null, error: null });
+    let active = 0, peak = 0;
+    tier.maybeSingle.mockImplementation(async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      active--;
+      return { data: null, error: null };
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: createQueryChain(), processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
+    mockSummaryGeminiResponse();
+    const response = await aiSummaryPOST(createRequest({ matchIds: matches.map(match => match.matchId), nickname: 'Player_A', platform: 'kakao', force: true }));
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(peak).toBe(2);
+    expect(active).toBe(0);
+  });
+
   it.each(['quota', 'stream-quota', 'sdk-quota', 'timeout'])('ai-summary v2 separates %s from validation failures and preserves facts', async (failure) => {
     const summaryCache = createQueryChain();
     const telemetry = createQueryChain({ data: [{ match_id: 'provider-failure', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('provider-failure', { deathPhase: 4 }) } }], error: null });
@@ -7361,7 +7478,7 @@ describe("AI cache route stabilization", () => {
     { values: [null], expected: null },
     { values: [0], expected: '0' },
     { values: [320, null], expected: '320' },
-  ])('ai-summary v2 keeps observed damage separate from missing matches: $values', async ({ values, expected }) => {
+  ])('ai-summary v2 keeps observed damage separate from missing matches: $values', async ({ values }) => {
     const rows = values.map((damage, index) => {
       const match = createSummaryMatch(`observed-${index}`, { deathPhase: 4 });
       delete (match.stats as Partial<typeof match.stats>).processedDamageDealt;
@@ -7380,9 +7497,8 @@ describe("AI cache route stabilization", () => {
     try {
       const response = await aiSummaryPOST(createRequest({ matchIds: rows.map(row => row.match_id), nickname: 'Player_A', platform: 'kakao', force: true, summaryContractVersion: 2 }));
       const cards = parseSummaryNdjson(await response.text()).find(record => record.type === 'cards')?.data;
-      expect(cards.find((card: any) => card.topicId === 'firepower').evidence[0]).toMatchObject({
-        userValue: expected, benchmarkValue: expected === null ? null : '100', status: expected === null ? 'unavailable' : 'comparable',
-      });
+      expect(cards.some((card: any) => card.topicId === 'firepower')).toBe(false);
+      expect(cards.every((card: any) => card.context.userMatchCount === values.length)).toBe(true);
       expect(summaryCache.upsert).not.toHaveBeenCalled();
     } finally {
       if (previous === undefined) delete process.env.GOOGLE_GEMINI_API_KEY;
@@ -7406,7 +7522,7 @@ describe("AI cache route stabilization", () => {
       // 카드는 비교 기준과 같은 모드 경기만 쓰므로 두 모드를 섞어 비교하지 않는다.
       expect(cards.every((card: any) => card.context.userMatchCount === 1 && !card.context.gameMode.includes('/'))).toBe(true);
       expect(cards[0].context).toMatchObject({ gameMode: 'squad', matchType: 'competitive', tier: 'A+', userMatchCount: 1, benchmarkSampleCount: 30 });
-      expect(cards.find((card: any) => card.topicId === 'firepower').evidence[0]).toMatchObject({ status: 'comparable', benchmarkValue: '100' });
+      expect(cards.some((card: any) => card.topicId === 'firepower')).toBe(false);
     } finally {
       if (previous === undefined) delete process.env.GOOGLE_GEMINI_API_KEY;
       else process.env.GOOGLE_GEMINI_API_KEY = previous;

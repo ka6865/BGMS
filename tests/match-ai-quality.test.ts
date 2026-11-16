@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { applyMatchAiPercentiles, formatMatchAiPercentileSection, toMatchAiPercentiles } from "@/lib/pubg-analysis/matchAiPercentiles";
 import { applyMatchAiClockPolicy, applyMatchAiSceneRefs, buildMatchAiActionHints, buildMatchAiFlowLines, buildMatchAiSceneCatalog, formatMatchAiSceneLine, unwrapMatchAiJson } from "@/lib/pubg-analysis/matchAiScenes";
-import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
+import { applyMatchAiActionPolicy, applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
 import { buildMatchAiCoachingPrompt } from "@/lib/pubg-analysis/matchAiCoachingPrompt";
+
+const actionTexts = (match: unknown) => buildMatchAiActionHints(match).map((hint) => hint.text);
 
 const row = (metric: string, total: number, above: number, below: number) => ({
   metric, game_mode: "squad", match_type: "competitive", sample_count: total, at_or_above: above, at_or_below: below,
@@ -161,12 +163,66 @@ describe("경기 흐름과 경과 시각", () => {
 });
 
 describe("행동 후보", () => {
+  const finalize = (text: string, data: unknown) => {
+    const tidied = applyMatchAiClockPolicy(unwrapMatchAiJson(text), data);
+    const checked = applyMatchAiClockPolicy(applyMatchAiPercentiles(applyMatchAiEvidencePolicy(tidied, data)), data);
+    return applyMatchAiActionPolicy(applyMatchAiSceneRefs(checked, data, tidied), data);
+  };
+
+  it.each([
+    { desc: "엄폐한 적을 상대할 때 → 수류탄 궤적을 미리 계산해서 던진다" },
+    { desc: "근접 교전 상황이 오면 → 주변 엄폐물 위치를 먼저 확보하고 사격한다", actionCandidateId: "unknown", sceneId: "KNOCK-300000" },
+    { desc: "근접 교전 상황이 오면 → 주변 엄폐물을 확보한다", actionCandidateId: "third-party-790000", sceneId: "DIED-1" },
+  ])("무근거 행동과 잘못된 후보·장면 ID를 실제 후보로 확정하고 두 번 정규화해도 같다: %j", (item) => {
+    const hint = buildMatchAiActionHints(match)[0];
+    const once = finalize(JSON.stringify({ actionItems: [{ title: "일반론", ...item }], briefFeedback: ["첫 문장"], briefFeedbackSceneIds: [null] }), match);
+    const result = JSON.parse(once);
+    expect(result.actionItems).toEqual([{ icon: "🎯", title: hint.title, desc: hint.text, actionCandidateId: hint.id, sceneId: "DIED-790000" }]);
+    expect(result.briefFeedbackSceneIds).toBeUndefined();
+    expect(finalize(once, match)).toBe(once);
+  });
+
+  it("모델이 고른 두 번째 적격 후보를 쓰고 다른 장면 ID는 후보 장면으로 교정한다", () => {
+    const hot = { ...match, matchReport: { ...match.matchReport, landing: { timeMs: 64_000, enemiesNear: 8, teamsNear: 2 } } };
+    const hints = buildMatchAiActionHints(hot);
+    const once = finalize(JSON.stringify({ actionItems: [{ actionCandidateId: hints[1].id, sceneId: "DIED-790000", desc: "일반 조언" }] }), hot);
+    expect(JSON.parse(once).actionItems[0]).toEqual({ icon: "🎯", title: hints[1].title, desc: hints[1].text, actionCandidateId: "hot-landing-64000" });
+    expect(finalize(once, hot)).toBe(once);
+    expect(buildMatchAiActionHints({ ...hot, matchReport: { ...hot.matchReport, death: null, fights: [] } })[0].id).toBe(hints[1].id);
+  });
+
+  it("같은 시각의 다른 사건을 사망·착지 장면으로 연결하지 않고 소수 시각은 장면과 같은 규칙으로 반올림한다", () => {
+    const data = { ...match, timeline: [
+      { ts: 790_000.4, type: "KILL", x: 1, y: 1 }, { ts: 790_000.4, type: "DIED", x: 1, y: 1 },
+      { ts: 64_000, type: "KILL", x: 1, y: 1 },
+    ], matchReport: { ...match.matchReport, death: { ...match.matchReport.death, timeMs: 790_000.4 }, landing: { timeMs: 64_000, enemiesNear: 8, teamsNear: 2 } } };
+    const hints = buildMatchAiActionHints(data);
+    expect(hints[0].sceneId).toBe("DIED-790000");
+    expect(hints[1].sceneId).toBeNull();
+  });
+
+  it("후보가 없으면 관측 지표 점검을 남기고 가짜 후보·시각·장면은 만들지 않는다", () => {
+    const data = { stats: { damageDealt: 606, processedDamageDealt: 585 }, timeline: [] };
+    const once = finalize(JSON.stringify({ actionItems: [{ title: "피해 기록 점검", desc: "7:15 공식 피해량 606과 유효 딜량 585의 차이를 다음 경기에도 점검한다", actionCandidateId: "invented", sceneId: "DIED-1" }] }), data);
+    expect(JSON.parse(once).actionItems).toEqual([{ title: "피해 기록 점검", desc: "공식 피해량 606과 유효 딜량 585의 차이를 다음 경기에도 점검한다" }]);
+    expect(finalize(once, data)).toBe(once);
+    expect(buildMatchAiActionHints(data)).toEqual([]);
+  });
+
+  it("행동 항목이 비어 있으면 첫 후보를 채우고 JSON이 아닌 응답은 그대로 둔다", () => {
+    const once = finalize(JSON.stringify({ actionItems: [] }), match);
+    expect(JSON.parse(once).actionItems[0].actionCandidateId).toBe(buildMatchAiActionHints(match)[0].id);
+    expect(finalize(once, match)).toBe(once);
+    expect(applyMatchAiActionPolicy("not-json", match)).toBe("not-json");
+    expect(applyMatchAiActionPolicy("null", match)).toBe("null");
+  });
+
   it("사망 유형·먼 원 밖·헛친 선제 교전·뜨거운 착지에서 측정값으로 최대 3개를 만든다", () => {
     const report = { ...match.matchReport, landing: { timeMs: 64_000, enemiesNear: 16, enemiesFar: 5, teamsNear: 4 },
       damageTaken: { sources: [{ attacker: null, attackerTeamId: null, isBot: false, cause: "zone", weapon: null, damage: 55.4, hits: 12 }], hits: [] },
       circles: [{ index: 3, phase: 3, timeMs: 790_000, status: "outside", outsideByM: 440 }, { index: 2, phase: 2, timeMs: 460_000, status: "outside", outsideByM: 1743 }],
       fights: [...match.matchReport.fights, { startMs: 400_000, endMs: 420_000, opponentTeamIds: [9], opponents: [], dealt: 180, taken: 30, enemyDowns: 0, teamDowns: 0, openedBy: "us", outcome: "brokeOff" }] };
-    expect(buildMatchAiActionHints({ ...match, matchReport: report })).toEqual([
+    expect(actionTexts({ ...match, matchReport: report })).toEqual([
       "13:10 최근 1분간 2팀이 얽힌 교전에서 사망 → 교전을 끝내면 바로 자리를 옮기거나 다른 팀이 올 방향부터 확인한다",
       "13:10 3페이즈 원 밖 440m, 경기 중 자기장 피해 55 → 원이 정해지면 교전을 끊고 원 쪽으로 먼저 이동한다",
       "먼저 쏘고도 아무도 못 쓰러뜨린 교전 1번(첫 번째 6:40) → 먼저 쏠 때는 한 명에게 사격을 모으거나 투척물로 마무리한다",
@@ -177,13 +233,13 @@ describe("행동 후보", () => {
     const circles = [{ index: 3, phase: 3, timeMs: 600_000, status: "outside", outsideByM: 746 }];
     const noZone = { ...match, matchReport: { ...match.matchReport, death: null, circles } };
     // 자기장 피해가 없으면 원 밖 후보 대신 먼저 맞아 진 교전 후보만 남는다.
-    expect(buildMatchAiActionHints(noZone)).toEqual(["상대가 먼저 쏴서 우리 팀만 쓰러진 교전 1번(첫 번째 12:40) → 넓은 곳은 다음 멈출 지점을 정하고 짧게 끊어 지난다"]);
+    expect(actionTexts(noZone)).toEqual(["상대가 먼저 쏴서 우리 팀만 쓰러진 교전 1번(첫 번째 12:40) → 넓은 곳은 다음 멈출 지점을 정하고 짧게 끊어 지난다"]);
     const knocked = { ...match, timeline: [...match.timeline, { ts: 763_000, type: "DOWNED", weapon: "자기장", x: 5, y: 5 }],
       matchReport: { ...match.matchReport, circles, damageTaken: { sources: [{ attacker: null, attackerTeamId: null, isBot: false, cause: "zone", weapon: null, damage: 70, hits: 20 }], hits: [] } } };
-    const hints = buildMatchAiActionHints(knocked);
+    const hints = actionTexts(knocked);
     expect(hints[0]).toBe("12:43 자기장 피해로 기절 → 원이 줄어들 때는 교전보다 원 안 진입을 먼저 한다");
     expect(hints.some((hint) => hint.includes("원 밖 746m"))).toBe(false);
-    const outfought = (openedBy: string) => buildMatchAiActionHints({ ...match, matchReport: { ...match.matchReport, circles: [], death: { ...match.matchReport.death, type: "outfought", openedBy } } });
+    const outfought = (openedBy: string) => actionTexts({ ...match, matchReport: { ...match.matchReport, circles: [], death: { ...match.matchReport.death, type: "outfought", openedBy } } });
     expect(outfought("them")).toEqual(["상대가 먼저 쏴서 우리 팀만 쓰러진 교전 1번(첫 번째 12:40) → 넓은 곳은 다음 멈출 지점을 정하고 짧게 끊어 지난다"]);
     expect(outfought("us")).toEqual(["13:10 먼저 쏘고도 정면 교전에서 사망 → 먼저 쏠 때는 한 명에게 사격을 모아 숫자 우위부터 만든다"]);
   });
@@ -191,9 +247,9 @@ describe("행동 후보", () => {
   it("팀원이 가까운 출혈 사망은 함께 쓰러진 교전으로, 2페이즈 원 밖은 후보에서 빼고, 후보 시각은 응답에 남긴다", () => {
     const near = { ...match, matchReport: { ...match.matchReport, death: { ...match.matchReport.death, type: "bledOut", nearestTeammateM: 13 },
       circles: [{ index: 2, phase: 2, timeMs: 460_000, status: "outside", outsideByM: 4335 }] } };
-    expect(buildMatchAiActionHints(near)).toEqual(["13:10 팀원 13m 옆에서 같은 교전에 함께 쓰러져 소생을 못 받음 → 한 명이 기절하면 남은 사람은 맞서기 전에 연막부터 깔고 살린다"]);
+    expect(actionTexts(near)).toEqual(["13:10 팀원 13m 옆에서 같은 교전에 함께 쓰러져 소생을 못 받음 → 한 명이 기절하면 남은 사람은 맞서기 전에 연막부터 깔고 살린다"]);
     const far = { ...near, matchReport: { ...near.matchReport, death: { ...near.matchReport.death, nearestTeammateM: 140 } } };
-    expect(buildMatchAiActionHints(far)[0]).toBe("13:10 기절 뒤 소생을 못 받고 사망(가장 가까운 팀원 140m) → 교전 전에 소생 가능한 거리로 팀원과 붙는다");
+    expect(actionTexts(far)[0]).toBe("13:10 기절 뒤 소생을 못 받고 사망(가장 가까운 팀원 140m) → 교전 전에 소생 가능한 거리로 팀원과 붙는다");
     const hot = { ...match, matchReport: { ...match.matchReport, landing: { timeMs: 64_000, enemiesNear: 8, enemiesFar: 0, teamsNear: 2 } } };
     const text = JSON.stringify({ actionItems: [{ icon: "🪂", title: "착지", desc: "1:04 착지처럼 적이 많으면 무기부터 줍는다" }] });
     expect(JSON.parse(applyMatchAiClockPolicy(text, hot)).actionItems[0].desc).toBe("1:04 착지처럼 적이 많으면 무기부터 줍는다");
@@ -202,6 +258,19 @@ describe("행동 후보", () => {
 
 describe("단일 경기 코칭 프롬프트", () => {
   const base = { ...match, mapName: "Erangel", gameMode: "squad" };
+
+  it("개인 공식 피해량·유효 딜량·팀 교전 피해를 서로 다른 라벨로 제공한다", () => {
+    const data = { ...base, stats: { ...base.stats, damageDealt: 606, processedDamageDealt: 585 } };
+    const prompt = buildMatchAiCoachingPrompt({ matchData: data }).fullPrompt;
+    expect(prompt).toContain("공식 피해량 606 / 유효 딜량 585");
+    expect(prompt).toContain("우리 팀이 준 피해 250");
+    expect(prompt).toContain("피해 수치를 인용할 때는 반드시");
+    expect(prompt).toContain("third-party-790000 | DIED-790000");
+    expect(prompt).toContain('"actionCandidateId"');
+    const missing = buildMatchAiCoachingPrompt({ matchData: { ...base, stats: { ...base.stats, processedDamageDealt: undefined }, matchReport: null } }).fullPrompt;
+    expect(missing).toContain("공식 피해량 300 / 유효 딜량 측정 불가");
+    expect(missing).toContain("관측 지표에 근거한 점검");
+  });
 
   it("경기 흐름·백분위 섹션과 행동 하나 규칙을 넣고 비교 평균을 엘리트로 부르지 않는다", () => {
     const percentiles = toMatchAiPercentiles([row("damage", 1000, 121, 880)]);

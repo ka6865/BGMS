@@ -121,7 +121,7 @@ function cacheChain(result: { data: unknown; error: unknown } = { data: null, er
   return chain;
 }
 
-function useSupabase(cache: ReturnType<typeof cacheChain>) {
+function mockSquadSupabase(cache: ReturnType<typeof cacheChain>) {
   mockWithAuthGuard.mockResolvedValue({
     user: { id: "user-1" },
     supabaseAdmin: { from: vi.fn((table: string) => {
@@ -182,7 +182,7 @@ describe("AI squad route stability", () => {
       kind: "ok", text: JSON.stringify(modelResult), usage: { inputTokens: 12, outputTokens: 34 },
     });
     const cache = cacheChain();
-    useSupabase(cache);
+    mockSquadSupabase(cache);
 
     const response = await aiSquadPOST(squadRequest());
     const json = await response.json();
@@ -195,11 +195,67 @@ describe("AI squad route stability", () => {
     expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", GEMINI_MODELS_TO_TRY[1], 12, 34, "squad", expect.any(Object));
   });
 
+  it.each(["spicy", "mild"] as const)("새 응답과 캐시 두 번 읽기의 약점·총평·개인 칭찬이 같다 (%s)", async (coachingStyle) => {
+    const profiles = [
+      { name: "Player_A", totalKills: 2, shares: { damage: 10, kill: 13 }, records: null },
+      { name: "Beta", totalKills: 7, shares: { damage: 47, kill: 47 }, records: null },
+      { name: "Gamma", totalKills: 3, shares: { damage: 23, kill: 20 }, records: null },
+      { name: "Delta", totalKills: 3, shares: { damage: 20, kill: 20 }, records: null },
+    ];
+    for (const scenario of ["gap", "none", "wins", "same", "opposite"]) {
+      const stats = { avgIsolation: 1.5, ...(scenario === "gap" ? { totalTradeableKnocks: 20, totalTradeableTradeKills: 2 }
+        : scenario === "same" || scenario === "opposite" ? { avgTradeLatency: scenario === "same" ? 5000 : 15000, totalTradeKills: 5 } : {}) };
+      const fixture = squadFixture({
+        stats, scores: {}, squadGrade: null, roleProfiles: profiles,
+        benchmarkStats: { avgTradeableTradeRate: 30, avgTradeLatency: 10000 },
+        recordedSummary: { matches: Array.from({ length: scenario === "gap" || scenario === "none" ? 3 : 5 }, (_, index) => ({ matchId: `recorded-${index}`, winPlace: scenario === "wins" ? 1 : scenario === "same" || scenario === "opposite" ? (index === 0 ? 1 : 4) : 4 })) },
+      });
+      mockGetSquadAnalysisData.mockResolvedValue(fixture);
+      const generated = { ...modelResult, summary: "기록 요약", strength: "", weakness: "", coaching: "", overallOpinion: "기록 요약",
+        memberFeedbacks: profiles.map(({ name }) => ({ name, praise: "딜 99%·킬 99%로 화력의 한 축을 맡았네", fault: "", advice: "" })) };
+      streamScripts.push({ kind: "ok", text: JSON.stringify(generated) });
+      const freshCache = cacheChain();
+      mockSquadSupabase(freshCache);
+      const response = await aiSquadPOST(squadRequest({ coachingStyle }));
+      expect(response.status).toBe(200);
+      const fresh = await response.json();
+      expect(freshCache.upsert.mock.calls[0][0].ai_result).toEqual(fresh);
+      expect(fresh.memberFeedbacks[0].praise).toBe(coachingStyle === "spicy" ? "팀 딜 10%와 킬 13%를 기록했네." : "팀 딜 10%와 킬 13%를 기록했습니다.");
+      expect(fresh.memberFeedbacks[1].praise).toMatch(/47%.*화력/);
+      if (scenario === "gap" && coachingStyle === "spicy") {
+        expect(fresh.weakness).toContain("복수 성공률 10%");
+        expect(fresh.coaching).toMatch(/면.*점검/);
+      } else if (scenario === "opposite" && coachingStyle === "spicy") {
+        expect(fresh.weakness).toContain("평균보다 느려.");
+        expect(fresh.coaching).toMatch(/면.*확인/);
+      } else {
+        expect(fresh.weakness).toBe("");
+        expect(fresh.coaching).toBe("");
+      }
+      if (scenario === "wins") expect(fresh.overallOpinion).toContain("최근 5경기에서 우승 5회");
+      if (scenario === "same" || scenario === "opposite") {
+        expect(fresh.overallOpinion).toMatch(scenario === "same" ? /(?:했|빨랐)고/ : /지만/);
+        expect(fresh.overallOpinion).toContain("상세 분석 가능한 3경기 기준");
+      }
+      if (scenario === "none" && coachingStyle === "spicy") expect(fresh.overallOpinion).toBe("기록부는 여기까지야.");
+      const callsAfterFresh = streamCalls.length;
+      for (let read = 0; read < 2; read += 1) {
+        const cached = cacheChain({ data: { ai_result: read === 0 ? generated : fresh }, error: null });
+        mockSquadSupabase(cached);
+        const hit = await aiSquadPOST(squadRequest({ coachingStyle }));
+        expect(hit.status).toBe(200);
+        expect(await hit.json()).toEqual(fresh);
+        expect(cached.upsert).not.toHaveBeenCalled();
+      }
+      expect(streamCalls).toHaveLength(callsAfterFresh);
+    }
+  });
+
   it("treats a first-part timeout as a model failure and gives the next model the same first-part budget", async () => {
     vi.useFakeTimers();
     streamScripts.push({ kind: "hang" }, { kind: "ok", text: JSON.stringify(modelResult) });
     const cache = cacheChain();
-    useSupabase(cache);
+    mockSquadSupabase(cache);
 
     const responsePromise = aiSquadPOST(squadRequest());
     await waitForStreamCall(1);
@@ -218,7 +274,7 @@ describe("AI squad route stability", () => {
       kind: "ok", text: JSON.stringify(modelResult),
     });
     const cache = cacheChain();
-    useSupabase(cache);
+    mockSquadSupabase(cache);
 
     const response = await aiSquadPOST(squadRequest());
     const json = await response.json();
@@ -234,7 +290,7 @@ describe("AI squad route stability", () => {
     vi.useFakeTimers();
     for (let index = 0; index < GEMINI_MODELS_TO_TRY.length; index += 1) streamScripts.push({ kind: "hang" });
     const cache = cacheChain();
-    useSupabase(cache);
+    mockSquadSupabase(cache);
 
     const responsePromise = aiSquadPOST(squadRequest());
     await waitForStreamCall(1);
@@ -259,7 +315,7 @@ describe("AI squad route stability", () => {
       ],
     }));
     const cache = cacheChain({ data: { ai_result: modelResult }, error: null });
-    useSupabase(cache);
+    mockSquadSupabase(cache);
 
     const response = await aiSquadPOST(squadRequest());
 
@@ -272,7 +328,7 @@ describe("AI squad route stability", () => {
 
   it("generates with exactly three matches", async () => {
     streamScripts.push({ kind: "ok", text: JSON.stringify(modelResult) });
-    useSupabase(cacheChain());
+    mockSquadSupabase(cacheChain());
 
     const response = await aiSquadPOST(squadRequest());
 
@@ -282,7 +338,7 @@ describe("AI squad route stability", () => {
 
   it("records a generated result with zero tokens when the provider omits usage", async () => {
     streamScripts.push({ kind: "ok", text: JSON.stringify(modelResult), usage: null });
-    useSupabase(cacheChain());
+    mockSquadSupabase(cacheChain());
 
     const response = await aiSquadPOST(squadRequest());
 
@@ -295,14 +351,14 @@ describe("AI squad route stability", () => {
   it("with the operator switch on, serves a cache hit but calls no model on a miss", async () => {
     vi.stubEnv("PUBG_AI_GENERATION_DISABLED", "true");
     const hitCache = cacheChain({ data: { ai_result: modelResult }, error: null });
-    useSupabase(hitCache);
+    mockSquadSupabase(hitCache);
     const hit = await aiSquadPOST(squadRequest());
     expect(hit.status).toBe(200);
     expect(await hit.json()).toMatchObject({ squadGrade: "A" });
     expect(streamCalls).toHaveLength(0);
 
     const missCache = cacheChain();
-    useSupabase(missCache);
+    mockSquadSupabase(missCache);
     const miss = await aiSquadPOST(squadRequest());
     expect(miss.status).toBe(200);
     expect(await miss.json()).toMatchObject({ mode: "facts_only", reason: "disabled", errorCode: "PUBG_AI_SQUAD_FACTS_ONLY" });
@@ -317,7 +373,7 @@ describe("AI squad route stability", () => {
       summary: "팀 기여가 큽니다. 에임이 좋습니다. 백업 반응 속도는 8초입니다.",
       memberFeedbacks: [{ name: "Player_A", praise: "뇌 빼고 배그함? 손가락 압수 마렵다.", fault: "기록이 부족해 판단을 보류합니다.", advice: "명중률을 올리세요." }],
     };
-    useSupabase(cacheChain({ data: { ai_result: cached }, error: null }));
+    mockSquadSupabase(cacheChain({ data: { ai_result: cached }, error: null }));
 
     const response = await aiSquadPOST(squadRequest());
     const text = JSON.stringify(await response.json());
@@ -332,7 +388,7 @@ describe("AI squad route stability", () => {
     expect(streamCalls).toHaveLength(0);
 
     // 다정한맛은 기존 보류 문장을 그대로 쓴다.
-    useSupabase(cacheChain({ data: { ai_result: cached }, error: null }));
+    mockSquadSupabase(cacheChain({ data: { ai_result: cached }, error: null }));
     const mildResponse = await aiSquadPOST(squadRequest({ coachingStyle: "mild" }));
     const mildText = JSON.stringify(await mildResponse.json());
     expect(mildResponse.status).toBe(200);
@@ -344,7 +400,7 @@ describe("AI squad route stability", () => {
   it("applies the same ability guard to freshly generated results before they are cached", async () => {
     streamScripts.push({ kind: "ok", text: JSON.stringify({ ...modelResult, weakness: "집중력이 떨어져 실수가 많습니다. 간격이 벌어졌습니다." }) });
     const cache = cacheChain();
-    useSupabase(cache);
+    mockSquadSupabase(cache);
 
     const response = await aiSquadPOST(squadRequest());
     const json = await response.json();
@@ -357,7 +413,7 @@ describe("AI squad route stability", () => {
   it("stops an in-flight model call when the caller aborts and returns the aborted contract without caching", async () => {
     streamScripts.push({ kind: "hang" });
     const cache = cacheChain();
-    useSupabase(cache);
+    mockSquadSupabase(cache);
     const controller = new AbortController();
 
     const responsePromise = aiSquadPOST(squadRequest({}, controller.signal));
@@ -375,7 +431,7 @@ describe("AI squad route stability", () => {
   it("returns facts-only when the model output is not parseable JSON and does not cache it", async () => {
     streamScripts.push({ kind: "ok", text: "" , usage: { inputTokens: 5, outputTokens: 0 } });
     const cache = cacheChain();
-    useSupabase(cache);
+    mockSquadSupabase(cache);
 
     const response = await aiSquadPOST(squadRequest());
 
@@ -394,7 +450,7 @@ describe("AI squad route stability", () => {
 
   it("emits one structured timing line with the agreed keys and no identifiers", async () => {
     streamScripts.push({ kind: "error", error: new Error("gemini unavailable") }, { kind: "ok", text: JSON.stringify(modelResult) });
-    useSupabase(cacheChain());
+    mockSquadSupabase(cacheChain());
 
     await aiSquadPOST(squadRequest());
 

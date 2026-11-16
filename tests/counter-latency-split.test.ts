@@ -42,7 +42,7 @@ describe('summary card counter evidence', () => {
     const rows = buildSummaryCardEvidence({
       avgReactionLatency: '1.80s', avgMeasuredReactionLatency: '0.60s',
       counterFailureRate: 50, counterFailureMatches: 3, counterObservedMatches: 6,
-      metricMatchCounts: { reaction_latency: 1, counter_failure_rate: 2 }, rawMetricValues: { reaction_latency: 0.6 },
+      metricMatchCounts: { reaction_latency: 2, counter_failure_rate: 2 }, rawMetricValues: { reaction_latency: 0.6 },
     }, benchmark);
     expect(rows.find(r => r.metricId === 'reaction_latency')).toMatchObject({ userValue: '0.6s', benchmarkValue: '0.6s' });
     expect(rows.find(r => r.metricId === 'counter_failure_rate')).toMatchObject({ userValue: '50%', benchmarkValue: '60%', numerator: 3, denominator: 6 });

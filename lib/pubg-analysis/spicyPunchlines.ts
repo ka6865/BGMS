@@ -26,7 +26,7 @@ const MATCH_JABS = {
 } as const;
 
 const MATCH_HYPES = {
-  chicken: ["치킨은 치킨이지. 이건 인정."],
+  chicken: ["치킨은 치킨이지. 이건 인정.", "치킨 챙긴 판이네. 이건 인정.", "결국 치킨은 네 몫이었네. 이 판은 인정."],
   duel_winning: ["1:1 붙는 족족 상대를 로비로 돌려보냈네. 이건 인정."],
   damage_carry: ["팀 딜 절반을 혼자 짊어진 화력 엔진이었어. 이건 인정."],
 } as const;
@@ -66,6 +66,10 @@ export function applyMatchSpicyJab(text: string, match: any): string {
   try {
     const parsed = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || typeof parsed.finalVerdict !== "string" || parsed.finalVerdict.includes(jab)) return text;
+    if (finite(match?.stats?.winPlace) === 1 && (
+      MATCH_HYPES.chicken.some((variant) => parsed.finalVerdict.includes(variant))
+      || (MATCH_HYPES.chicken as readonly string[]).includes(jab) && /우승|치킨/u.test(parsed.finalVerdict)
+    )) return text;
     return JSON.stringify({ ...parsed, finalVerdict: `${parsed.finalVerdict.trim()} ${jab}`.trim() });
   } catch {
     return text;
@@ -87,11 +91,15 @@ const SUMMARY_METRIC_JABS: Readonly<Record<string, readonly string[]>> = {
   backup_latency: ["백업은 아군 장례식 끝날 즈음 도착했어."],
   smoke_opportunity_rate: ["아군이 쓰러져도 연막 구출 기록은 조용했네."],
 };
-const SUMMARY_HYPES = ["이건 트집 잡을 데가 없어서 매운맛이 머쓱하네.", "여기는 인정. 맵게 할 말이 없어."];
+const SUMMARY_HYPES = ["이번 관측에서 비교 평균보다 유리하게 나온 지표는 인정할게.", "이 지표는 이번 관측 범위에서 인정할 만하네."];
 
 // 요약 카드 매운맛 의견의 서버 문장(비교·점검)과 모델 점검 문장은 존댓말로 만들어지므로 문장 끝만 반말로 바꾼다.
-// 이 목록에 없는 어미는 그대로 둔다(반존대 허용).
+// 관측 한계와 중립 비교도 매운 코치의 반말 어미로 맞춘다.
 const BANMAL_ENDINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/비슷한 수준입니다(?=[.!?]|$)/gu, "비슷한 수준이야"],
+  [/보류합니다(?=[.!?]|$)/gu, "보류할게"],
+  [/견주지 않습니다(?=[.!?]|$)/gu, "견주지 않을게"],
+  [/확인했습니다(?=[.!?]|$)/gu, "확인했어"],
   [/돌아보(?:세요|십시오)(?=[.!?]|$)/gu, "돌아봐"],
   [/살펴보(?:세요|십시오)(?=[.!?]|$)/gu, "살펴봐"],
   [/해\s*보(?:세요|십시오)(?=[.!?]|$)/gu, "해 봐"],

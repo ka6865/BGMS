@@ -100,11 +100,11 @@ describe("squad withheld copy is a fixed point of the evidence policy", () => {
     expect(applySquadEvidencePolicy({ summary: copy }, EMPTY_STATS, null, EMPTY_SCORES, [], { coachingStyle: "mild" }).summary).toBe(copy);
   });
 
-  it.each(SQUAD_SPICY_PASS_LINES)("keeps the spicy pass line %j in member fields", (line) => {
+  it.each(SQUAD_SPICY_PASS_LINES)("keeps the spicy pass line %j in fault and advice while missing praise stays empty", (line) => {
     const result = applySquadEvidencePolicy({
       memberFeedbacks: [{ name: "A", praise: line, fault: line, advice: line }],
     }, EMPTY_STATS, null, EMPTY_SCORES, [{ name: "A", shares: {} }], { coachingStyle: "spicy" });
-    expect(result.memberFeedbacks[0]).toEqual({ name: "A", praise: line, fault: line, advice: line });
+    expect(result.memberFeedbacks[0]).toEqual({ name: "A", praise: "", fault: line, advice: line });
   });
 
   it.each(ALL_WITHHELD_COPY)("is idempotent in member fields for %j", (copy) => {

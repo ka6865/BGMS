@@ -1366,9 +1366,25 @@ export async function POST(request: Request) {
     let mainTierMatchCount = 0;
     const overallGroupScores: any[] = [];
 
-    let benchmarkMs = 0;
-    for (const [mode, gMatches] of Object.entries(groups)) {
-      if (gMatches.length === 0) continue;
+    const modeGroups = Object.entries(groups).filter(([, matches]) => matches.length > 0);
+    const groupBenchmarks = new Map<string, Awaited<ReturnType<typeof fetchTierBenchmarkStats>>>();
+    const benchmarkFetchStartedAt = Date.now();
+    // 모드별 조회는 독립적이다. 동시 조회는 두 개로 제한하고 결과 조립 순서는 유지한다.
+    for (let offset = 0; offset < modeGroups.length; offset += 2) {
+      await Promise.all(modeGroups.slice(offset, offset + 2).map(async ([mode, matches]) => {
+        const score = matches.reduce((sum, match) => sum + normalizeBenchmarkScore(match?.benchmark?.score), 0) / matches.length;
+        const row = await awaitWithAbort(fetchTierBenchmarkStats(supabase, {
+          gameMode: dominantRawMatchMode(matches, mode),
+          matchType: matches.filter(isCompetitiveMatch).length >= matches.length / 2 ? "competitive" : "official",
+          tier: estimateUserTier(score),
+          signal: routeSignal.signal,
+        }), routeSignal.signal);
+        groupBenchmarks.set(mode, row);
+      }));
+      if (isRouteAborted()) return abortResponse();
+    }
+    const benchmarkMs = Date.now() - benchmarkFetchStartedAt;
+    for (const [mode, gMatches] of modeGroups) {
       if (isRouteAborted()) return abortResponse();
 
       // `bestMatches` already contains the canonical telemetry payloads used
@@ -1399,14 +1415,7 @@ export async function POST(request: Request) {
       const benchmarkGameMode = dominantRawMatchMode(gMatches, mode);
 
       const userTier = estimateUserTier(avgScore);
-      const benchmarkFetchStartedAt = Date.now();
-      const rawTierStats = await awaitWithAbort(fetchTierBenchmarkStats(supabase, {
-        gameMode: benchmarkGameMode,
-        matchType: dominantMatchType,
-        tier: userTier,
-        signal: routeSignal.signal,
-      }), routeSignal.signal);
-      benchmarkMs += Date.now() - benchmarkFetchStartedAt;
+      const rawTierStats = groupBenchmarks.get(mode);
       if (isRouteAborted()) return abortResponse();
 
       // Expose a benchmark to this route's comparison prompt/visuals only
@@ -1639,22 +1648,18 @@ export async function POST(request: Request) {
       for (let i = promptLines.length - 1; i >= 0; i--) {
         // These legacy instructions infer outcomes/roles absent from the card
         // evidence or contradict the card-specific measurement contract.
-        if (/userStats|benchmarkStats|\[BACKUP OUTCOME LOGIC\]|\[LOW ISOLATION LOGIC\]|\[TEAM INTENT GUARD\]/.test(promptLines[i])) promptLines.splice(i, 1);
+        if (/signatureSub|finalVerdict|winner|evaluation|userStats|benchmarkStats|\[BACKUP OUTCOME LOGIC\]|\[LOW ISOLATION LOGIC\]|\[TEAM INTENT GUARD\]/.test(promptLines[i])) promptLines.splice(i, 1);
       }
       promptLines.push(
-        "[ID CARD CONTRACT V2] SERVER_CARD_PLAN_V2가 카드의 유일한 근거입니다. 지정된 topicId 3개를 정확히 한 번씩 반환하고 해당 카드의 evidenceIds만 중복 없이 한 번씩 참조하세요. 제목, 질문, 지표 라벨과 수치는 서버가 표시하므로 생성하지 마세요.",
-        "근거를 해석해 두 코치 의견, 근거 설명, 평가, 실천 행동을 작성하세요. 의견에는 숫자나 근거 ID를 반복하지 말고 관측 가능한 행동을 설명하세요. kindOpinion, spicyOpinion, reason, evaluation에는 '1회', '4회', '1판' 같은 횟수를 포함해 어떤 숫자도 쓰지 마세요. 비교 평균과의 비교는 지표 하나당 한 문장으로 쓰세요. evidenceIds에는 카드의 evidenceIds 목록에 있는 ID만 쓰고, status가 unavailable인 근거 행은 참조하지 마세요. 집중력, 판단력, 기동력, 이동 속도, 명중률·적중률, 에임·조준, 반동, 탄약·장전, 헤드샷처럼 카드 근거에 없는 능력이나 사격 지표를 평가하거나 점검 과제로 제안하거나 '기준에 부합'처럼 근거 없는 기준을 말하지 마세요. 비교값이 없으면 상위권·동일 티어 비교를 주장하지 마세요. 관측값이 없는 카드에는 근거 부족을 명시하고 evidenceIds는 빈 배열로 반환하세요.",
-        "다른 카드의 근거, 다른 모드, AI가 추측한 수치를 사용하지 마세요. reason은 설명문이며 ID가 아닙니다. winner는 kind, spicy, draw 또는 JSON null로 반환하세요. draw는 장점과 개선점 양쪽 모두 해당 카드 근거로 뒷받침될 때 사용하고, 비교·판단 근거가 부족하면 null을 사용하세요. 승자를 반드시 만들거나 두 코치에게 억지로 반대 의견을 맡기지 마세요. 실제 표시 가능 여부는 서버가 검증합니다.",
-        "카드에 없는 소생 기여, 교전 주도권, 팀원의 화력 분담, 투척물 보유량은 판단하지 마세요. 평균 화력이 높다는 사실만으로 교전을 주도했다거나 팀원의 지원이 부족했다고 추론하지 마세요. 투척 횟수는 사용 기록이며 보유량이 아닙니다. 백업 시간만으로 복구 성공이나 실패를 단정하지 마세요.",
-        "[측정 의미] 이 요약의 백업 속도는 아군을 기절시킨 적을 30초 안에 처치한 사례에서 기절부터 처치까지 걸린 평균 시간입니다. 성공한 복수 처치 사례만의 시간이며 이동·첫 대응 시간이나 모든 구조 기회의 시간이 아닙니다. 실제 이동 속도·기동력·합류 경로·집중력·판단력·소통 능력을 측정한 값이 아닙니다. 1:1 승률도 집중력이나 교전 주도권을 입증하지 않습니다. 기록에 없는 능력 평가를 붙이지 말고 비교 결과 자체를 짧게 설명하세요.",
-        "[비교 문장] 한 문장에는 지표 하나와 방향 하나만 쓰세요. '복수 성공률은 비교 평균보다 높습니다. 백업 속도는 비교 평균보다 빠릅니다.'처럼 분리하세요. '둘 다 우수합니다/높거나 빠릅니다/평균을 웃돕니다' 같은 복합·모호한 비교를 쓰지 마세요. 두 지표 모두 유리한 방향이면 단순한 연습 제안을 약점 근거로 삼아 draw로 판정하지 마세요.",
-        "[문장 역할] 순한 코치는 확인된 성과 또는 관측 한계만 한 문장으로, 매운 코치는 다음 경기의 구체적인 상황과 확인 행동만 한 문장으로 설명하세요. 비교는 순한 코치에서만 쓰고 매운 코치에서는 반복하지 마세요. 억지 반대 의견이나 약점을 만들지 마세요. 카드의 비교가 모두 비교 평균 이상이거나 방향을 정하지 않는 지표(고립 지수)뿐이면 매운 코치도 보완점을 만들지 말고, 카드 근거에 있는 지표로 다음 경기에서 같은 기록이 나오는지 확인할 상황만 쓰세요. reason과 evaluation, 종합 결론은 서버가 전체 카드 근거로 결정합니다. signature와 signatureSub도 관측 기간의 지표를 요약하고 심리·능력·습관을 평가하지 마세요. 진입 위치나 순서는 측정하지 않으므로 전선·돌파·돌입·진입을 뜻하는 칭호를 만들지 마세요. 첫 반격은 피격 전 사격을 구분한 명중 간격이며 인지·반사신경을 측정하지 않습니다. 측정 불가 지표를 0초·느린 반응으로 평가하지 마세요.",
-        "[관측 범위] userNumericValue와 benchmarkNumericValue는 반올림 전 값입니다. 화면 표시 숫자를 다시 비교하지 말고 serverComparison을 따르세요. numerator/denominator가 있으면 관측 건수를 고려하고 userMatchCount가 적은 지표의 한계를 밝히세요. 평균·횟수로 꾸준함, 침착함, 사용 목적의 적절성, 피해량 분포를 관측했다고 말하지 마세요. 작은 수치 차이를 우월한 능력으로 확대하지 마세요.",
-        "[서버 비교] serverComparison은 서버가 계산한 비교 결과입니다. 비교가 필요하면 이 문장을 그대로 사용하고 높지만·월등히·유사한 수준 등으로 바꾸지 마세요. AI는 비교 수치나 기준을 새로 만들지 말고 관측 범위 설명과 다음 경기의 조건부 점검을 작성하세요. 두 코치가 같은 비교 결과에 동의해도 됩니다. 비교가 없으면 확인된 사용 기록과 판단 한계만 설명하세요. 고립 지수에 임의의 정상 기준이나 거리 목표를 붙이지 마세요.",
-        "[경기별 일관성] 평균·합계만으로 매 경기의 일관성이나 습관을 알 수 없습니다. 꾸준히 높은 피해량을 기록했다거나 꾸준한 딜링 능력을 증명했다고 쓰지 마세요. 관측 기간의 평균을 설명하고 이후 행동은 조건부 점검으로 제안하세요. [작은 표본] context.userMatchCount는 카드에 선택된 경기 수이고 evidence.userMatchCount는 해당 지표의 기록이 확인된 경기 수입니다. 서로 다르면 지표의 실제 확인 경기 수로 설명하세요. 누락 기록과 발생 기회가 없었던 기록을 0% 실패로 해석하지 마세요. 최근 10경기 전체의 일관된 습관·능력으로 확대하지 마세요. 관측된 구출/복수 기회가 적으면 그 한계를 밝히고, 실패 원인이나 연막 타이밍을 단정하지 마세요. 행동 제안은 다음 경기에서 확인할 구체적인 조건부 점검으로 쓰세요.",
-        "[행동 제안] 솔로 킬 비중은 처치 기여의 구성이지 혼자 싸워야 할 목표가 아닙니다. 솔로 킬 비중이 낮다고 독립적인 교전을 늘리거나, 화력이 낮다고 교전 참여 빈도를 무조건 높이라고 권하지 마세요. actionItems의 desc는 다음 경기의 상황과 확인할 행동을 한 문장으로 쓰고 '확인해 보세요' 또는 '점검해 보세요'로 끝내세요. 예: '다음 교전 전에 상대 위치와 빠져나올 경로를 확인해 보세요.' 팀 모드에서는 팀원이 같은 적에게 함께 대응할 수 있는지도 점검하도록 제안할 수 있습니다. 지형·시야·팀원 위치를 실제로 관측했다고 단정하지 마세요. '집중력 유지/더 잘하세요'만으로 행동 제안을 끝내지 마세요.",
-        "finalVerdict는 각 카드의 evaluation과 결론을 존중해 아래 카드에서 확인된 강점과 다음 행동을 함께 정리하세요. draw 또는 null인 카드를 한쪽 코치의 승리나 확정된 약점으로 바꾸지 마세요. 약점을 반드시 만들 필요는 없습니다. 비교가 가능한 의견은 '지표는 비교 평균보다 높습니다/낮습니다/빠릅니다/느립니다'처럼 완결된 문장으로 쓴 뒤 실천 행동을 별도 문장으로 제안하세요.",
-        '반드시 JSON 객체만 반환하세요: {"signature":"칭호","signatureSub":"이유","finalVerdict":"종합 평가","debateIssues":[{"topicId":"지정된 ID","evidenceIds":["지정된 근거 ID"],"kindOpinion":"의견","spicyOpinion":"의견","winner":"kind","reason":"근거 설명","evaluation":"평가"}],"actionItems":[{"icon":"target","title":"목표","desc":"실천 방법"}]}',
+        "[ID CARD CONTRACT V2] SERVER_CARD_PLAN_V2가 카드의 유일한 근거입니다. 지정된 topicId 3개를 정확히 한 번씩 반환하고 해당 카드의 evidenceIds만 중복 없이 참조하세요. 제목, 질문, 지표 라벨과 수치는 서버가 표시하므로 생성하지 마세요.",
+        "[출력 범위] 칭호, 두 코치 의견, 근거 ID, 행동 제안만 작성하세요. 행동 근거가 없으면 actionItems는 빈 배열로 반환하세요. 근거 설명·평가·승자·결론·칭호 설명은 서버가 결정하므로 출력하지 마세요. 다른 카드의 근거, 다른 모드, 추측한 수치는 사용하지 마세요. 관측값이 없는 카드는 근거 부족을 명시하고 evidenceIds를 빈 배열로 반환하세요.",
+        "[말투 정책] 순한 코치 kindOpinion은 존댓말, 매운 코치 spicyOpinion은 반말입니다. 행동 안내 actionItems와 서버가 작성하는 결론·카드 설명은 공통 안내로 존댓말을 사용합니다.",
+        "[칭호] signature는 대표 강점 지표 하나에 근거한 짧은 명사형 칭호입니다. 강점이 없으면 중립 칭호를 쓰세요. 기록·분석·요약·관측으로 끝나는 서술형이나 문장을 쓰지 마세요. 심리·습관·측정하지 않은 능력과 진입 위치·순서를 뜻하는 전선·돌파·돌입·진입 칭호를 만들지 마세요.",
+        "[문장 역할] 순한 코치는 확인된 비교 결과 또는 관측 한계를 짧게 설명합니다. 매운 코치는 유리한 지표라면 이번 관측 범위로 제한해 인정만 하세요. 트집이 없다거나 완벽하다는 절대 평가를 하지 마세요. 불리한 지표가 있을 때만 놀림과 다음 경기의 조건부 점검을 쓰세요. 비슷한 수준·관측 부족·통계량 불일치로 판정이 보류된 지표에는 강점·보완·놀림·행동을 만들지 마세요. 의견에 숫자와 근거 ID를 반복하지 마세요.",
+        "[측정 의미] 백업 속도는 아군을 기절시킨 적을 30초 안에 처치한 성공 사례의 평균 시간이며 이동·첫 대응·모든 구조 기회의 시간이 아닙니다. 첫 반격 시간은 피격 전 사격을 구분한 교전의 첫 피격부터 같은 상대에게 첫 명중까지입니다. 인지·반사신경·집중력·판단력·소통·명중률·에임·반동·장전은 측정하지 않습니다. 관측값을 그런 능력 평가로 바꾸지 마세요.",
+        "[관측 범위] context.userMatchCount는 선택 경기 수이고 evidence.userMatchCount는 해당 지표 관측 경기 수입니다. 작은 표본과 누락 기록을 전체 기간의 습관·능력·꾸준함으로 확대하지 마세요. serverComparison을 따르고 기준을 새로 만들지 마세요. 연속형 1경기 이하와 개인 합산 1:1 승률은 비교 평가를 보류합니다. 연속형 상대 차이 5% 이하와 비율 차이 3%p 이하는 비슷한 수준입니다. 고립 지수는 판정 방향이 없으며 정상 기준이나 거리 목표를 만들지 마세요.",
+        "[행동 제안] 다음 경기의 상황과 확인 행동을 존댓말 한 문장으로 쓰고 '확인해 보세요' 또는 '점검해 보세요'로 끝내세요. 솔로 킬 비중을 높이려고 혼자 싸우거나 낮은 화력 때문에 교전 참여를 무조건 늘리라고 하지 마세요. 투척 횟수는 사용 기록이며 보유량이 아닙니다. 확인하지 않은 지형·시야·팀원 위치·소생·팀원 화력 분담·실패 원인을 단정하지 마세요.",
+        '반드시 JSON 객체만 반환하세요: {"signature":"명사형 칭호","debateIssues":[{"topicId":"지정된 ID","evidenceIds":["지정된 근거 ID"],"kindOpinion":"존댓말 의견","spicyOpinion":"반말 의견"}],"actionItems":[{"icon":"target","title":"목표","desc":"존댓말 점검 안내"}]}',
       );
       // The ID contract must have one factual population. The legacy prompt
       // includes latest-ten and best-five/minority-mode aggregates which are

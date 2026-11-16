@@ -1,5 +1,5 @@
 import { summaryCardSpicyJab, toSummarySpicyBanmal } from "./spicyPunchlines";
-import { AI_SUMMARY_HIGHER_IS_BETTER } from "./aiSummaryDebate";
+import { AI_SUMMARY_HIGHER_IS_BETTER, summaryComparisonHoldReason, isSummaryComparisonSimilar } from "./aiSummaryDebate";
 import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText, summaryAdviceRuleId, summaryInferenceRuleId } from "./aiSummaryJudgment";
 import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
 import { COMBAT_ATTRIBUTION_CALCULATION_VERSION, POSITION_FRESHNESS_CALCULATION_VERSION } from "./constants";
@@ -475,6 +475,10 @@ function normalizeEvidenceInput(
       unavailableReason: base.unavailableReason || MISSING_DATA_REASON,
     };
   }
+  const holdReason = summaryComparisonHoldReason(metricId, unit, userMatchCount, denominator);
+  if (holdReason) {
+    return { ...base, benchmarkValue: null, benchmarkNumericValue: null, sampleCount: null, status: "user_only", unavailableReason: holdReason };
+  }
   if (rawBenchmarkValue === null) {
     return { ...base, status: "user_only" };
   }
@@ -741,7 +745,7 @@ function hasContradictedIsolationClaim(text: string, row: SummaryEvidence): bool
   const user = evidenceNumericValue(row, "user");
   const benchmark = evidenceNumericValue(row, "benchmark");
   if (user === null || benchmark === null) return false;
-  const equal = Math.abs(user - benchmark) <= 1e-9 || isDisplayedEqual(row);
+  const equal = isSummaryComparisonSimilar(user, benchmark, row.unit) || isDisplayedEqual(row);
   for (const sentence of text.split(/(?<=[.!?。！？])\s+|\n+/u)) {
     if (!/고립\s*지수/u.test(sentence) || !/(?:비교\s*평균|평균보다|평균\s*대비|동일\s*티어)/u.test(sentence)) continue;
     const claimsHigher = /(?:높(?:습니다|다|아|고|게|은)|상회|초과)/u.test(sentence);
@@ -814,7 +818,7 @@ function safeActionItems(
   // 탈락한 항목의 사유 id(action_items:...). 결과 수용 여부와 무관한 기록용이다.
   dropped: string[];
 } | null {
-  if (!Array.isArray(value) || value.length === 0) return null;
+  if (!Array.isArray(value)) return null;
   const rejected = { value: false };
   const items: Array<{ icon: string; title: string; desc: string }> = [];
   const dropped: string[] = [];
@@ -908,7 +912,9 @@ export function buildSummaryCards(input: {
 
   const evidenceByMetric = new Map<string, SummaryEvidence>();
   for (const rawEvidence of input.evidence) {
-    const normalized = normalizeEvidenceInput(rawEvidence, context.contextId);
+    // 캐시·외부 입력에 객체가 아닌 항목이 섞여도 건너뛴다. 타입 좁힘은 원래 입력 타입을 유지한다.
+    if (!isRecord(rawEvidence as unknown)) continue;
+    const normalized = normalizeEvidenceInput({ ...rawEvidence, userMatchCount: rawEvidence.userMatchCount ?? context.userMatchCount }, context.contextId);
     if (!normalized || (normalized.userMatchCount !== undefined && normalized.userMatchCount > context.userMatchCount)
       || (normalized.userMatchCount === 0 && normalized.userValue !== null)) continue;
     // An ID is scoped to a single metric/context. Keep the first server record
@@ -958,7 +964,8 @@ function evidenceNumericValue(row: SummaryEvidence, side: "user" | "benchmark"):
 
 export function buildSummaryCardComparisonText(card: SummaryCard): string {
   return card.evidence.flatMap((row) => {
-    if (row.status !== "comparable" || row.userValue === null || row.benchmarkValue === null || !row.sampleCount) return [];
+    if (row.status !== "comparable" || row.userValue === null || row.benchmarkValue === null || !row.sampleCount
+      || summaryComparisonHoldReason(row.metricId, row.unit, row.userMatchCount, row.denominator)) return [];
     const user = evidenceNumericValue(row, "user");
     const benchmark = evidenceNumericValue(row, "benchmark");
     if (user === null || benchmark === null) return [];
@@ -967,6 +974,7 @@ export function buildSummaryCardComparisonText(card: SummaryCard): string {
     if (isDisplayedEqual(row) && Math.abs(user - benchmark) > 1e-9) {
       return [`${row.label}${particle} 표시 기준으로 비교 평균과 같습니다.`];
     }
+    if (isSummaryComparisonSimilar(user, benchmark, row.unit) && Math.abs(user - benchmark) > 1e-9) return [`${row.label}${particle} 비교 평균과 비슷한 수준입니다.`];
     const equal = Math.abs(user - benchmark) <= 1e-9;
     const relation = row.unit === "s" ? user < benchmark ? "빠릅니다" : "느립니다" : user > benchmark ? "높습니다" : "낮습니다";
     return [`${row.label}${particle} 비교 평균${equal ? "과 같습니다" : `보다 ${relation}`}.`];
@@ -1000,10 +1008,10 @@ function cardCheck(topicId: SummaryTopicId): string {
 // 비교 가능한 지표 중 비교 평균보다 불리한 방향이면 true, 유리하면 false, 판단할 수 없으면 null.
 function isUnfavorable(row: SummaryEvidence): boolean | null {
   const higherIsBetter = AI_SUMMARY_HIGHER_IS_BETTER[row.metricId];
-  if (row.status !== "comparable" || higherIsBetter === undefined) return null;
+  if (row.status !== "comparable" || higherIsBetter === undefined || summaryComparisonHoldReason(row.metricId, row.unit, row.userMatchCount, row.denominator)) return null;
   const user = evidenceNumericValue(row, "user");
   const benchmark = evidenceNumericValue(row, "benchmark");
-  if (user === null || benchmark === null || Math.abs(user - benchmark) <= 1e-9 || isDisplayedEqual(row)) return null;
+  if (user === null || benchmark === null || isSummaryComparisonSimilar(user, benchmark, row.unit) || isDisplayedEqual(row)) return null;
   return higherIsBetter ? user < benchmark : user > benchmark;
 }
 
@@ -1019,13 +1027,16 @@ export function buildSummaryCardFactText(card: SummaryCard): string {
   return card.evidence.flatMap((row) => {
     if (row.userValue === null) return [];
     const counts = row.unit === "%" && row.numerator != null && row.denominator != null && row.denominator > 0 ? `(${row.denominator}건 중 ${row.numerator}건)` : "";
-    if (row.status !== "comparable" || row.benchmarkValue === null) return [`${row.label}: ${row.userValue}${counts}, 비교 자료 없음.`];
+    const holdReason = summaryComparisonHoldReason(row.metricId, row.unit, row.userMatchCount, row.denominator);
+    if (holdReason) return [`${row.label}: ${row.userValue}${counts}. ${holdReason}`];
+    if (row.status !== "comparable" || row.benchmarkValue === null) return [row.unavailableReason ? `${row.label}: ${row.userValue}${counts}. ${row.unavailableReason}` : `${row.label}: ${row.userValue}${counts}, 비교 자료 없음.`];
     const user = evidenceNumericValue(row, "user");
     const benchmark = evidenceNumericValue(row, "benchmark");
     if (user === null || benchmark === null) return [];
     if (Math.abs(user - benchmark) <= 1e-9) return [`${row.label}: ${row.userValue}${counts}, 비교 평균 ${row.benchmarkValue}과 같습니다.`];
     // 화면에 같은 값으로 보이면 내부 정밀도의 작은 차이로 높고 낮음을 말하지 않는다.
     if (isDisplayedEqual(row)) return [`${row.label}: ${row.userValue}${counts}, 표시 기준으로 비교 평균과 같습니다.`];
+    if (isSummaryComparisonSimilar(user, benchmark, row.unit)) return [`${row.label}: ${row.userValue}${counts}, 비교 평균 ${row.benchmarkValue}과 비슷한 수준입니다.`];
     const relation = row.unit === "s" ? user < benchmark ? "빠릅니다" : "느립니다" : user > benchmark ? "높습니다" : "낮습니다";
     const gap = row.unit === "%" ? `${Math.abs(user - benchmark).toFixed(1)}%p`
       : benchmark > 0 ? `약 ${Math.round(Math.abs(user - benchmark) / benchmark * 100)}%` : "";
@@ -1066,7 +1077,7 @@ function metricCheck(card: SummaryCard): string {
 // 행동 제안 문장이 다루는 카드 주제. 상대 위치·경로처럼 여러 주제에 흔한 말은 넣지 않는다.
 const ACTION_TOPIC_PATTERNS: Readonly<Record<SummaryTopicId, RegExp>> = {
   firepower: /화력|딜량|피해량|교전각|사격각/u,
-  initiative: /선제|주도권|먼저\s*사격/u,
+  initiative: /선제|주도권|반격|대응|압박|먼저\s*사격/u,
   duel: /1\s*[:：]\s*1|일대일|교전\s*승률/u,
   trade_backup: /복수|백업|합류/u,
   utility: /투척|연막|수류탄|유틸/u,
@@ -1083,7 +1094,7 @@ function actionItemTopics(text: string): SummaryTopicId[] {
 function isActionableTopic(readyCards: readonly SummaryCard[], topicId: SummaryTopicId): boolean {
   const card = readyCards.find((candidate) => candidate.topicId === topicId);
   if (!card) return true;
-  return card.dataStatus !== "comparable" || card.evidence.some((row) => isUnfavorable(row) === true);
+  return card.evidence.some((row) => isUnfavorable(row) === true);
 }
 
 // 약점을 전제한 제안 표현. 보완점이 없는 카드에는 쓰지 않는다.
@@ -1113,45 +1124,37 @@ const STRONG_PRAISE = /우수|훌륭|뛰어|탁월|안정적|확보|돋보|압�
 // 칭호는 숫자·인성·진입 위치·측정하지 않은 능력(흐름 읽기, 판단, 지휘 등)을 담을 수 없다.
 const UNSUPPORTED_SIGNATURE = /\d|무책임|무능|민폐|한심|이기적|집중력|판단력|멘탈|습관|성향|돌격|선봉|돌진|최전선|전선|돌파|돌입|진입|흐름|읽는|판단|지휘|리더|두뇌|전략가|감각|냉철|침착/u;
 
-function conditionalCheckText(text: string): string {
+function conditionalCheckText(text: string, spicy = false): string {
   // 관측 결과나 원인 단정을 섞지 않고, 다음 상황에서 확인할 행동만 채택한다.
   return text.split(/(?<=[.!?。！？])\s+|\n+/u).filter(sentence =>
     !/비교\s*평균|(?:늦어|느려|낮아|높아|부족해|때문에)|(?:확보|조성|보장)하여|가능성이\s*있|역량|실력|능력/u.test(sentence)
     && !/(?:즉시|바로|무조건|반드시)[^.!?\n]{0,25}(?:던|투척|사격|진입|돌진|합류|구출)/u.test(sentence)
     && !/(?:던|투척|사격|진입|돌진|합류|구출)[^.!?\n]{0,20}(?:한\s*뒤|한\s*후|하고\s*나서|하여|해서)/u.test(sentence)
     && /다음|팀\s*모드라면|(?:교전|경기|진입|사격).{0,12}(?:전|후|때|상황)|(?:아군|팀원).{0,25}(?:때|경우|하면|상황)/u.test(sentence)
-    && /(?:(?:확인|점검)(?:해\s*보(?:세요|십시오)|하세요|하십시오)|(?:돌아|살펴)보(?:세요|십시오))[.!?。！？]?$/u.test(sentence.trim())
+    && (/(?:(?:확인|점검)(?:해\s*보(?:세요|십시오)|하세요|하십시오)|(?:돌아|살펴)보(?:세요|십시오))[.!?。！？]?$/u.test(sentence.trim())
+      || (spicy && /(?:(?:확인|점검)해(?:\s*봐)?|(?:돌아|살펴)봐)[.!?。！？]?$/u.test(sentence.trim())))
   ).join(" ").trim();
 }
 
 function cardEvaluation(card: SummaryCard): string {
-  return `관측 범위: ${observationScope(card)}. ${card.dataStatus === "comparable"
-    ? "평균·비율만으로 원인이나 경기별 일관성을 판단할 수는 없습니다."
-    : "사용 기록은 확인되지만 같은 조건의 비교 자료가 없어 강점이나 약점을 판단하지 않습니다."}`;
+  const holds = [...new Set(card.evidence.filter(isObservedEvidence).map(row => row.unavailableReason).filter(Boolean))];
+  return `관측 범위: ${observationScope(card)}.${holds.length ? ` ${holds.join(" ")}` : ""}`;
 }
 
-function groundedVerdict(cards: SummaryCard[], hasActionItems: boolean): string {
-  // 강점과 보완점을 수치와 함께 나눠 쓴다. 비교 자료가 없는 지표는 판단하지 않는다.
+function groundedVerdict(cards: SummaryCard[]): string {
   const ready = cards.filter(card => card.analysisStatus === "ready");
-  const describe = (direction: boolean | null) => ready.flatMap(card => card.evidence
-    .filter(row => row.status === "comparable" && isUnfavorable(row) === direction)
-    .map(row => buildSummaryCardFactText({ ...card, evidence: [row] }).replace(/\.$/u, "")));
-  const strengths = describe(false), weaknesses = describe(true), neutral = describe(null);
-  const withheld = cards.filter(card => card.analysisStatus !== "ready").map(card => card.topic);
-  return [
-    strengths.length ? `강점: ${strengths.join("; ")}.` : "",
-    weaknesses.length ? `보완: ${weaknesses.join("; ")}.` : "",
-    neutral.length ? `비교: ${neutral.join("; ")}.` : "",
-    !strengths.length && !weaknesses.length && !neutral.length ? "같은 조건의 비교 자료가 충분하지 않아 강점이나 약점을 판단하지 않습니다." : "",
-    withheld.length ? `${withheld.join(", ")}: 해석을 보류했습니다.` : "",
-    "평균·비율만으로 원인이나 경기별 일관성을 판단하지 않습니다.",
-    // 행동 제안이 없으면 화면 아래에 가리킬 대상이 없으므로 안내도 쓰지 않는다.
-    hasActionItems ? "아래 행동 제안은 다음 경기의 점검 과제입니다." : "",
-  ].filter(Boolean).join(" ");
+  const strong = strongestMetric(ready);
+  const weak = weakestMetric({ ...ready[0], evidence: ready.flatMap(card => card.evidence) });
+  const result = [
+    strong ? `이번 관측에서 ${strong.label} 지표가 비교 평균보다 유리하게 ${weak ? "나타났으며" : "나타났습니다"}` : "",
+    weak ? `우선 ${weak.label} 지표를 다음 경기의 점검 과제로 확인해 보세요` : "",
+  ].filter(Boolean).join(", ");
+  return result ? `${result}. 평균·비율만으로 원인이나 경기별 일관성을 판단할 수는 없습니다.`
+    : "이번 관측만으로는 뚜렷한 강점이나 우선 보완점을 정하지 않으며, 평균·비율만으로 원인이나 경기별 일관성을 판단할 수는 없습니다.";
 }
 
-// 카드 해석 필드의 사유 코드. 순서는 kindOpinion, spicyOpinion, reason, evaluation이다.
-const PROSE_FIELD_CODES = ["kind", "spicy", "reason", "evaluation"] as const;
+// 모델이 작성하는 두 코치 의견만 오류 검증 대상으로 삼는다.
+const PROSE_FIELD_CODES = ["kind", "spicy"] as const;
 
 export function normalizeSummaryCardFinal(input: unknown, cards: readonly SummaryCard[], options: {
   sanitizeText: (value: string) => string;
@@ -1177,10 +1180,9 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   const providerSchemaVersion = input.schemaVersion;
   if (providerSchemaVersion !== undefined && providerSchemaVersion !== AI_SUMMARY_CARD_VERSION) return malformed("schema_version");
   const signature = nonEmptyString(input.signature);
-  const signatureSub = nonEmptyString(input.signatureSub);
-  const finalVerdict = nonEmptyString(input.finalVerdict);
-  if (!signature || !signatureSub || !finalVerdict) return malformed("top_level_fields");
-  if (!Array.isArray(input.debateIssues) || input.debateIssues.length !== serverCards.length) return malformed("debate_issues_count");
+  if (!signature) return malformed("top_level_fields");
+  const issues = input.schemaVersion === 2 && Array.isArray(input.cards) ? input.cards : input.debateIssues;
+  if (!Array.isArray(issues) || issues.length !== serverCards.length) return malformed("debate_issues_count");
   const actionItems = safeActionItems(input.actionItems, options.sanitizeText, options.hasUnsupportedMode);
   if (!actionItems) return malformed("action_items");
   const actionDropReasons: string[] = [...actionItems.dropped];
@@ -1194,16 +1196,14 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   };
   // 형식이 틀린 행동 제안은 해당 항목만 버린다. 남은 제안이 없으면 서버가 지표별 점검으로 채운다.
   const normalizedSignature = sanitizeRequiredText(signature, options.sanitizeText);
-  const normalizedSignatureSub = sanitizeRequiredText(signatureSub, options.sanitizeText);
-  const normalizedVerdict = sanitizeRequiredText(finalVerdict, options.sanitizeText);
-  if (normalizedSignature.empty || normalizedSignatureSub.empty || normalizedVerdict.empty) reject("top_level_text");
+  if (normalizedSignature.empty) reject("top_level_text");
 
   let safeSignature = normalizedSignature.value || SAFE_SIGNATURE;
-  let safeSignatureSub = normalizedSignatureSub.value || SAFE_SIGNATURE_SUB;
-  let safeVerdict = normalizedVerdict.value || SAFE_VERDICT;
+  let safeSignatureSub = SAFE_SIGNATURE_SUB;
+  let safeVerdict = SAFE_VERDICT;
 
   const providerByTopic = new Map<SummaryTopicId, Record<string, unknown>>();
-  for (const rawIssue of input.debateIssues) {
+  for (const rawIssue of issues) {
     if (!isRecord(rawIssue)) return malformed("issue_object");
     const topicId = rawIssue.topicId;
     if (!isSummaryTopicId(topicId)) return malformed("topic_id");
@@ -1230,39 +1230,34 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   const normalizedCards = serverCards.map((serverCard) => {
     const issue = providerByTopic.get(serverCard.topicId);
     if (!issue) return serverCard;
-    const providerWinner = issue.winner;
     const kindOpinion = nonEmptyString(issue.kindOpinion);
     const spicyOpinion = nonEmptyString(issue.spicyOpinion);
-    const reason = nonEmptyString(issue.reason);
-    const evaluation = nonEmptyString(issue.evaluation);
-    if (!kindOpinion || !spicyOpinion || !reason || !evaluation
-      || (providerWinner !== "kind" && providerWinner !== "spicy" && providerWinner !== "draw" && providerWinner !== null)) {
+    if (!kindOpinion || !spicyOpinion) {
       reject(`${serverCard.topicId}:fields`);
       return unavailableCard(serverCard, "AI 응답의 필수 해석 필드가 유효하지 않습니다.");
     }
 
-    const sanitized = [kindOpinion, spicyOpinion, reason, evaluation].map((text) => sanitizeRequiredText(text,
+    const sanitized = [kindOpinion, spicyOpinion].map((text) => sanitizeRequiredText(text,
       (value) => options.sanitizeCardText ? options.sanitizeCardText(value, serverCard) : options.sanitizeText(value)));
     // Aggregate evidence cannot support behavioural claims. Recover only these
     // removed claims with server facts; arbitrary empty/neutral opinions still fail.
-    [kindOpinion, spicyOpinion, reason, evaluation].forEach((text, index) => {
+    [kindOpinion, spicyOpinion].forEach((text, index) => {
       if (hasUnsupportedSummaryInference(text) && isNeutralText(sanitized[index].value) && serverCard.dataStatus !== "unavailable") {
         sanitized[index] = { value: index === 1 ? cardCheck(serverCard.topicId)
-          : index === 0 ? buildSummaryCardComparisonText(serverCard) || `${serverCard.topic}의 사용 기록을 확인했습니다. ${cardCheck(serverCard.topicId)}`
-            : cardEvaluation(serverCard), changed: true, empty: false };
+          : buildSummaryCardComparisonText(serverCard) || `${serverCard.topic}의 사용 기록을 확인했습니다. ${cardCheck(serverCard.topicId)}`, changed: true, empty: false };
       }
     });
     const proseRejected = sanitized.some((item) => item.empty);
     // 사유 id는 필드 이름과 원문에 걸린 규칙으로 만든다(예: "reason:inference:..."). 수용 판정에는 쓰지 않는다.
     const proseReasons = sanitized.flatMap((item, index) => item.empty
-      ? [`${serverCard.topicId}:prose:${PROSE_FIELD_CODES[index]}:${proseRuleId([kindOpinion, spicyOpinion, reason, evaluation][index])}`]
+      ? [`${serverCard.topicId}:prose:${PROSE_FIELD_CODES[index]}:${proseRuleId([kindOpinion, spicyOpinion][index])}`]
       : []);
     let issueHasForeignMode = false;
     try {
       // Inspect prose only. Topic/metric IDs are structured server
       // references; a key such as `solo_kill_share` must never be mistaken
       // for a foreign SOLO queue marker by the legacy prose guard.
-      issueHasForeignMode = [kindOpinion, spicyOpinion, reason, evaluation, ...sanitized.map((item) => item.value)]
+      issueHasForeignMode = [kindOpinion, spicyOpinion, ...sanitized.map((item) => item.value)]
         .some((text) => options.hasUnsupportedMode(text));
     } catch {
       issueHasForeignMode = true;
@@ -1293,7 +1288,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       else referencesValid = referencesValid && referenceValues.length > 0;
     }
 
-    const conclusionReasons = [kindOpinion, spicyOpinion, reason, evaluation].flatMap((text, index) => {
+    const conclusionReasons = [kindOpinion, spicyOpinion].flatMap((text, index) => {
       const ruleId = cardConclusionRuleId(text, serverCard);
       return ruleId ? [`${serverCard.topicId}:conclusion:${PROSE_FIELD_CODES[index]}:${ruleId}`] : [];
     });
@@ -1317,41 +1312,40 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
     const sanitizedTexts = sanitized.map((item) => item.value);
     const comparison = buildSummaryCardComparisonText(serverCard);
-    // 비교 방향과 수치는 서버가 쓴다. 모델의 칭찬은 숫자·비교 없이, 불리한 지표가 없는 카드에서만 덧붙인다.
-    const providerKind = sanitizedTexts[0].trim();
     const hasUnfavorable = serverCard.evidence.some(row => isUnfavorable(row) === true);
-    if (isNeutralText(sanitized[0].value) && isNeutralText(sanitized[1].value)) neutralCards += 1;
-    const kindUsable = providerKind && !isNeutralText(providerKind) && !sanitized[0].changed && !/\d|평균|비교/u.test(providerKind)
-      && !(hasUnfavorable && STRONG_PRAISE.test(providerKind))
-      && !hasUnsupportedSummaryInference(kindOpinion) && !hasUnsupportedSummaryAdvice(kindOpinion);
-    // 두 코치의 역할을 나눈다. 다정한 코치는 비교 평균 이상인 지표를, 매운맛은 비교 평균에 못 미친 지표와 점검을 말한다.
+    const hasFavorable = serverCard.evidence.some(row => isUnfavorable(row) === false);
+    if (serverWinner(serverCard) !== null && isNeutralText(sanitized[0].value) && isNeutralText(sanitized[1].value)) neutralCards += 1;
     const sideComparison = (unfavorable: boolean) => buildSummaryCardComparisonText({
-      ...serverCard, evidence: serverCard.evidence.filter(row => (isUnfavorable(row) === true) === unfavorable),
+      ...serverCard, evidence: serverCard.evidence.filter(row => isUnfavorable(row) === unfavorable),
     });
     const kindComparison = sideComparison(false), spicyComparison = sideComparison(true);
-    // 비교가 없으면 수치는 reason에 두고, 의견에는 관측 한계만 쓴다(같은 수치 반복 방지).
-    sanitizedTexts[0] = [kindComparison, kindUsable ? providerKind : ""].filter(Boolean).join(" ")
-      || (comparison ? "보완할 지표가 있는 주제입니다. 점검 과제를 한 가지씩 차근차근 확인해 보세요." : "비교 자료가 없어 관측 기록만 확인했습니다.");
-    // 모델 점검 문장이 형식을 지키지 않으면 가장 불리한 지표에 맞춘 점검을 제공한다.
-    const spicyCheck = conditionalCheckText(sanitizedTexts[1]) || metricCheck(serverCard);
-    // 매운맛 한마디는 서버가 측정 방향으로 고른다. 못 미친 지표는 비꼬고, 모두 평균 이상이면 인정한다.
-    const comparableRows = serverCard.evidence.filter(row => row.status === "comparable");
+    // 순한 의견·행동·결론·설명은 존댓말, 매운 의견은 반말로 쓴다. 유리한 카드는 인정만 맡긴다.
+    const weak = weakestMetric(serverCard);
+    const hold = serverCard.evidence.find(row => row.userValue !== null && row.unavailableReason);
+    const neutralOpinion = comparison || (hold ? `${hold.label}: ${hold.unavailableReason}` : "비교 자료가 없어 관측 기록만 확인했습니다.");
+    const providerKind = sanitizedTexts[0].replace(kindComparison, "").trim();
+    const kindUsable = hasFavorable && providerKind && !isNeutralText(providerKind) && !sanitized[0].changed
+      && !/\d|평균|비교/u.test(providerKind) && !(hasUnfavorable && STRONG_PRAISE.test(providerKind)) && !hasUnsupportedSummaryInference(kindOpinion) && !hasUnsupportedSummaryAdvice(kindOpinion);
+    sanitizedTexts[0] = [kindComparison, kindUsable ? providerKind : ""].filter(Boolean).join(" ") || (weak ? `${weak.label} 지표는 이번 관측에서 비교 평균에 못 미쳤습니다.` : neutralOpinion);
     const spicyJab = summaryCardSpicyJab(
-      comparableRows.filter(row => isUnfavorable(row) === true).map(row => row.metricId),
-      comparableRows.length > 0 && comparableRows.every(row => isUnfavorable(row) === false),
+      serverCard.evidence.filter(row => isUnfavorable(row) === true).map(row => row.metricId),
+      hasFavorable && !hasUnfavorable,
       `${serverCard.context.contextId}:${serverCard.topicId}`,
     );
-    // 매운맛 의견은 단일 경기처럼 반말로 끝낸다. 비교·점검 문장의 내용은 그대로다.
-    sanitizedTexts[1] = toSummarySpicyBanmal([spicyComparison, spicyJab, spicyCheck].filter(Boolean).join(" "));
-    sanitizedTexts[2] = buildSummaryCardFactText(serverCard) || comparison || sanitizedTexts[2];
-    sanitizedTexts[3] = cardEvaluation(serverCard);
+    sanitizedTexts[1] = hasUnfavorable
+      ? toSummarySpicyBanmal([spicyComparison, spicyJab, conditionalCheckText(sanitizedTexts[1], true) || metricCheck(serverCard)].filter(Boolean).join(" "))
+      : hasFavorable ? `${toSummarySpicyBanmal(kindComparison)} ${spicyJab}`
+        : toSummarySpicyBanmal(serverCard.topicId === "positioning" && !hold
+          ? conditionalCheckText(sanitizedTexts[1], true) || cardCheck(serverCard.topicId) : neutralOpinion);
+    const reason = buildSummaryCardFactText(serverCard);
+    const evaluation = cardEvaluation(serverCard);
     const readyCard: SummaryCard = {
       ...serverCard,
       analysisStatus: "ready",
       kindOpinion: sanitizedTexts[0],
       spicyOpinion: sanitizedTexts[1],
-      reason: sanitizedTexts[2],
-      evaluation: sanitizedTexts[3],
+      reason,
+      evaluation,
       // 승패는 모델 선택이 아니라 비교 지표의 방향으로 정한다.
       winner: serverCard.dataStatus === "comparable" ? serverWinner(serverCard) : null,
     };
@@ -1360,7 +1354,8 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
   const readyCards = normalizedCards.filter(card => card.analysisStatus === "ready");
   // 모든 카드에서 두 의견이 중립이면 서버 문장만 남은 결과라 성공으로 캐시하지 않는다.
-  if (readyCards.length > 0 && neutralCards >= readyCards.length) reject("all_neutral");
+  const judgedCards = readyCards.filter(card => serverWinner(card) !== null);
+  if (judgedCards.length > 0 && neutralCards >= judgedCards.length) reject("all_neutral");
   const providerActionItems = readyCards.length === 0 ? [] : actionItems.items.flatMap((item) => {
     const desc = conditionalCheckText(item.desc);
     if (!desc || /\d/u.test(item.title)) {
@@ -1370,8 +1365,18 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     // 비교 결과 보완점이 없는 카드(모두 평균 이상이거나 방향이 없는 지표뿐)만 다루는 제안은
     // 약점을 전제한 표현(보완·높이기·줄이기 등)일 때만 뺀다. "유지되는지 확인"처럼 점검만 하는
     // 제안은 남긴다. 다른 카드 주제도 함께 다루면 그대로 유지한다.
+    // 보류·미미한 차이만 있는 카드로는 자동 행동을 만들지 않는다. 횟수 기록의 조건부 점검은 유지한다.
+    const eligible = (card: SummaryCard) => card.evidence.some(row => isUnfavorable(row) !== null || ((row.unit === "회" || row.metricId === "isolation_average") && isObservedEvidence(row) && !summaryComparisonHoldReason(row.metricId, row.unit, row.userMatchCount, row.denominator)));
+    if (!readyCards.some(eligible)) return [];
     const text = `${item.title} ${desc}`;
+    const namedRows = readyCards.flatMap(card => card.evidence).filter(row => text.includes(row.label.replace(/^평균 /u, "")));
+    if (namedRows.some(row => summaryComparisonHoldReason(row.metricId, row.unit, row.userMatchCount, row.denominator)
+      || (row.status === "comparable" && isSummaryComparisonSimilar(evidenceNumericValue(row, "user")!, evidenceNumericValue(row, "benchmark")!, row.unit)))) return [];
     const topics = actionItemTopics(text);
+    if (topics.length > 0 && topics.every(topicId => {
+      const card = readyCards.find(candidate => candidate.topicId === topicId);
+      return card && !eligible(card);
+    })) return [];
     if (topics.length > 0 && topics.every((topicId) => !isActionableTopic(readyCards, topicId)) && WEAKNESS_PREMISE.test(text)) {
       actionDropReasons.push("action_items:weakness_premise");
       return [];
@@ -1401,11 +1406,17 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   const finalCards = normalizedCards.map(cloneCard);
   // 칭호는 숫자·인성·측정하지 않은 능력 없이 짧을 때만 모델 표현을 쓴다.
   const providerSignature = normalizedSignature.value.trim();
-  safeSignature = !signatureModeRejected && !normalizedSignature.changed && providerSignature.length > 0 && providerSignature.length <= 16
+  const titleEvidence = strongestMetric(readyCards);
+  safeSignature = titleEvidence !== null && !signatureModeRejected && !normalizedSignature.changed && providerSignature.length > 0 && providerSignature.length <= 16
+    && !/(?:기록|분석|요약|관측)(?:입니다|이다)?[.!?]?$/u.test(providerSignature)
     && !UNSUPPORTED_SIGNATURE.test(providerSignature) && !hasUnsupportedSummaryInference(providerSignature) ? providerSignature : SAFE_SIGNATURE;
-  safeSignatureSub = "관측된 경기 지표와 다음 경기의 점검 과제입니다.";
+  const representative = titleEvidence ?? readyCards.flatMap(card => card.evidence).find(isObservedEvidence);
+  const representativeCard = readyCards.find(card => card.evidence.some(row => row.id === representative?.id));
+  safeSignatureSub = representative && representativeCard
+    ? `관측 ${representative.userMatchCount ?? representativeCard.context.userMatchCount}경기: ${buildSummaryCardFactText({ ...representativeCard, evidence: [representative] })}`
+    : "이번 관측에서 평가할 지표가 충분하지 않습니다.";
   // Include every card, independent of provider winners and card-local praise.
-  safeVerdict = groundedVerdict(finalCards, normalizedActionItems.length > 0);
+  safeVerdict = groundedVerdict(finalCards);
   if (finalCards.every((card) => card.dataStatus === "unavailable")) reject("all_unavailable");
   const usable = finalCards.some((card) => card.analysisStatus === "ready");
   if (!usable && cacheable) reject("all_unavailable");

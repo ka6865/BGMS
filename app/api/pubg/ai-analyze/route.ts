@@ -1,4 +1,4 @@
-import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
+import { applyMatchAiActionPolicy, applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
 import { applyMatchAiClockPolicy, unwrapMatchAiJson, applyMatchAiSceneRefs } from "@/lib/pubg-analysis/matchAiScenes";
 import { applyMatchAiPercentiles, fetchMatchAiPercentiles, type MatchAiPercentile } from "@/lib/pubg-analysis/matchAiPercentiles";
 import { applyMatchSpicyJab } from "@/lib/pubg-analysis/spicyPunchlines";
@@ -27,10 +27,11 @@ function withStyleJab(text: string, match: unknown, coachingStyle: string): stri
 // 시각·장면 ID 정리는 문장 뜻을 바꾸지 않으므로 정리한 원문과 비교해 장면 연결을 남긴다.
 // 새 응답과 캐시 응답에 같은 순서로 적용한다. 정책이 재적용에 안정적이라 이미 처리된 캐시 텍스트는 그대로 남는다.
 // percentiles는 새 생성에서만 주고, 캐시 응답은 저장된 benchmarkPercentiles로 검증한다.
+// 행동 후보가 있으면 마지막에 선택 ID·문장·장면을 서버 후보로 확정한다.
 function finalizeMatchAiText(text: string, match: unknown, coachingStyle: string, percentiles?: readonly MatchAiPercentile[]): string {
   const tidied = applyMatchAiClockPolicy(unwrapMatchAiJson(text), match);
   const checked = applyMatchAiClockPolicy(applyMatchAiPercentiles(applyMatchAiEvidencePolicy(tidied, match), percentiles), match);
-  return withStyleJab(applyMatchAiSceneRefs(checked, match, tidied), match, coachingStyle);
+  return withStyleJab(applyMatchAiActionPolicy(applyMatchAiSceneRefs(checked, match, tidied), match), match, coachingStyle);
 }
 
 const CANONICAL_MATCH_ID = /^[A-Za-z0-9._-]{1,160}$/;

@@ -232,6 +232,27 @@ export const AI_SUMMARY_HIGHER_IS_BETTER: Readonly<Record<string, boolean>> = {
   counter_failure_rate: false,
 };
 
+// 제품 정책이며 통계적 유의성 기준이 아님. 비율은 %p, 연속형은 비교 평균 대비 상대 차이를 쓴다.
+export const AI_SUMMARY_COMPARISON_POLICY = { relativeGap: 0.05, percentagePointGap: 3, minContinuousMatches: 2, minRateEvents: 5 } as const;
+
+export function summaryComparisonHoldReason(metricId: string, unit: string, userMatchCount?: number, denominator?: number | null): string | null {
+  // shortcut: 개인 합산 승률과 경기별 승률 평균의 통계량이 다름, 산식을 통일한 뒤 비교를 재개한다.
+  if (metricId === "duel_win_rate") return "개인 합산 승률과 비교 평균의 산식이 달라 비교 판정을 보류합니다.";
+  if (unit !== "%" && unit !== "회" && userMatchCount !== undefined && userMatchCount < AI_SUMMARY_COMPARISON_POLICY.minContinuousMatches) {
+    return `이 지표는 ${userMatchCount}경기만 관측되어 비교 판정을 보류합니다.`;
+  }
+  if (unit === "%" && denominator != null && denominator < AI_SUMMARY_COMPARISON_POLICY.minRateEvents) {
+    return `내 관측이 ${denominator}건이라 비교 평균과 견주지 않습니다.`;
+  }
+  return null;
+}
+
+export function isSummaryComparisonSimilar(user: number, benchmark: number, unit: string): boolean {
+  const difference = Math.abs(user - benchmark);
+  const threshold = unit === "%" ? AI_SUMMARY_COMPARISON_POLICY.percentagePointGap : Math.abs(benchmark) * AI_SUMMARY_COMPARISON_POLICY.relativeGap;
+  return difference <= threshold + 1e-9;
+}
+
 function directionPredicate(value: string): DirectionPredicate {
   if (FASTER_DIRECTION_PATTERN.test(value)) return "faster";
   if (SLOWER_DIRECTION_PATTERN.test(value)) return "slower";
