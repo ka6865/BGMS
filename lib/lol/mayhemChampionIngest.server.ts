@@ -12,7 +12,7 @@ const JOB='mayhem-champion:champion_api_v1';
 const sha=(body:string)=>createHash('sha256').update(body).digest('hex');
 const signal=()=>AbortSignal.timeout(10_000);
 const code=(error:unknown)=>error instanceof Error && /^[a-z_]{1,80}$/.test(error.message)?error.message:'stats_sync_failed';
-export type ChampionIngestSummary={dryRun:boolean;status:'validated'|'unchanged'|'awaiting_review'|'deferred_quota';champions:number;rows:number;id?:number;patch?:string;upstreamVersion?:string;bytes?:number};
+export type ChampionIngestSummary={dryRun:boolean;status:'validated'|'unchanged'|'awaiting_review'|'deferred_quota'|'deferred_time';champions:number;rows:number;totalChampions?:number;id?:number;patch?:string;upstreamVersion?:string;bytes?:number};
 export async function ingestChampionDataset(options:{apply:boolean}):Promise<ChampionIngestSummary> {
   const ready=getChampionDatasetReadiness();
   if(!ready.apiKeyConfigured)throw new Error('stats_api_key_missing');
@@ -92,6 +92,8 @@ export async function ingestChampionDataset(options:{apply:boolean}):Promise<Cha
     const manifest=():ChampionDatasetManifest=>({schemaVersion:1,source:'champion_api_v1',cohort:'source_default',clientPatch:version.gamePatch,upstreamVersion:version.dataVersion,sourceDataDate,catalogHash,expectedChampionIds:championIds,files:[...files].sort((a,b)=>a.championId-b.championId),attribution:process.env.LOL_MAYHEM_STATS_ATTRIBUTION?.trim()??'',rightsBasis:process.env.LOL_MAYHEM_STATS_REUSE_BASIS?.trim()??'',normalizerVersion:1});
     for(const championId of championIds){
       if(files.some(file=>file.championId===championId))continue;
+      // 다음 챔피언을 시작하기 전에 멈춰 현재 checkpoint와 마무리 검증 시간을 확보한다.
+      if(options.apply&&Date.now()-startedAt>=480_000)break;
       await renew();const raw=await api.champion(championId);
       if(!Array.isArray(raw.value)||!Array.isArray(raw.value[0])||typeof raw.value[0][3]!=='string')throw new Error('invalid_champion_tuple');
       if(!sourceDataDate)sourceDataDate=raw.value[0][3];
@@ -104,6 +106,10 @@ export async function ingestChampionDataset(options:{apply:boolean}):Promise<Cha
       if(options.apply)await upload(progressPath,JSON.stringify(manifest()),true);
     }
     const after=await api.config();if(after.dataVersion!==version.dataVersion||after.gamePatch!==version.gamePatch)throw new Error('source_version_mismatch');
+    if(options.apply&&files.length<championIds.length){
+      await saveStatus({last_error_code:null,consecutive_failures:0,counts:{status:'deferred_time',champions:files.length,totalChampions:championIds.length,rows,bytes,upstreamVersion:version.dataVersion,catalogHash,completed:false}});
+      return{dryRun:false,status:'deferred_time',champions:files.length,totalChampions:championIds.length,rows,patch:version.gamePatch,upstreamVersion:version.dataVersion,bytes};
+    }
     if(files.length!==championIds.length)throw new Error('stats_incomplete_dataset');
     if(!options.apply)return{dryRun:true,status:'validated',champions:files.length,rows,bytes,patch:version.gamePatch,upstreamVersion:version.dataVersion};
     const metadata=manifest();const manifestBody=JSON.stringify(metadata);const captureHash=sha(manifestBody);const manifestPath=`${PREFIX}/captures/${captureHash}/manifest.json`;

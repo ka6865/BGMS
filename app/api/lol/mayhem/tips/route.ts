@@ -1,3 +1,4 @@
+import { allLolMayhemAugments } from "@/lib/lol/augments/catalog";
 import { NextResponse } from "next/server";
 import { guardLolPublicRequest } from "@/lib/lol/publicAccess.server";
 import { getCachedLolAugmentCatalog } from "@/lib/lol/augments/catalog.server";
@@ -33,7 +34,7 @@ async function validTip(body: unknown): Promise<{ input: MayhemTipInput; patch: 
   const [catalog, champions] = await Promise.all([currentPatch(), getLolChampions()]);
   if (!catalog || !champions) return unavailable();
   const items = await getMayhemTipItems(champions.version);
-  const augments = new Set(catalog.augments.map(a => a.id)), itemIds = new Set(items.map(i => i.id));
+  const augments = new Set((input.kind === "question" ? allLolMayhemAugments(catalog) : catalog.augments).map(a => a.id)), itemIds = new Set(items.map(i => i.id));
   if (input.augmentIds.some(id => !augments.has(id)) || input.itemIds.some(id => !itemIds.has(id))
     || (input.championId !== null && !champions.champions.some(c => c.id === input.championId))) return reply({ error: "현재 패치에 없는 챔피언·증강·아이템이 있습니다." }, 400);
   return { input, patch: catalog.clientPatch };

@@ -1,4 +1,5 @@
 import type { LolAugmentRarity } from "./augments/catalog";
+import { getMayhemAvailabilityOverride, MAYHEM_AVAILABILITY_SOURCE } from "./mayhemAvailability";
 import retiredIcons from "./data/mayhem-retired-icons.json";
 export const MAYHEM_AVAILABILITY = ["active", "disabled", "removed", "unverified"] as const;
 export type MayhemAvailability = typeof MAYHEM_AVAILABILITY[number];
@@ -34,7 +35,7 @@ export function parseMayhemArchive(value: unknown, patch: string): MayhemArchive
       || !text(a.name, 256) || !(a.name as string).trim() || !(a.nameEn === null || text(a.nameEn, 256)) || !(a.sourceName === null || text(a.sourceName, 256))
       || !(a.rarity === null || ["silver", "gold", "prismatic"].includes(String(a.rarity))) || !isMayhemAvailability(a.status)
       || !(a.removedPatch === null || (typeof a.removedPatch === "string" && /^(25|26)\.[1-9][0-9]?$/.test(a.removedPatch)))
-      || !text(a.reason, 2048) || !text(a.text, 32768) || !(a.sourceUrl === null || sourceUrl(a.sourceUrl))) throw new Error("invalid_mayhem_archive");
+      || !text(a.reason, 2048) || !text(a.text, 32768) || !(a.sourceUrl === null || a.sourceUrl === MAYHEM_AVAILABILITY_SOURCE || sourceUrl(a.sourceUrl))) throw new Error("invalid_mayhem_archive");
     if (a.status === "active" && a.officialId === null) throw new Error("invalid_mayhem_archive");
     keys.add(a.key);
   }
@@ -68,4 +69,14 @@ export function archivePage(archive: MayhemArchive, options: { kind: "augments" 
   const filtered = options.type ? inStatus.filter(c => c.types.includes(options.type!)) : inStatus;
   return { ...base, kind: "combos", counts: availabilityCounts(all), typeCounts, total: filtered.length,
     rows: filtered.slice(options.offset, options.offset + pageSize).map(c => ({ ...c, augments: c.augments.map(key => { const { officialId, name, nameEn, status, externalIds } = names.get(key)!; return { key, officialId, name, nameEn, status, art: retiredAugmentArt(externalIds) }; }) })) };
+}
+
+// 저장 파일 검증 후 표시용 복사본만 보정한다.
+export function applyMayhemAvailabilityOverrides(archive: MayhemArchive): MayhemArchive {
+  const augments = archive.augments.map(augment => {
+    const rule = augment.officialId === null ? null : getMayhemAvailabilityOverride(archive.patch, augment.officialId);
+    return rule && (augment.status === "active" || augment.status === "unverified") ? { ...augment, ...rule } : augment;
+  });
+  const statuses = new Map(augments.map(a => [a.key, a.status]));
+  return { ...archive, augments, combos: archive.combos.map(combo => ({ ...combo, status: comboAvailability(combo.augments.map(key => statuses.get(key)!)) })) };
 }

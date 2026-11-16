@@ -168,3 +168,17 @@ it("shows a collection failure for the combo job without blaming unrelated colle
   const combo = await screen.findByRole("article", { name: "증강 추천 조합" });
   expect(within(combo).getByText("최근 수집이 완료되지 않았습니다. 기존 적용 자료는 유지됩니다.")).toBeTruthy();
 });
+
+it('부분 수집을 실패나 공개 완료로 표시하지 않고 재개 진행을 알린다', async () => {
+  const mock = mockApi(), original = mock.getMockImplementation()!;
+  mock.mockImplementation(async (url: string, options?: RequestInit) => url.endsWith('mayhem-champion-datasets') ? Response.json({
+    releases: [{id:1,status:'approved',client_patch:'16.22',source_data_date:'2026-11-10',fetched_at:'2026-11-13T00:00:00Z',metadata:{expectedChampionIds:[1],files:[{championId:1}]}}], publications: [{client_patch:'16.22',release_id:1,published_at:'2026-11-13T00:00:00Z'}], readiness: { apiKeyConfigured: true, reuseConfirmed: true, enabled: true, persistenceEnabled: true },
+    sync: [{ job_key: 'mayhem-champion:champion_api_v1', last_error_code: null, counts: { status: 'deferred_time', completed: false, champions: 158, totalChampions: 173 } }],
+  }) : original(url, options));
+  render(createElement(MayhemDatasetReviewPanel));
+  const card = await screen.findByRole('article', { name: '챔피언별 증강' });
+  expect(card.textContent).toContain('158/173명 수집, 다음 실행에서 계속');
+  expect(card.textContent).not.toContain('최근 수집이 완료되지 않았습니다.');
+  expect(within(card).queryByText('적용됨')).toBeNull();expect(within(card).getByText('수집 중')).toBeTruthy();
+  expect(writes(mock)).toEqual([]);
+});

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
-import type { LolMayhemCatalog } from "@/lib/lol/augments/catalog";
+import { allLolMayhemAugments, type LolMayhemCatalog } from "@/lib/lol/augments/catalog";
 import { observationLabel, type ObservationHistory, type ObservationStatus } from "@/lib/lol/mayhemObservationHistory";
 
 const displayPatch = (patch: string) => patch.replace(/^(15|16)\./, major => `${Number(major.slice(0, -1)) + 10}.`);
@@ -31,7 +31,7 @@ export default function LolMayhemObservationHistory({ championId, patch, catalog
   if (current.error || !history) return <div role="alert" className="space-y-3 py-10 text-center text-sm text-zinc-400">
     <p>관측 이력을 불러오지 못했습니다.</p><button className={control} onClick={() => setRetry(value => value + 1)}>다시 시도</button>
   </div>;
-  const augments = new Map(catalog.augments.map(augment => [augment.id, augment]));
+  const augments = new Map(allLolMayhemAugments(catalog).map(augment => [augment.id, augment]));
   const term = query.trim().toLocaleLowerCase("ko");
   const order: ObservationStatus[] = ["unobserved", "observed", "never_observed", "insufficient"];
   const rows = history.rows.filter(row => (status === "all" || row.status === status)
@@ -60,6 +60,7 @@ export default function LolMayhemObservationHistory({ championId, patch, catalog
         {augment?.icon && <img src={`/api/lol/augment-icons/${catalog.clientPatch}/${augment.icon}`} width={36} height={36} alt="" loading="lazy" decoding="async" className="size-9 shrink-0" />}
         <div className="min-w-0 flex-1 space-y-1"><h4 className="break-words text-sm font-semibold">{augment?.name ?? `증강 ${row.augmentPlatformId}`}</h4>
           <p className={`break-words text-xs leading-5 ${colors[row.status]}`}>{observationLabel(row)}</p>
+          {augment?.notice && <p className="text-xs leading-5 text-zinc-400">{augment.notice}</p>}
           {row.lastObservedPatch && row.lastObservedPatch !== patch && <p className="text-xs leading-5 text-zinc-400">마지막 선택 관측 {displayPatch(row.lastObservedPatch)}</p>}
         </div>
       </li>;

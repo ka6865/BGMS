@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import { getMayhemDatasetPublication } from "./mayhemDatasetStore.server";
-import { parseMayhemArchive } from "./mayhemArchive";
+import { applyMayhemAvailabilityOverrides, parseMayhemArchive } from "./mayhemArchive";
 
 const payload = unstable_cache(async (id: number, patch: string) => {
   const db = createServiceRoleSupabase();
@@ -24,5 +24,5 @@ const payload = unstable_cache(async (id: number, patch: string) => {
 export async function getPublicMayhemArchive(patch: string) {
   if (process.env.LOL_PERSISTENCE_ENABLED !== "true") return null;
   const publication = await getMayhemDatasetPublication(patch);
-  return publication ? { archive: await payload(publication.release_id, patch), publishedAt: publication.published_at } : null;
+  return publication ? { archive: applyMayhemAvailabilityOverrides(await payload(publication.release_id, patch)), publishedAt: publication.published_at } : null;
 }

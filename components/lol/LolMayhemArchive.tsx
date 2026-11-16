@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, ExternalLink, Plus, Search } from "lucide-react";
 import { filterLolChampions, type LolChampion } from "@/lib/lol/champions";
 import { MAYHEM_AVAILABILITY, MAYHEM_AVAILABILITY_LABELS, type MayhemAvailability, type MayhemArchivePage } from "@/lib/lol/mayhemArchive";
-import { LOL_AUGMENT_RARITY_LABELS, type LolAugmentRarity, type LolMayhemCatalog } from "@/lib/lol/augments/catalog";
+import { allLolMayhemAugments, LOL_AUGMENT_RARITY_LABELS, type LolAugmentRarity, type LolMayhemCatalog } from "@/lib/lol/augments/catalog";
 import { ChampionPortrait } from "./LolMayhemChampionStats";
 
 const control = "inline-flex min-h-11 items-center justify-center rounded-lg border border-zinc-700 px-3 text-sm hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-300 disabled:opacity-40";
@@ -88,7 +88,7 @@ export default function LolMayhemArchive({ patch, champions, catalog, championVe
     return () => { clearTimeout(timer); controller.abort(); };
   }, [patch, kind, status, type, query, championId, offset, retry]);
   const championMap = new Map(champions.map(c => [c.id, c]));
-  const augmentMap = new Map(catalog.augments.map(a => [a.id, a]));
+  const augmentMap = new Map(allLolMayhemAugments(catalog).map(a => [a.id, a]));
   const reset = () => setOffset(0);
   const typeCounts = data?.kind === "combos" && kind === "combos" ? data.typeCounts : null;
   return <div aria-label="증강·조합 상태 조회" className="space-y-4">

@@ -64,3 +64,13 @@ describe('실제 이름·등급 예외와 삭제 근거',()=>{
   });
   it('새 패치에서 사람이 거절한 연결은 이어받지 않는다',()=>{const p=nextPatch('double_defense');p.mappings.push({external_id:'double_defense',platform_id:2144,client_patch:'16.22',status:'rejected'});const r=prepareReviewedMayhemDataset(p);expect(r.rates).toHaveLength(0);expect(r.carried).toEqual([]);});
 });
+
+it('활성으로 남은 공식 증강도 검토 근거가 있으면 신규 추천에서 제외하고 보존한다',()=>{
+ const p=prepare();
+ const result=prepareReviewedMayhemDataset({...p,patch:'16.22',sourcePatch:'16.22',officials:{'16.22':[official(2104,'Normal'),official(1,'Unknown')]},
+  mappings:[{external_id:'normal',platform_id:2104,client_patch:'16.22',status:'approved'},{external_id:'unknown',platform_id:1,client_patch:'16.22',status:'approved'}],
+  combos:[{comboId:1,championId:63,augmentIds:['normal'],types:[],sourceUrl:'https://arammayhem.com/combos/1/'},{comboId:2,championId:63,augmentIds:['unknown'],types:[],sourceUrl:'https://arammayhem.com/combos/2/'}]});
+ expect(result.rates.map(r=>r.externalId)).toEqual(['unknown']);expect(result.combos.map(c=>c.comboId)).toEqual([2]);
+ expect(result.archive.augments.find(a=>a.officialId===2104)).toMatchObject({status:'unverified',reason:expect.stringContaining('등장 중단 추정')});
+ expect(result.summary.augments).toMatchObject({active:1,unverified:1});expect(result.summary.combos).toMatchObject({active:1,unverified:1});
+});

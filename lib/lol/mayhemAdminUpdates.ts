@@ -14,7 +14,7 @@ export type UpdateRow = {
 export type UpdateGroup = {
   key: string; title: string; effect: string; endpoint: string; unit: string;
   rows: UpdateRow[]; targets: UpdateRow[]; publications: { release_id: number; published_at: string; client_patch?: string }[];
-  blocked: string; syncError: boolean;
+  blocked: string; syncError: boolean; collectionProgress?: { done: number; total: number };
 };
 
 function group(input: Omit<UpdateGroup, "targets">): UpdateGroup {
@@ -39,7 +39,12 @@ export function championUpdateGroup(data: ChampionDatasetAdminData & { databaseA
     expectedPublication: data.publications.find(pub => pub.client_patch === row.client_patch)?.release_id ?? null,
     previousPatch: data.publications.some(pub => pub.client_patch === row.client_patch) ? row.client_patch : null,
   })), row => row.patch);
-  return group({ key: "champions", title: "챔피언별 증강", effect: "챔피언을 눌렀을 때 보이는 증강 선택 통계와 미관측 기록이 바뀝니다.",
+  const counts = data.sync.find(row => row.job_key === "mayhem-champion:champion_api_v1" && !row.last_error_code)?.counts;
+  const collectionProgress = counts?.status === "deferred_time" && counts.completed === false
+    && typeof counts.champions === "number" && Number.isInteger(counts.champions) && counts.champions >= 0
+    && typeof counts.totalChampions === "number" && Number.isInteger(counts.totalChampions) && counts.totalChampions > counts.champions && counts.totalChampions <= 300
+    ? { done: counts.champions, total: counts.totalChampions } : undefined;
+  return group({ key: "champions", collectionProgress, title: "챔피언별 증강", effect: "챔피언을 눌렀을 때 보이는 증강 선택 통계와 미관측 기록이 바뀝니다.",
     endpoint: "/api/admin/lol/mayhem-champion-datasets", unit: "명", rows, publications: data.publications,
     blocked: data.databaseAvailable === false ? "저장된 자료를 확인할 수 없습니다. 새로고침해 주세요." : !Object.values(data.readiness).every(Boolean) ? "수집·적용 설정을 확인해야 합니다." : "",
     syncError: data.sync.some(row => !!row.last_error_code),

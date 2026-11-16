@@ -29,3 +29,10 @@ it("과거 파일 오류와 카탈로그 누락은 그 패치만 자료 부족�
 it("현재 공식 목록을 못 읽으면 잘못된 이력을 만들지 않는다", async () => {
   mocks.catalog.mockResolvedValue(null); await expect(getMayhemObservationHistory("16.21",29)).rejects.toThrow(); expect(mocks.stats).not.toHaveBeenCalled();
 });
+
+it('기본 도감에서 빠진 증강도 미관측 이력에서 사라지지 않는다', async () => {
+  mocks.catalog.mockResolvedValue({ view: { augments: [{ id: 1 }], unavailable: [{ id: 2104 }] } });
+  mocks.stats.mockImplementation(async (patch: string) => patch === '16.22' ? stats(patch) : null);
+  const result = await getMayhemObservationHistory('16.22', 29);
+  expect(result.rows.map(row => row.augmentPlatformId)).toContain(2104);
+});
