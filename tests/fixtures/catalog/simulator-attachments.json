@@ -1,0 +1,200 @@
+[
+  {
+    "id": "ar_compensator",
+    "name": "AR 보정기",
+    "slot": "muzzle",
+    "vertical_recoil": -15,
+    "horizontal_recoil": -10,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "ar_eqd_magazine",
+    "name": "대용량 퀵드로우 탄창",
+    "slot": "magazine",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": -30,
+    "ads_speed": 0
+  },
+  {
+    "id": "ar_flashhider",
+    "name": "AR 소염기",
+    "slot": "muzzle",
+    "vertical_recoil": -10,
+    "horizontal_recoil": -10,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "ar_suppressor",
+    "name": "AR 소음기",
+    "slot": "muzzle",
+    "vertical_recoil": -5,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "cheek_pad",
+    "name": "칙패드",
+    "slot": "stock",
+    "vertical_recoil": -20,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "folding_stock",
+    "name": "접이식 개머리판",
+    "slot": "stock",
+    "vertical_recoil": -20,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "half_grip",
+    "name": "하프 손잡이",
+    "slot": "grip",
+    "vertical_recoil": -8,
+    "horizontal_recoil": -16,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "heavy_stock",
+    "name": "중형 개머리판",
+    "slot": "stock",
+    "vertical_recoil": -10,
+    "horizontal_recoil": -10,
+    "reload_speed": 0,
+    "ads_speed": -10
+  },
+  {
+    "id": "hybrid_scope",
+    "name": "하이브리드 스코프",
+    "slot": "sight",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "light_grip",
+    "name": "라이트 손잡이",
+    "slot": "grip",
+    "vertical_recoil": -10,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "muzzle_brake",
+    "name": "제동기",
+    "slot": "muzzle",
+    "vertical_recoil": -10,
+    "horizontal_recoil": -10,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "scope_2x",
+    "name": "2배율 스코프",
+    "slot": "sight",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "scope_3x",
+    "name": "3배율 스코프",
+    "slot": "sight",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "scope_4x",
+    "name": "4배율 ACOG 스코프",
+    "slot": "sight",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "scope_6x",
+    "name": "6배율 스코프",
+    "slot": "sight",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "sight_8x",
+    "name": "8배율 CQBSS 스코프",
+    "slot": "sight",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "sight_holographic",
+    "name": "홀로그램 사이트",
+    "slot": "sight",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "sight_reddot",
+    "name": "레드 도트 사이트",
+    "slot": "sight",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 20
+  },
+  {
+    "id": "tactical_stock",
+    "name": "전술 개머리판",
+    "slot": "stock",
+    "vertical_recoil": 0,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 10
+  },
+  {
+    "id": "thumb_grip",
+    "name": "엄지 손잡이",
+    "slot": "grip",
+    "vertical_recoil": -5,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 20
+  },
+  {
+    "id": "tilted_grip",
+    "name": "틸티드 그립",
+    "slot": "grip",
+    "vertical_recoil": -7,
+    "horizontal_recoil": -5,
+    "reload_speed": 0,
+    "ads_speed": 0
+  },
+  {
+    "id": "vertical_grip",
+    "name": "수직 손잡이",
+    "slot": "grip",
+    "vertical_recoil": -15,
+    "horizontal_recoil": 0,
+    "reload_speed": 0,
+    "ads_speed": 0
+  }
+]
