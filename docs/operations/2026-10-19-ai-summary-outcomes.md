@@ -159,3 +159,7 @@
 - 모드별 benchmark 조회는 독립적인 조회를 최대 2개씩 `Promise.all`로 병렬 실행한다. 요청 취소·canonical 근거 검증·기존 timeout은 유지한다. 응답 시간과 출력 토큰의 실제 개선 폭은 운영 적용 뒤 별도로 확인한다.
 
 로컬 회귀는 `tests/ai-summary-response-quality.test.ts`, 기존 카드·근거·주제·한마디 테스트와 실제 route의 mock 기반 fresh/cache 재정규화 테스트로 확인한다. 운영 DB·R2·실제 Gemini 호출은 이 변경의 검증에 포함하지 않는다.
+
+### 2026-11-16 배포 후 보정: 칭호와 설명 일치
+
+배포 직후 표본에서 칭호는 "평균 화력"(지표 이름 그대로)인데 설명은 반격 소요 시간을 말하는 불일치가 나왔다. 칭호는 이제 설명과 같은 대표 강점 지표(`strongestMetric`)에서 서버가 고른다(예: `damage_average` → "화력 우위", `reaction_latency` → "빠른 반격"). 대표 강점이 없거나 모델 칭호가 다른 맛·단정 표현으로 거부되면 기본 칭호를 쓴다. 모델의 `signature`는 계속 요청하지만 화면 칭호로 쓰지 않는다. 캐시 읽기도 같은 정규화를 거치므로 `AI_SUMMARY_CACHE_VERSION`은 올리지 않는다.
