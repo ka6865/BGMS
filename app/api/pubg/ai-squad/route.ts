@@ -458,6 +458,12 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
       : squadData.matchesSummary;
     // 보류 문구 치환 스타일. 입력은 위에서 mild/spicy로 검증했다.
     const policyCoachingStyle: "mild" | "spicy" = coachingStyle;
+    const policyOptions = {
+      coachingStyle: policyCoachingStyle,
+      benchmarkStats: canonicalBenchmarkStats,
+      matchesSummary: canonicalMatchesSummary,
+      analyzedMatchCount: canonicalMatchCount,
+    };
 
     // 계산된 팀 지표만 담은 사실 응답. AI 해석이 없음을 명시하고 캐시에는 저장하지 않는다.
     const factsOnlyResponse = (reason: "timeout" | "provider" | "disabled") => {
@@ -514,7 +520,7 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
           canonicalGrade,
           canonicalScores,
           canonicalRoleProfiles,
-          { coachingStyle: policyCoachingStyle, benchmarkStats: canonicalBenchmarkStats },
+          policyOptions,
         ));
       }
     } catch (dbErr) {
@@ -593,7 +599,7 @@ async function runSquadRoute(request: Request, requestId: string, startedAt: num
         canonicalGrade,
         canonicalScores,
         canonicalRoleProfiles,
-        { coachingStyle: policyCoachingStyle, benchmarkStats: canonicalBenchmarkStats },
+        policyOptions,
       );
       // 정책이 모델 문장을 바꾼 칸 수를 남긴다. 문장 내용은 남기지 않는다. 보류가 얼마나 잦은지 운영에서 볼 수 있게 한다.
       const replacedFields = listReplacedSquadFields(rawResult, resultJson);

@@ -2,9 +2,40 @@ import { isEarlyElimination } from "./benchmarkScore";
 import { hasComparableBenchmarkMetric, type NormalizedBenchmark } from './benchmarkAdapter';
 import { firstReplyLatencyMs, readFirstReplyEvidence, firstReplyFailureRate } from './firstReply';
 import { requiresRescueOpportunityEvidence, isNegatedCoachingDirectiveTail } from './aiCoachingQuality';
+import { buildMatchAiActionHints } from './matchAiScenes';
 
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 const display = (value: number) => Number(value.toFixed(1));
+
+/** 후보가 있으면 선택 ID와 장면을 서버 근거로 확정한다. 자연어를 다시 판정하지 않아 캐시에도 같은 결과를 낸다. */
+export function applyMatchAiActionPolicy(text: string, match: unknown): string {
+  try {
+    const record = JSON.parse(text);
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return text;
+    const hints = buildMatchAiActionHints(match);
+    if (hints.length === 0) {
+      if (!Array.isArray(record.actionItems)) return text;
+      // 후보가 없으면 이 경기의 시각이나 수치를 인용한 제안만 남긴다. 근거 없는 일반론은 빈 칸이 낫다.
+      record.actionItems = record.actionItems.flatMap((item: unknown) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+        const rest = { ...item } as Record<string, unknown>;
+        delete rest.actionCandidateId;
+        return typeof rest.desc === 'string' && /\d/.test(rest.desc) ? [rest] : [];
+      });
+    } else {
+      const selected = Array.isArray(record.actionItems)
+        ? record.actionItems.find((item: any) => hints.some((hint) => hint.id === item?.actionCandidateId)) : null;
+      const hint = hints.find((item) => item.id === selected?.actionCandidateId) ?? hints[0];
+      record.actionItems = [{
+        icon: '🎯', title: hint.title, desc: hint.text, actionCandidateId: hint.id,
+        ...(hint.sceneId ? { sceneId: hint.sceneId } : {}),
+      }];
+    }
+    return JSON.stringify(record);
+  } catch {
+    return text;
+  }
+}
 
 /** Reconcile known factual failure patterns against the canonical match on fresh/cache reads.
  * This is a bounded evidence policy, not a general verifier of arbitrary natural language.
@@ -218,6 +249,10 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       if ((lethalClaim && Number(lethalClaim[1]) !== lethal)
         || (totalClaim && Number(totalClaim[1]) !== total)
         || (accuracyClaim && (accuracy === null || Math.abs(Number(accuracyClaim[1]) - accuracy) > 0.1))) return throwFacts;
+      // 적중률이 100% 미만인데 '모두 유효하게/모두 맞혀' 같은 전부 표현이 붙으면 '모두'만 뗀다.
+      if (accuracyClaim && Number(accuracyClaim[1]) < 100) {
+        return value.replace(/모두\s*(?=(?:유효|적중|명중|맞))/gu, '');
+      }
     }
     return value;
   };

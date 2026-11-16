@@ -163,6 +163,7 @@ MIGRATIONS=(
   "20261111200000_restore_weapon_patch_revert_applied_at"
   "20261111200100_analysis_calculation_v6"
   "20261114120000_pubg_benchmark_percentiles"
+  "20261116120000_pubg_team_benchmarks_tradeable_knocks"
 )
 
 cleanup() {

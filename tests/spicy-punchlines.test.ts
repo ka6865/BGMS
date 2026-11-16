@@ -18,6 +18,26 @@ const cases: Array<[string, any]> = [
 ];
 
 describe("spicy punchlines", () => {
+  const chicken = { ...base, stats: { ...base.stats, winPlace: 1, deathType: "alive" } };
+
+  it("치킨 마무리는 matchId 시드에 따라 세 변형을 고르고 같은 경기에는 같은 문장을 쓴다", () => {
+    const variants = new Set(Array.from({ length: 30 }, (_, index) => {
+      const data = { ...chicken, matchId: `chicken-${index}` };
+      const jab = matchSpicyJab(data);
+      expect(matchSpicyJab(data)).toBe(jab);
+      const once = applyMatchSpicyJab(JSON.stringify({ finalVerdict: "좋은 화력이었네." }), data);
+      expect(applyMatchSpicyJab(once, data)).toBe(once);
+      return jab;
+    }));
+    expect(variants.size).toBe(3);
+  });
+
+  it.each(["우승까지 잘 마무리했네.", "이번 판 치킨을 챙겼네.", "치킨은 치킨이지. 이건 인정.", "치킨 챙긴 판이네. 이건 인정.", "결국 치킨은 네 몫이었네. 이 판은 인정."])("우승 언급과 구캐시 치킨 변형 뒤에 새 한마디를 누적하지 않는다: %s", (finalVerdict) => {
+    const text = JSON.stringify({ finalVerdict });
+    expect(applyMatchSpicyJab(text, chicken)).toBe(text);
+    expect(applyMatchSpicyJab(applyMatchSpicyJab(text, chicken), chicken)).toBe(text);
+  });
+
   it.each(cases)("단일 경기 %s 한마디는 근거 정책을 다시 거쳐도 그대로 남고 한 번만 붙는다", (_id, match) => {
     const jab = matchSpicyJab(match);
     expect(jab).toBeTruthy();

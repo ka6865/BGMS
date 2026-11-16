@@ -10,6 +10,7 @@ vi.mock("@/utils/supabase/server", () => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/lol/champions.server", () => ({ getLolChampions: async () => ({ version: "16.22.1", champions: [{ id: 157, imageId: "Yasuo", name: "야스오" }] }) }));
+vi.mock("@/lib/stats/playerSeo.server", () => ({ listPublicPlayersForSitemap: async () => [{ platform: "steam", nickname: "Player One", updatedAt: "2026-11-10T00:00:00Z" }] }));
 vi.mock("@/lib/lol/mayhemTips.server", () => ({ listMayhemTipSitemap: async () => [{ id: 7, kind: "tip", comment_count: 0, created_at: "2026-11-10T00:00:00Z", updated_at: null }] }));
 
 const read = (path: string) => readFileSync(resolve(path), "utf8");
@@ -31,6 +32,7 @@ describe("SEO 메타데이터 계약", () => {
     const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname);
     expect(urls).toEqual(expect.arrayContaining(["/", "/maps/erangel", "/rankings", "/crates", "/board", "/stats"]));
     expect(urls).not.toContain("/meta");
+    expect(urls).toContain("/stats/steam/Player%20One");
   });
 
   it("정리한 /meta 시험 페이지는 무기도감으로 영구 이동한다", async () => {

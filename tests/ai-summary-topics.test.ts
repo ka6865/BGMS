@@ -21,9 +21,9 @@ describe("summary debate topic selection", () => {
     expect(topics).not.toContain("복수 성공률 및 백업");
   });
 
-  it("keeps a comparable metric with enough samples as a topic", () => {
+  it("비교 표본이 충분해도 산식이 다른 1:1 승률은 비교 주제로 고르지 않는다", () => {
     const bench = { ...duoBBench, metricSampleCounts: { ...duoBBench.metricSampleCounts, avgDuelWinRate: 30 } };
-    expect(selectSummaryDebateTopics(miaeqStats, bench, { userTradeRate: 25 })).toEqual(["포지셔닝", "1:1 결정력", "화력"]);
+    expect(selectSummaryDebateTopics(miaeqStats, bench, { userTradeRate: 25 })).toEqual(["포지셔닝", "화력", "유틸리티 활용"]);
   });
 
   it("ranks comparable topics before user-only topics even when the user-only gap is larger", () => {

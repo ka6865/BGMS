@@ -149,7 +149,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
   const playerReportSummary = `
 [기본 성적]
 - 매치: ${mapName} (${gameMode}), 순위: #${stats.winPlace}
-- 전투: ${stats.kills}킬 / ${stats.assists}어시 / ${stats.DBNOs}기절 / 유효 딜량 ${Math.floor(stats.processedDamageDealt ?? stats.damageDealt)}${hasVehicleCombat ? `\n- 특수 전투(차량): 리드샷 기절/킬 ${leadKnocks}/${leadKills}, 라이딩샷 기절/킬 ${ridingKnocks}/${ridingKills}` : ""}
+- 전투: ${stats.kills}킬 / ${stats.assists}어시 / ${stats.DBNOs}기절 / 공식 피해량 ${formatNumber(stats.damageDealt)} / 유효 딜량 ${formatNumber(stats.processedDamageDealt)}${hasVehicleCombat ? `\n- 특수 전투(차량): 리드샷 기절/킬 ${leadKnocks}/${leadKills}, 라이딩샷 기절/킬 ${ridingKnocks}/${ridingKills}` : ""}
 - 킬 기여도: 직접 사살(Solo Kill) ${killContribution.solo}회 / 마무리 사살(Cleanup) ${killContribution.cleanup}회
 - 실력 등급: 엘리트 대비 딜량 ${formatPercent(teamImpact.damageImpact)} / 킬 ${formatPercent(teamImpact.killImpact)}
 - 팀 기여도: 팀 내 딜량 비중 ${formatPercent(teamImpact.teamDamageShare)} / 팀 내 킬 비중 ${formatPercent(teamImpact.teamKillShare)}
@@ -208,7 +208,8 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
     "- 배지가 없다는 이유로 실속 없음/훈장 사냥꾼/기여 부족을 단정하지 마십시오. 배지는 특정 조건의 보상일 뿐 전체 성과의 평가 기준이 아닙니다.",
     "- 후방/전방/진입 위치는 측정되지 않았습니다. 칭호에도 사용하지 마십시오.",
     "- [배지 우선순위] 유저가 획득한 배지가 있다면 이를 signature(칭호) 결정의 핵심 근거로 사용하십시오.",
-    "- [피해 기준] 유효 딜량은 무기별 집계로 투척물·차량 폭발 등 제외 항목이 있을 수 있습니다. 팀 내 딜량 비중은 PUBG 공식 피해량으로 계산하므로 두 값의 기준이 다를 수 있습니다. 공식 피해량과 유효 딜량을 같은 수치로 단정하지 마십시오.",
+    "- [전부 표현] '모두 맞혔다', '모두 유효하게' 같은 전부 표현은 해당 비율이 100%일 때만 쓰십시오.",
+    "- [피해 기준] 공식 피해량은 PUBG 공식 개인 기록이고, 유효 딜량은 무기별 개인 집계로 투척물·차량 폭발 등 제외 항목이 있을 수 있습니다. [경기 흐름]의 '우리 팀이 준 피해'는 해당 교전의 팀 합계입니다. 피해 수치를 인용할 때는 반드시 '공식 피해량', '유효 딜량', '우리 팀이 준 피해' 라벨을 함께 쓰고 세 값을 같은 수치나 개인 기록으로 단정하지 마십시오. 팀 내 딜량 비중은 PUBG 공식 피해량 기준입니다.",
     "- [팀 영향력] 딜량 비중은 실제 화력 분담 비율만 설명하십시오. 비중만으로 교전 주도, 소극적 플레이, 후방 대기, 숨기, 동료 의존을 단정하지 마십시오.",
     "- [팀 영향력 해석 보호 규칙] 높은 딜량 비중은 '화력 기여'로만 설명하십시오. 비중은 진입/선제 공격의 증거가 아닙니다. 아군 소생 실패, 복구 실패, 팀원 사망 방치 데이터가 없으면 의도, 인성, 팀원 이용 여부를 단정하는 표현을 금지합니다.",
     "- [매치 임팩트 해석 규칙] 매치 임팩트가 '하드캐리' 또는 '레전드'이면 해당 판은 단일 경기 하이라이트 성과로 인정하십시오. 낮은 세부 항목을 지적하더라도 '판 전체가 나쁘다'거나 '방관했다'고 단정하지 말고, 강한 성과와 보완점을 분리해 말하십시오.",
@@ -235,7 +236,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
     "- [장면 우선] [경기 흐름]에 교전·사망·자기장 기록이 있으면 briefFeedback 중 최소 2개는 그 기록의 한 교전이나 사망을 경과 시각과 함께 직접 가리키십시오(예: '13:05 교전은 상대가 먼저 쐈고 우리 팀만 2명 쓰러졌습니다'). 시각은 [장면 목록]·[경기 흐름]에 적힌 값만 그대로 쓰십시오.",
     "- [장면 해석 한계] [경기 흐름]은 누가 먼저 쐈는지, 결과, 준·받은 피해, 쓰러진 수, 사망 유형, 팀원 거리, 자기장 위치만 측정합니다. 엄폐·시야·진입 각도·소통·판단·파밍은 측정하지 않았으므로 장면을 설명할 때도 단정하지 마십시오. 원 밖 거리는 새 원이 정해진 순간의 위치일 뿐이라, '경기 중 받은 자기장 피해 합계'가 작으면 원 이동이 늦었다고 지적하지 마십시오.",
     "- [마지막 한마디] finalVerdict는 이번 경기 기록에서 가장 중요한 사실 하나와 다음 경기 과제 하나를 한두 문장으로 쓰십시오. 분석 원칙이나 코치 자신의 태도를 말하지 마십시오.",
-    "- [행동 제안] actionItems는 정확히 1개입니다. 이번 경기에서 가장 손해가 컸던 장면이나 표본이 충분한 지표 하나에서 나온, 다음 판에 바로 쓸 행동 하나로 좁히십시오. title은 행동 자체(12자 안팎), desc는 '어떤 상황이 오면 → 무엇을 한다'처럼 상황 조건과 행동을 함께 쓰십시오. '높이십시오', '개선하십시오'처럼 지표만 올리라는 막연한 지시는 금지합니다. [행동 후보]가 있으면 그중 하나를 골라 이 경기의 시각·수치를 살려 코치 말투로 다시 쓰십시오. '엄폐물로 숨는다', '엄폐 후 반격'처럼 어느 경기에나 맞는 행동은 쓰지 마십시오.",
+    "- [행동 제안] actionItems는 정확히 1개입니다. 이번 경기에서 가장 손해가 컸던 장면이나 표본이 충분한 지표 하나에서 나온, 다음 판에 바로 쓸 행동 하나로 좁히십시오. title은 행동 자체(12자 안팎), desc는 '어떤 상황이 오면 → 무엇을 한다'처럼 상황 조건과 행동을 함께 쓰십시오. '높이십시오', '개선하십시오'처럼 지표만 올리라는 막연한 지시는 금지합니다. [행동 후보]가 있으면 그중 하나를 actionCandidateId로 선택하고 후보의 시각·수치·행동을 보존하십시오. '엄폐물로 숨는다', '엄폐 후 반격'처럼 어느 경기에나 맞는 행동은 쓰지 마십시오.",
     "- [장면 근거] briefFeedbackSceneIds는 briefFeedback과 같은 순서·개수로 채우십시오. 문장이 아래 [장면 목록]의 한 장면을 직접 가리킬 때만 그 장면 ID를 그대로 쓰고, 아니면 null을 쓰십시오. [경기 흐름]의 교전·사망 줄에 적힌 장면 ID도 쓸 수 있습니다. actionItems의 sceneId도 같은 규칙입니다. 목록에 없는 ID를 만들지 말고, 장면의 시각·위치·상황을 새로 지어 문장에 쓰지 마십시오. 장면 ID는 sceneId 칸에만 쓰고 문장 본문에는 경과 시각만 쓰십시오. 장면 목록이 없으면 모두 null로 두십시오.",
     ...(percentiles.length > 0 ? [
       "- [BGMS 기록 비교] 아래 [BGMS 기록 비교]의 '상위/하위 N%'는 서버가 계산한 값입니다. 쓸 때는 값을 바꾸지 말고 'BGMS 기록 기준'을 붙여 한 번만 쓰십시오(예: 'BGMS 기록 기준 공식 피해량 상위 12%'). 목록에 없는 지표나 다른 퍼센트 순위를 만들지 마십시오. 공식 피해량은 유효 딜량과 기준이 다릅니다.",
@@ -256,7 +257,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
     '  ],',
     '  "briefFeedbackSceneIds": ["첫 번째 피드백의 장면 ID 또는 null", "두 번째 피드백의 장면 ID 또는 null", "세 번째 피드백의 장면 ID 또는 null"],',
     '  "finalVerdict": "마지막 한마디 (짧게)",',
-    '  "actionItems": [ { "icon": "🎯", "title": "다음 판 행동 하나", "desc": "어떤 상황이 오면 → 무엇을 한다", "sceneId": "근거 장면 ID 또는 null" } ]',
+    '  "actionItems": [ { "icon": "🎯", "title": "다음 판 행동 하나", "desc": "어떤 상황이 오면 → 무엇을 한다", "actionCandidateId": "선택한 행동 후보 ID 또는 null", "sceneId": "후보의 장면 ID 또는 null" } ]',
     "}",
   ];
 
@@ -266,7 +267,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
   const flowSection = `[경기 흐름] (측정된 교전·사망·자기장 기록, 우리 팀 기준)\n${flowLines.length ? flowLines.join("\n") : "없음"}`;
   const percentileSection = formatMatchAiPercentileSection(percentiles);
   const actionHints = buildMatchAiActionHints(matchData);
-  const actionSection = actionHints.length ? `\n\n[행동 후보] (측정된 상황 → 행동 방향, actionItems는 이 중 하나에서 고른다)\n${actionHints.map((hint) => `- ${hint}`).join("\n")}` : "";
+  const actionSection = actionHints.length ? `\n\n[행동 후보] (후보 ID | 장면 ID | 측정된 상황 → 행동 방향)\nactionItems는 이 중 하나를 고르고 actionCandidateId와 sceneId를 그대로 쓰십시오. 서버가 선택 후보의 관측 상황과 행동을 확정합니다.\n${actionHints.map((hint) => `- ${hint.id} | ${hint.sceneId ?? "null"} | ${hint.text}`).join("\n")}` : "\n\n[행동 후보] 없음. actionCandidateId는 null로 두고 이 경기에서 관측된 수치나 시각을 desc에 그대로 인용한 점검을 제안하십시오. 인용할 수치가 없으면 actionItems를 빈 배열로 두십시오. 임의의 시각이나 장면을 만들지 마십시오.";
 
   return {
     fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}${percentileSection ? `\n\n${percentileSection}` : ""}\n\n${sceneSection}\n\n${flowSection}${actionSection}`,

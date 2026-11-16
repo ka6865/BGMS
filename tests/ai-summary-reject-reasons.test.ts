@@ -122,13 +122,13 @@ describe("normalizeSummaryCardFinal reject reasons", () => {
     const cards = buildFixture();
     const firepower = cards.findIndex((card) => card.topicId === "firepower");
     const issues = cards.map((card) => providerIssue(card));
-    issues[firepower].reason = "최근 9판 기준 화력이 평균보다 높습니다.";
+    issues[firepower].kindOpinion = "최근 9판 기준 화력이 평균보다 높습니다.";
 
     const result = normalizeSummaryCardFinal(providerFinal(cards, { debateIssues: issues }), cards, plainOptions);
 
     expect(result?.cacheable).toBe(false);
     expect(result?.rejectReasons).toContain("firepower:conclusion");
-    expect(result?.rejectReasons).toContain("firepower:conclusion:reason:conclusion:population_mismatch");
+    expect(result?.rejectReasons).toContain("firepower:conclusion:kind:conclusion:population_mismatch");
   });
 
   it("names the prose field whose sanitized text came out empty", () => {

@@ -90,7 +90,7 @@ describe("ai summary v2 card catalog", () => {
       ],
     });
     expect(buildSummaryCardComparisonText(cards[0])).toBe("평균 화력은 비교 평균보다 높습니다.");
-    expect(buildSummaryCardComparisonText(cards[1])).toBe("압박 지수는 비교 평균보다 낮습니다. 평균 반응 시간은 비교 평균보다 빠릅니다.");
+    expect(buildSummaryCardComparisonText(cards[1])).toBe("압박 지수는 비교 평균과 비슷한 수준입니다. 평균 반응 시간은 비교 평균보다 빠릅니다.");
     expect(buildSummaryCardComparisonText(cards[2])).toBe("");
     expect(buildSummaryCardComparisonText(buildFixture()[0])).toBe("평균 화력은 비교 평균과 같습니다.");
     expect(buildSummaryCardComparisonText(buildFixture()[2])).toBe("");
@@ -246,14 +246,14 @@ describe("ai summary v2 card catalog", () => {
   // 칭호에만 다른 모드가 있으면 기본 칭호로 바꾸고 결과는 완료로 둔다(2026-10-30 top_level_mode 부분 완료 2건).
   it.each([
     ["signature", "AI 전술 분석"],
-    ["signatureSub", "전술가"],
-    ["finalVerdict", "전술가"],
+    ["signatureSub", "AI 전술 분석"],
+    ["finalVerdict", "AI 전술 분석"],
   ])("keeps a complete result when only discarded or replaced top-level prose names a foreign mode: %s", (field, expectedSignature) => {
     const cards = buildFixture();
     const result = normalizeSummaryCardFinal(providerFinal(cards, { [field]: "foreign-mode 설명" }), cards, {
       sanitizeText: text => text, hasUnsupportedMode: text => typeof text === "string" && text.includes("foreign-mode"),
     });
-    expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete", signature: expectedSignature, signatureSub: "관측된 경기 지표와 다음 경기의 점검 과제입니다." } });
+    expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete", signature: expectedSignature, signatureSub: expect.stringContaining("관측 5경기:") } });
     expect(result?.rejectReasons).not.toContain("top_level_mode");
     expect(JSON.stringify(result?.final)).not.toContain("foreign-mode");
     expect(parseSummaryCards(result?.final)).not.toBeNull();
@@ -271,8 +271,8 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: text => text, hasUnsupportedMode: () => false,
     });
     expect(result?.cacheable).toBe(true);
-    // 숫자·비교가 없는 한계 문장은 서버 비교 뒤에 덧붙고 캐시 검증도 통과한다.
-    const expectedKind = `${buildSummaryCardComparisonText(cards[0])} ${kindOpinion}`;
+    // 동률 카드에는 강점 표현을 보태지 않고 서버 비교만 쓰며 캐시 검증도 통과한다.
+    const expectedKind = buildSummaryCardComparisonText(cards[0]);
     expect(result?.final.cards[0]).toMatchObject({ kindOpinion: expectedKind, winner: null });
     expect(parseSummaryCards(result?.final.cards)?.[0]).toMatchObject({ kindOpinion: expectedKind, winner: null });
   });
@@ -285,7 +285,7 @@ describe("ai summary v2 card catalog", () => {
     expect(result?.cacheable).toBe(true);
     expect(result?.final.cards[0].winner).toBeNull();
     expect(result?.final.finalVerdict).not.toContain('착한맛 승');
-    expect(result?.final.finalVerdict).toContain('비교: 평균 화력: 0, 비교 평균 0과 같습니다.');
+    expect(result?.final.finalVerdict).toContain('뚜렷한 강점이나 우선 보완점을 정하지');
     const replay = normalizeSummaryCardFinal(providerFinal(cards, { debateIssues: issues, finalVerdict: '화력은 착한맛 승입니다.' }), cards, { sanitizeText: text => text, hasUnsupportedMode: () => false });
     expect(replay?.final).toEqual(result?.final);
   });
@@ -331,7 +331,7 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: (text) => text === "검증된 판정" ? "검증된 경기 지표를 바탕으로 분석합니다." : text,
       hasUnsupportedMode: () => false,
     });
-    expect(result?.final.finalVerdict).toContain("비교: 평균 화력: 0, 비교 평균 0과 같습니다.");
+    expect(result?.final.finalVerdict).toContain("뚜렷한 강점이나 우선 보완점을 정하지");
     expect(result?.final.finalVerdict).not.toContain("승리");
   });
 
@@ -341,7 +341,7 @@ describe("ai summary v2 card catalog", () => {
     expect(valid?.rejectReasons).toEqual([]);
 
     const issues = cards.map((card) => providerIssue(card));
-    issues[0].winner = "balanced";
+    issues[0].kindOpinion = "";
     const fields = normalizeSummaryCardFinal(providerFinal(cards, { debateIssues: issues }), cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => false });
     expect(fields?.cacheable).toBe(false);
     expect(fields?.rejectReasons).toEqual([`${cards[0].topicId}:fields`]);
@@ -351,15 +351,15 @@ describe("ai summary v2 card catalog", () => {
     expect(mode?.rejectReasons).not.toContain("top_level_mode");
   });
 
-  it.each([undefined, "balanced", 0, false])("rejects an invalid conclusion %s without hiding server evidence", (winner) => {
+  it.each([undefined, "balanced", 0, false])("ignores the removed provider conclusion %s without hiding server evidence", (winner) => {
     const cards = buildFixture();
     const issues = cards.map((card) => providerIssue(card));
     issues[0].winner = winner;
     const result = normalizeSummaryCardFinal(providerFinal(cards, { debateIssues: issues }), cards, {
       sanitizeText: (text) => text, hasUnsupportedMode: () => false,
     });
-    expect(result?.cacheable).toBe(false);
-    expect(result?.final.cards[0]).toMatchObject({ winner: null, analysisStatus: "unavailable", evidence: cards[0].evidence });
+    expect(result?.cacheable).toBe(true);
+    expect(result?.final.cards[0]).toMatchObject({ winner: null, analysisStatus: "ready", evidence: cards[0].evidence });
   });
 
   it.each(["draw", null])("keeps evidence and mode guards for a %s conclusion", (winner) => {
@@ -418,9 +418,10 @@ describe("ai summary v2 card catalog", () => {
     const result = normalizeSummaryCardFinal(provider, cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => false });
     expect(result?.final.cards[0]).toMatchObject({ winner: expected, analysisStatus: "ready", evidence: cards[0].evidence });
     // 매운맛은 불리한 비교와 점검을, 다정한 코치는 유리한 비교만 말한다.
-    expect(result?.final.cards[0].spicyOpinion).toMatch(/다음 경기에서 교전 연계를 점검해\.$/u);
-    // 모두 평균 이상이면 매운맛은 비꼬지 않고 인정한 뒤 점검한다.
-    if (expected === "kind") expect(result?.final.cards[0].spicyOpinion).toMatch(/^(?:이건 트집 잡을 데가 없어서 매운맛이 머쓱하네\.|여기는 인정\. 맵게 할 말이 없어\.) 다음 경기에서 교전 연계를 점검해\.$/u);
+    if (expected === "draw") expect(result?.final.cards[0].spicyOpinion).toMatch(/다음 경기에서 교전 연계를 점검해\.$/u);
+    else expect(result?.final.cards[0].spicyOpinion).not.toContain("점검해");
+    // 유리한 비교만 남으면 이번 관측 범위에서 인정한다.
+    if (expected === "kind") expect(result?.final.cards[0].spicyOpinion).toMatch(/이번 관측.*인정/u);
     expect(result?.final.cards[0].kindOpinion).not.toMatch(/낮습니다|느립니다/u);
     expect(parseSummaryCards(result?.final)).not.toBeNull();
     expect(result?.final.finalVerdict).not.toContain("조율이 필요");
@@ -440,7 +441,7 @@ describe("ai summary v2 card catalog", () => {
     expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: null, evidence: cards[0].evidence });
     expect(result?.final.cards[0].spicyOpinion).not.toContain("평균 화력이 관측되었습니다.");
     expect(result?.final.cards[0].spicyOpinion).not.toContain("참여 빈도를 높여");
-    expect(result?.final.cards[0].spicyOpinion).toContain("팀원");
+    expect(result?.final.cards[0].spicyOpinion).toContain("비교 평균과 같아");
     expect(JSON.stringify(result?.final.actionItems)).not.toContain("공격 기회를 늘리세요");
     expect(result?.cacheable).toBe(true);
     expect(parseSummaryCards(result?.final)).not.toBeNull();
@@ -459,7 +460,7 @@ describe("ai summary v2 card catalog", () => {
     });
     // 비난 문장은 지워지고, 매운맛 자리는 서버 점검으로 채워 카드를 숨기지 않는다.
     expect(result?.cacheable).toBe(true);
-    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "ready", winner: null, evidence: cards[1].evidence, spicyOpinion: "아군이 기절했을 때 구출 접근이 가능했는지, 연막으로 가릴 수 있는 구간이 있었는지 확인해." });
+    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "ready", winner: null, evidence: cards[1].evidence, spicyOpinion: "비교 자료가 없어 관측 기록만 확인했어." });
     expect(JSON.stringify(result?.final)).not.toContain("국 끓여");
     expect(result?.final.cards[0].analysisStatus).toBe("ready");
     expect(result?.final.cards[2].analysisStatus).toBe("ready");
@@ -509,7 +510,7 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: (text) => text === source ? "다만 구출을 보완하세요." : text,
       hasUnsupportedMode: () => false,
     });
-    expect(result?.final.finalVerdict).toContain("비교: 평균 화력: 0, 비교 평균 0과 같습니다.");
+    expect(result?.final.finalVerdict).toContain("뚜렷한 강점이나 우선 보완점을 정하지");
     // 비교 자료가 없는 카드(포지셔닝)는 종합 평가에서 강점·약점으로 판단하지 않는다.
     expect(result?.final.finalVerdict).not.toContain("포지셔닝");
     expect(result?.final.finalVerdict).not.toContain("다만");
@@ -703,7 +704,7 @@ describe("ai summary v2 card catalog", () => {
     expect(result?.cacheable).toBe(false);
     expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "unavailable", winner: null, dataStatus: "comparable" });
     expect(result?.final.cards[0].evidence).toEqual(cards[0].evidence);
-    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "ready", winner: "kind" });
+    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "ready", winner: null });
   });
 
   it("rejects malformed card sets, duplicate IDs, and missing evidenceIds strictly", () => {
@@ -861,7 +862,7 @@ describe("ai summary v2 card catalog", () => {
     expect(rawForeignResult?.final.actionItems).toEqual([]);
     expect(rawForeignResult?.usable).toBe(true);
     expect(rawForeignResult?.rejectReasons).not.toContain("top_level_mode");
-    expect(rawForeignResult?.final.signature).toBe("전술가");
+    expect(rawForeignResult?.final.signature).toBe("AI 전술 분석");
     expect(JSON.stringify(rawForeignResult?.final)).not.toContain("foreign-mode");
   });
 
@@ -884,7 +885,7 @@ describe("ai summary v2 card catalog", () => {
 
   it("fails closed on malformed action arrays even when all cards are otherwise usable", () => {
     const cards = buildFixture();
-    for (const actionItems of [undefined, [], null, {}, "목표"]) {
+    for (const actionItems of [undefined, null, {}, "목표"]) {
       expect(normalizeSummaryCardFinal(providerFinal(cards, { actionItems }), cards, {
         sanitizeText: text => text, hasUnsupportedMode: () => false,
       })).toBeNull();
@@ -917,9 +918,10 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: text => text, hasUnsupportedMode: () => false,
     });
     expect(result).toMatchObject({ usable: true, cacheable: true, final: { analysisStatus: "complete" } });
-    // 모델의 승패 문구가 아니라 비교 방향별 수치로 다시 쓴다.
-    expect(result?.final.finalVerdict).toContain("강점: 평균 화력: 337, 비교 평균 296보다 약 14% 높습니다; 1:1 교전 승률: 60%, 비교 평균 50%보다 10.0%p 높습니다.");
-    expect(result?.final.finalVerdict).toContain("보완: 압박 지수: 3.03, 비교 평균 3.14보다 약 4% 낮습니다.");
+    // 종합 평가는 적격인 대표 강점만 쓰고 미미한 차이와 산식 불일치는 보류한다.
+    expect(result?.final.finalVerdict).toContain("이번 관측에서 평균 화력 지표가 비교 평균보다 유리하게 나타났습니다");
+    expect(result?.final.finalVerdict).not.toContain("압박 지수");
+    expect(result?.final.cards[2].winner).toBeNull();
     expect(result?.final.finalVerdict).not.toMatch(/^(kind|spicy|draw)$/);
   });
 
@@ -1093,7 +1095,7 @@ describe("summary prose grounded in card evidence", () => {
     expect(result?.final.actionItems).toEqual([
       { icon: "target", title: "평균 화력 유지 확인", desc: "다음 경기에서도 같은 기록이 이어지는지 확인해 보세요." },
     ]);
-    expect(result?.final.finalVerdict).toContain("아래 행동 제안은 다음 경기의 점검 과제입니다.");
+    expect(result?.final.finalVerdict).toContain("평균·비율만으로 원인이나 경기별 일관성을 판단할 수는 없습니다.");
   });
 
   it("keeps an action item for a card whose comparison is unfavourable", () => {
@@ -1145,7 +1147,7 @@ describe("action items cover cards with a weakness", () => {
   it("adds server checks for weak cards the provider actions did not cover", () => {
     const result = run([{ icon: "target", title: "교전 거리 점검", desc: "다음 교전에서 아군과의 위치와 지원 가능 거리를 확인해 보세요." }]);
     expect(titles(result)).toEqual(["평균 화력 점검", "평균 사망 페이즈 점검", "교전 거리 점검"]);
-    expect(result?.final.finalVerdict).toContain("아래 행동 제안은 다음 경기의 점검 과제입니다.");
+    expect(result?.final.finalVerdict).toContain("평균·비율만으로 원인이나 경기별 일관성을 판단할 수는 없습니다.");
   });
 
   it("does not duplicate a weak card the provider already covers and keeps that action first", () => {

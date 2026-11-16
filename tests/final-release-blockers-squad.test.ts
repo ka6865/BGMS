@@ -121,7 +121,7 @@ describe("strict squad analysis population and scope",()=>{
     const {from}=configureSquadClient(queryChain({data:[row],error:null}));
     const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
     const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
-    expect(a.stats).toEqual({avgIsolation:null,avgTradeLatency:null,totalSmokeRescues:null,totalRevives:null,avgCoverRate:null,totalTeamWipes:null,totalTeammateKnocks:null,totalTradeKills:null});
+    expect(a.stats).toEqual({avgIsolation:null,avgTradeLatency:null,totalSmokeRescues:null,totalRevives:null,avgCoverRate:null,totalTeamWipes:null,totalTeammateKnocks:null,totalTradeKills:null,observedMatchCount:null,totalTradeableKnocks:null,totalTradeableTradeKills:null});
     expect(Object.values(a.scores)).toEqual([null,null,null,null,null]);expect(a.squadGrade).toBeNull();
     expect(Object.values(a.benchmarkStats).every(v=>v===null)).toBe(true);
     expect(from.mock.calls.map(([table]:[string])=>table).filter(table=>table!=='pubg_team_benchmarks'&&table!=='pubg_player_matches')).toEqual(['processed_match_telemetry']);expect(a.roleProfiles).toHaveLength(2);

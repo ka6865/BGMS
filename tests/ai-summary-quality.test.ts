@@ -6,7 +6,7 @@ import { buildSummaryCards, buildSummaryCardComparisonText, normalizeSummaryCard
 
 const context = { contextId: 'quality', gameMode: 'squad', matchType: 'official', tier: 'B+', userMatchCount: 5, benchmarkSampleCount: 20, filterVersion: 8, populationVersion: 1 };
 function fixture() {
-  const benchmark = adaptObservedBenchmark({ match_count: 40, avg_damage: 373.456, avg_damage_count: 40, avg_smoke_rate: 5.78, avg_smoke_rate_count: 40, avg_trade_rate: 8.4, avg_trade_rate_count: 40, avg_trade_latency_ms: 11211.123, avg_trade_latency_ms_count: 40 });
+  const benchmark = adaptObservedBenchmark({ match_count: 40, avg_damage: 373.456, avg_damage_count: 40, avg_smoke_rate: 9.78, avg_smoke_rate_count: 40, avg_trade_rate: 8.4, avg_trade_rate_count: 40, avg_trade_latency_ms: 11211.123, avg_trade_latency_ms_count: 40 });
   const evidence = buildSummaryCardEvidence({ avgDamage: 412.123, totalSmokeRescues: 1, totalTeammateKnocks: 18, totalTradeKills: 3, avgBackupLatency: 23.25, metricMatchCounts: { damage_average: 5, smoke_opportunity_rate: 5, trade_success_rate: 5, backup_latency: 2 } }, benchmark);
   return buildSummaryCards({ topics: ['화력', '유틸리티 활용', '복수 성공률 및 백업'], evidence, context });
 }
@@ -19,7 +19,7 @@ describe('summary quality: precision and grounded conclusions', () => {
   it('compares 1/18 with the unrounded benchmark instead of 6% with 5.8%', () => {
     const cards = fixture();
     expect(buildSummaryCardComparisonText(cards[1])).toContain('비교 평균보다 낮습니다');
-    expect(cards[1].evidence.find(row => row.metricId === 'smoke_opportunity_rate')).toMatchObject({ userValue: '5.6%', benchmarkValue: '5.8%', userNumericValue: 1 / 18 * 100, benchmarkNumericValue: 5.78 });
+    expect(cards[1].evidence.find(row => row.metricId === 'smoke_opportunity_rate')).toMatchObject({ userValue: '5.6%', benchmarkValue: '9.8%', userNumericValue: 1 / 18 * 100, benchmarkNumericValue: 9.78 });
     expect(cards[0].evidence[0]).toMatchObject({ userNumericValue: 412.123, benchmarkNumericValue: 373.456 });
     expect(cards[2].evidence.find(row => row.metricId === 'backup_latency')?.benchmarkNumericValue).toBeCloseTo(11.211123, 9);
   });
@@ -28,12 +28,13 @@ describe('summary quality: precision and grounded conclusions', () => {
     const cards = fixture();
     const result = normalizeSummaryCardFinal(provider(cards), cards, options)!;
     expect(result.final.finalVerdict).toContain('평균 화력');
-    expect(result.final.finalVerdict).toContain('연막 구출률');
+    expect(result.final.cards[1].reason).toContain('연막 구출률');
     expect(result.final.finalVerdict).toContain('백업 속도');
     expect(result.final.finalVerdict).not.toContain('약점이 확인되지 않았습니다');
     expect(result.final.cards[2].evaluation).not.toContain('약점이 확인되지 않았습니다');
-    // 종합 평가는 비교 방향별 수치를 쓰고, 관측 경기 수는 카드 평가에 둔다.
-    expect(result.final.finalVerdict).toContain('18건 중 1건');
+    // 종합 평가는 대표 강점·보완만 쓰고 수치·기회 수·관측 경기 수는 카드에 둔다.
+    expect(result.final.cards[1].reason).toContain('18건 중 1건');
+    expect(result.final.finalVerdict).not.toContain('18건 중 1건');
     expect(result.final.cards[2].evaluation).toContain('2경기');
   });
 
@@ -68,7 +69,8 @@ describe('summary quality: precision and grounded conclusions', () => {
     raw.actionItems[0].desc = '아군이 기절하는 즉시 연막을 투척하여 안전한 구출 환경을 조성하십시오.';
     const result = normalizeSummaryCardFinal(raw, cards, options)!;
     // 추정 원인 문장은 빠지고, 서버 비교·한마디 뒤에 상황 점검만 남는다.
-    expect(result.final.cards[0].spicyOpinion).toMatch(/다음 교전 전에 상대 위치를 확인해\.$/u);
+    expect(result.final.cards[0].spicyOpinion).toMatch(/이번 관측.*인정/u);
+    expect(result.final.cards[0].spicyOpinion).not.toContain("다음 교전");
     expect(result.final.cards[0].spicyOpinion).not.toContain('늦어');
     // 무조건 투척 지시는 항목만 빠지고, 가장 불리한 지표에 맞춘 서버 점검으로 채운다.
     expect(JSON.stringify(result.final.actionItems)).not.toContain('즉시');
@@ -111,7 +113,9 @@ describe('summary quality: precision and grounded conclusions', () => {
     // 비교 문장은 서버가 먼저 쓰고, 숫자·비교가 없는 모델 칭찬만 뒤에 붙는다. 승자는 비교 방향(화력 우위)으로 정한다.
     expect(result.final.cards[0].kindOpinion).toBe(`${buildSummaryCardComparisonText(cards[0])} 팀의 화력을 뒷받침하는 모습이 인상적입니다.`);
     expect(result.final.cards[0].winner).toBe('kind');
-    expect(result.final.signature).toBe('AI 전술 분석');
+    // 칭호는 모델 표현 대신 대표 강점 지표에서 서버가 정한다.
+    expect(result.final.signature).not.toContain('흐름');
+    expect(result.final.signature).toBe('화력 우위');
     expect(result.final.signatureSub).not.toContain('시도');
   });
 

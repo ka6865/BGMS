@@ -22,6 +22,19 @@ describe('team observations independent of requester',()=>{
   it.each([0,29999,30000])('uses the exclusive 30s trade boundary (%s)',delay=>{
     expect(collect([[1000,knock()],[1000+delay,kill()]]).tradeKills).toBe(delay<30000?1:0);
   });
+  it('counts only enemy knocks within 100m as tradeable and credits trades to them',()=>{
+    // 기본 actor는 같은 위치라 0m다. 공격자를 200m(20000cm) 떨어뜨리면 잡을 수 있었던 기절이 아니다.
+    const far=event('LogPlayerMakeGroggy',{attacker:actor('sniper',30000),victim:actor('c')});
+    const zone=event('LogPlayerMakeGroggy',{victim:actor('d'),damageTypeCategory:'Damage_BlueZone'});
+    const result=collect([[1000,knock()],[1500,far],[1600,zone],[3000,kill()],[4000,kill('sniper')]]);
+    expect(result).toMatchObject({knocks:3,tradeKills:2,eligibleKnocks:1,eligibleTradeKills:1});
+  });
+  it('falls back to the event distance and holds tradeable counts without any distance',()=>{
+    const bare=(distance?:number)=>event('LogPlayerMakeGroggy',{attacker:{accountId:'enemy'},victim:{accountId:'a'},...(distance===undefined?{}:{distance})});
+    expect(collect([[1000,bare(9000)],[2000,kill()]])).toMatchObject({eligibleKnocks:1,eligibleTradeKills:1});
+    expect(collect([[1000,bare(15000)],[2000,kill()]])).toMatchObject({tradeKills:1,eligibleKnocks:0,eligibleTradeKills:0});
+    expect(collect([[1000,bare()],[2000,kill()]])).toMatchObject({status:'observed',tradeKills:1,eligibleKnocks:null,eligibleTradeKills:null});
+  });
   it('does not call a self-kill after revival a teammate trade',()=>{
     const result=collect([[1000,knock()],[2000,event('LogPlayerRevive',{victim:actor('a'),reviver:actor('b')})],[3000,kill('enemy','a')]]);
     expect(result).toMatchObject({revives:1,tradeKills:0});
@@ -64,5 +77,20 @@ describe('team observations independent of requester',()=>{
     expect(aggregateSquadObservations([...rows,rows[0]])).toMatchObject({knocks:3,tradeKills:3,avgTradeLatency:14000/3});
     for(const bad of [undefined,{...b,version:0},{...b,teamAccountIds:['a','b','c','outsider']}])
       expect(aggregateSquadObservations([rows[0],{matchId:'2',observation:bad}])).toMatchObject({status:'missing',knocks:null,avgTradeLatency:null});
+  });
+});
+describe('tradeable knock aggregation',()=>{
+  const base={version:1,scope:'squad' as const,teamAccountIds:['a','b'],status:'observed' as const,issues:[],knocks:6,revives:2,smokeRescues:0,tradeKills:2,tradeLatencyTotalMs:20000};
+  it('sums tradeable knocks only over matches that recorded them',()=>{
+    const result=aggregateSquadObservations([
+      {matchId:'m1',observation:{...base,eligibleKnocks:4,eligibleTradeKills:1}},
+      {matchId:'m2',observation:base},
+    ]);
+    expect(result).toMatchObject({status:'observed',matchCount:2,knocks:12,eligibleMatchCount:1,eligibleKnocks:4,eligibleTradeKills:1});
+    expect(aggregateSquadObservations([{matchId:'m2',observation:base}])).toMatchObject({eligibleMatchCount:0,eligibleKnocks:null});
+  });
+  it('rejects tradeable counts that exceed their parents',()=>{
+    expect(aggregateSquadObservations([{matchId:'m1',observation:{...base,eligibleKnocks:7,eligibleTradeKills:0}}]).status).toBe('missing');
+    expect(aggregateSquadObservations([{matchId:'m1',observation:{...base,eligibleKnocks:4,eligibleTradeKills:3}}]).status).toBe('missing');
   });
 });

@@ -44,9 +44,14 @@ const MIN_KNOCKS = SQUAD_MIN_KNOCKS;
 const RATIO_THRESHOLD = 1.3;
 // 구조 성공률 차이는 최소 5%p 이상일 때만 쓴다.
 const MIN_REVIVE_RATE_GAP = 5;
-// 연막 구출 성공이 3회 이상이면 띄우는 재료가 된다. 0회는 기절 5회 이상일 때만 놀린다.
-const SMOKE_RESCUE_HYPE_MIN = 3;
-const SMOKE_ZERO_MIN_KNOCKS = 5;
+// 연막 구출 비율은 전체 팀 평균(약 7%)이 낮아 차이 3%p 이상, 성공 2회 이상일 때만 띄운다.
+const MIN_SMOKE_RATE_GAP = 3;
+const SMOKE_RESCUE_HYPE_MIN = 2;
+// 복수 성공률은 잡을 수 있었던 기절(적 플레이어가 100m 안에서 눕힘)이 10회 이상일 때만, 차이 5%p 이상이면 쓴다.
+const MIN_TRADEABLE_KNOCKS = 10;
+const MIN_TRADE_RATE_GAP = 5;
+// 경기당 기절 수는 관측 경기가 3경기 이상일 때만 평균과 비교한다.
+const MIN_KNOCK_MATCHES = 3;
 // 팀 딜 비중 차이가 40%p 이상이면 편차가 극단적인 것으로 본다(예: 73%와 27%는 46%p).
 const DAMAGE_SPREAD_MIN_GAP = 40;
 // 우승 0회 놀림은 최근 5경기 이상일 때만 쓴다. 최고 순위 띄움은 3위 이내일 때만 쓴다.
@@ -117,6 +122,7 @@ function teamCandidates(input: SquadPunchlineInput): Candidate[] {
   }
 
   // 구조 성공률: 아군 소생 수를 아군 기절 수로 나눠 전체 팀 평균 구조율과 비교한다.
+  // 높을 때만 띄운다. 안 살린 기절에는 확킬·살릴 수 없는 위치·일부러 포기한 판단이 섞여 낮다고 놀리지 않는다.
   const knocks = finiteNonNegative(stats.totalTeammateKnocks);
   const revives = finiteNonNegative(stats.totalRevives);
   const benchmarkReviveRate = finiteNonNegative(benchmark.avgReviveRate);
@@ -131,29 +137,70 @@ function teamCandidates(input: SquadPunchlineInput): Candidate[] {
         fact: `${text}로 평균보다 높습니다.`,
         weight: Math.min(1, gap / benchmarkReviveRate),
       });
-    } else if (rate * RATIO_THRESHOLD <= benchmarkReviveRate && -gap >= MIN_REVIVE_RATE_GAP) {
+    }
+  }
+
+  // 연막 구출: 아군 기절 대비 연막 구출 비율을 전체 팀 평균과 비교해 높을 때만 띄운다.
+  // 연막 없이 건물 안에서 살리거나 살리지 않는 판단도 있어 낮다고 놀리지 않는다. 던진 횟수는 측정하지 않으므로 말하지 않는다.
+  // 연막 구출률 수치는 근거 후처리가 소생률 외 비율로 보고 지우므로 문장에 넣지 않는다.
+  const smokeRescues = finiteNonNegative(stats.totalSmokeRescues);
+  const benchmarkSmokeRate = finiteNonNegative(benchmark.avgSmokeRate);
+  if (smokeRescues !== null && smokeRescues >= SMOKE_RESCUE_HYPE_MIN && knocks !== null && knocks >= MIN_KNOCKS
+    && smokeRescues <= knocks && benchmarkSmokeRate !== null && benchmarkSmokeRate > 0) {
+    const rate = (smokeRescues / knocks) * 100;
+    const gap = rate - benchmarkSmokeRate;
+    if (rate >= benchmarkSmokeRate * RATIO_THRESHOLD && gap >= MIN_SMOKE_RATE_GAP) {
       candidates.push({
-        id: "revive_low", kind: "roast", metric: "reviveRate",
-        fact: `${text}로 평균보다 낮습니다.`,
-        weight: Math.min(1, -gap / benchmarkReviveRate),
+        id: "smoke_rescue_high", kind: "hype", metric: "smokeRescueRate",
+        fact: `아군 기절 ${knocks}회 중 연막 구출 ${smokeRescues}회로 전체 팀 평균보다 높습니다.`,
+        weight: Math.min(1, gap / benchmarkSmokeRate),
       });
     }
   }
 
-  // 연막 구출은 성공 기록 수만 쓴다. 연막을 던진 횟수나 아낀 이유는 측정하지 않으므로 말하지 않는다.
-  const smokeRescues = finiteNonNegative(stats.totalSmokeRescues);
-  if (smokeRescues !== null) {
-    if (smokeRescues >= SMOKE_RESCUE_HYPE_MIN) {
+  // 복수 성공률: 잡을 수 있었던 기절 중 30초 안에 팀원이 그 적을 잡은 비율. 원거리·자기장 기절은 분모에서 뺐다.
+  // 근거 후처리가 백업 속도 표본이 모자란 문장의 "백업"을 지우므로 문장에는 "복수 성공률"만 쓴다.
+  const tradeableKnocks = finiteNonNegative(stats.totalTradeableKnocks);
+  const tradeableTrades = finiteNonNegative(stats.totalTradeableTradeKills);
+  const benchmarkTradeRate = finiteNonNegative(benchmark.avgTradeableTradeRate);
+  if (tradeableKnocks !== null && tradeableKnocks >= MIN_TRADEABLE_KNOCKS && tradeableTrades !== null
+    && tradeableTrades <= tradeableKnocks && benchmarkTradeRate !== null && benchmarkTradeRate > 0) {
+    const rate = (tradeableTrades / tradeableKnocks) * 100;
+    const gap = rate - benchmarkTradeRate;
+    const text = `100m 안에서 적에게 눕은 아군 기절 ${tradeableKnocks}회 중 ${tradeableTrades}회를 30초 안에 갚아 복수 성공률 ${formatRate(rate)}, 전체 팀 평균 ${formatRate(benchmarkTradeRate)}`;
+    if (rate * RATIO_THRESHOLD <= benchmarkTradeRate && -gap >= MIN_TRADE_RATE_GAP) {
       candidates.push({
-        id: "smoke_rescue_many", kind: "hype", metric: "smokeRescues",
-        fact: `연막 구출 성공 기록이 ${smokeRescues}회입니다.`,
-        weight: Math.min(1, smokeRescues / 10),
+        id: "trade_rate_low", kind: "roast", metric: "tradeableTradeRate",
+        fact: `${text}로 평균보다 낮습니다.`,
+        weight: Math.min(1, -gap / benchmarkTradeRate),
       });
-    } else if (smokeRescues === 0 && knocks !== null && knocks >= SMOKE_ZERO_MIN_KNOCKS) {
+    } else if (rate >= benchmarkTradeRate * RATIO_THRESHOLD && gap >= MIN_TRADE_RATE_GAP) {
       candidates.push({
-        id: "smoke_rescue_zero", kind: "roast", metric: "smokeRescues",
-        fact: `아군 기절 ${knocks}회 중 연막 구출 성공 기록은 0회입니다.`,
-        weight: 0.3,
+        id: "trade_rate_high", kind: "hype", metric: "tradeableTradeRate",
+        fact: `${text}로 평균보다 높습니다.`,
+        weight: Math.min(1, gap / benchmarkTradeRate),
+      });
+    }
+  }
+
+  // 경기당 기절 수: 원거리·자기장 기절도 실제로 쓰러진 횟수라 판단 문제로 생기는 예외가 적다. 많으면 놀리고 적으면 띄운다.
+  const observedMatches = finiteNonNegative(stats.observedMatchCount);
+  const benchmarkKnocks = finiteNonNegative(benchmark.avgTeammateKnocks);
+  if (knocks !== null && observedMatches !== null && observedMatches >= MIN_KNOCK_MATCHES
+    && benchmarkKnocks !== null && benchmarkKnocks > 0) {
+    const perMatch = Math.round((knocks / observedMatches) * 10) / 10;
+    const text = `팀 경기당 아군 기절 ${perMatch}회, 전체 팀 평균 ${benchmarkKnocks}회`;
+    if (perMatch >= benchmarkKnocks * RATIO_THRESHOLD) {
+      candidates.push({
+        id: "knocks_many", kind: "roast", metric: "knocksPerMatch",
+        fact: `${text}로 평균보다 많습니다.`,
+        weight: Math.min(1, (perMatch - benchmarkKnocks) / benchmarkKnocks),
+      });
+    } else if (perMatch * RATIO_THRESHOLD <= benchmarkKnocks) {
+      candidates.push({
+        id: "knocks_few", kind: "hype", metric: "knocksPerMatch",
+        fact: `${text}로 평균보다 적습니다.`,
+        weight: Math.min(1, (benchmarkKnocks - perMatch) / benchmarkKnocks),
       });
     }
   }
@@ -265,6 +312,9 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
     if (damage !== null) {
       return [make("member_steady", "hype", "damageShare", `팀 딜 비중 ${damage}%입니다.`)];
     }
+    if (kill !== null) {
+      return [make("member_steady", "hype", "killShare", `팀 킬 비중 ${kill}%입니다.`)];
+    }
     return [];
   });
 }
@@ -273,12 +323,14 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
 // 한마디는 기록된 지표만 놀리거나 띄우고, 숫자와 실력·의도·원인을 말하지 않는다(숫자는 사실 문장이 담는다).
 // 개인 재료에는 한마디를 붙이지 않는다. 개인 칭찬과 못한 점은 서버가 따로 쓴다.
 const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
-  backup_slow: ["아군 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었어."],
+  backup_slow: ["아군 기절 뒤 복수까지, 이 정도면 기록부도 기다리다 지치겠어."],
   backup_fast: ["백업만큼은 배달 앱보다 빨랐네."],
+  trade_rate_low: ["가까운 거리 기절 기록에 비해 복수 기록은 한참 모자라네."],
+  trade_rate_high: ["아군 기절 뒤 30초 안에 갚은 기록은 평균을 넘겼네."],
+  knocks_many: ["바닥이랑 이렇게 친한 스쿼드는 오랜만이야. 눕는 것도 재능이면 재능이지."],
+  knocks_few: ["좀처럼 안 눕는 스쿼드네. 바닥이 서운해하겠어."],
   revive_high: ["일으켜 세우는 손만큼은 평균을 가볍게 넘겼네."],
-  revive_low: ["일으켜 세우기엔 평균보다 손이 한참 모자랐어."],
-  smoke_rescue_many: ["연막 구출 기록이 또렷하게 남았네. 연막 장인 인정."],
-  smoke_rescue_zero: ["연막 구출 성공 칸은 아직 공란이라 기록부가 심심해해."],
+  smoke_rescue_high: ["연막 구출 기록이 또렷하게 남았네. 연막 장인 인정."],
   damage_spread: ["화력 분포가 한쪽으로 쏠린 편향 스코어보드야."],
   wins_zero: ["우승 트로피 진열장은 아직 텅 비어 있어."],
   wins_some: ["치킨 먹은 기록은 부정할 수가 없네."],
@@ -287,9 +339,9 @@ const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
 
 // 개인 칭찬은 비꼬지 않는다. 진짜 칭찬 문장을 서버가 쓰고, 같은 재료여도 팀원 이름에 따라 표현이 달라진다.
 const SQUAD_MEMBER_PRAISE: Readonly<Record<string, readonly string[]>> = {
-  member_damage_carry: ["화력의 중심을 잡은 캐리야.", "팀 화력을 제일 크게 책임졌네.", "팀의 화력 엔진 역할을 해냈어."],
-  member_kill_share: ["킬을 제일 많이 책임진 해결사야.", "교전 마무리 몫을 크게 해냈네."],
-  member_steady: ["딜이랑 킬 모두 제 몫은 해냈네.", "꾸준하게 팀 화력을 받쳐 줬어.", "무리 없이 팀 교전에 보탬이 됐네."],
+  member_damage_carry: ["화력의 중심을 잡은 캐리야.", "팀 화력을 크게 책임졌네.", "팀의 화력 엔진 역할을 해냈어."],
+  member_kill_share: ["킬 기록에서 큰 몫을 남겼네.", "교전 마무리 몫을 크게 해냈네."],
+  member_steady: ["팀 기록에 이 비중을 남겼네.", "팀 기록에서 맡은 몫이 이렇게 남았어.", "기록된 비중은 이만큼이야."],
 };
 
 /** 같은 시드면 같은 한마디다(팀원 이름을 시드로 쓰면 같은 재료여도 팀원마다 한마디가 달라진다). */
@@ -326,20 +378,46 @@ export function squadSpicyCloser(team: readonly Pick<SquadPunchline, "kind">[], 
   return pickVariant(SQUAD_SPICY_CLOSERS[kind], seed) ?? SQUAD_SPICY_CLOSERS[kind][0];
 }
 
-/**
- * 매운맛 개인 칭찬 문장. 개인 딜·킬 비중이 높거나 꾸준한 팀원에게만 만든다. 낮은 딜 비중과 킬로그 배달부에는 만들지 않는다.
- * 사실 문장의 끝맺음을 떼어 칭찬과 한 문장으로 잇는다.
- */
-export function squadMemberPraise(punchline: Pick<SquadMemberPunchline, "name" | "id" | "kind" | "fact">): string | null {
-  const praise = pickVariant(SQUAD_MEMBER_PRAISE[punchline.id], punchline.name);
-  if (!praise || punchline.kind !== "hype") return null;
-  return `${punchline.fact.replace(/입니다\.$/, "")}, ${praise}`;
+/** 두 맛 모두 같은 실측 비중을 쓰고, 높은 기여 분류에만 평가어를 붙인다. */
+export function squadMemberPraise(
+  punchline: Pick<SquadMemberPunchline, "name" | "id" | "kind" | "fact">,
+  coachingStyle?: string,
+  shares?: Record<string, number | null>,
+): string {
+  const damage = shareOf(shares?.damage);
+  const kill = shareOf(shares?.kill);
+  const measured = [damage === null ? null : `딜 ${damage}%`, kill === null ? null : `킬 ${kill}%`].filter(Boolean);
+  const spicy = coachingStyle !== "mild";
+  const fact = measured.length ? `팀 ${measured.join("와 ")}` : punchline.fact.replace(/입니다\.$/u, "");
+  const high = punchline.id === "member_damage_carry" || punchline.id === "member_kill_share";
+  if (high) {
+    const praise = pickVariant(SQUAD_MEMBER_PRAISE[punchline.id], punchline.name)!;
+    return `${fact}, ${spicy ? praise : praise.replace(/야\.$/u, "입니다.").replace(/(?:네|어)\.$/u, "습니다.")}`;
+  }
+  if (measured.length) return `${fact}를 ${spicy ? "기록했네." : "기록했습니다."}`;
+  const praise = spicy ? pickVariant(SQUAD_MEMBER_PRAISE[punchline.id], punchline.name) : null;
+  return praise ? `${fact}, ${praise}` : `${fact}${spicy ? "를 기록했네." : "를 기록했습니다."}`;
+}
+
+/** 첫 근거의 방향과 둘째 근거의 방향이 같을 때만 나열로 잇는다. */
+export function squadOverallOpinion(facts: readonly SquadPunchline[], coachingStyle?: string): string {
+  const [first, second] = facts;
+  if (!first) return "";
+  const sentence = (fact: string) => coachingStyle === "spicy" ? toSpicySquadFact(fact) : fact;
+  if (!second) return sentence(first.fact);
+  const endings: Record<string, string> = {
+    "느립니다.": "느렸", "빠릅니다.": "빨랐", "높습니다.": "높았", "낮습니다.": "낮았",
+    "많습니다.": "많았", "적습니다.": "적었", "입니다.": "였", "했습니다.": "했",
+  };
+  const stem = first.fact.replace(/느립니다\.$|빠릅니다\.$|높습니다\.$|낮습니다\.$|많습니다\.$|적습니다\.$|입니다\.$|했습니다\.$/u, ending => endings[ending]);
+  return `${stem}${first.kind === second.kind ? "고" : "지만"} ${sentence(second.fact)}`;
 }
 
 // 매운맛은 반말이라 재료 사실 문장의 끝맺음도 반말로 넘긴다. 모델은 사실 문장을 그대로 옮겨 쓰므로 여기서 바꿔야 말투가 섞이지 않는다.
 // 위 사실 문장들이 쓰는 끝맺음만 다룬다. 숫자·단위·라벨은 그대로다.
 const SPICY_FACT_ENDINGS: ReadonlyArray<readonly [RegExp, string]> = [
   [/느립니다\.$/u, "느려."], [/빠릅니다\.$/u, "빨라."], [/높습니다\.$/u, "높아."], [/낮습니다\.$/u, "낮아."],
+  [/많습니다\.$/u, "많아."], [/적습니다\.$/u, "적어."],
   [/([회위%])입니다\.$/u, "$1야."], [/([았었였했렸])습니다\.$/u, "$1어."],
 ];
 

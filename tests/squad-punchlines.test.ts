@@ -66,31 +66,67 @@ describe("squad punchline team facts", () => {
     expect(picks.find((item) => item.id === "backup_fast")).toMatchObject({ kind: "hype", fact: "백업 속도 평균 7.0초, 전체 팀 평균 10.4초로 평균보다 빠릅니다." });
   });
 
-  it("compares the revive rate to the population rate with a 5 point gap", () => {
+  it("hypes a high revive rate and never roasts a low one", () => {
     const low = selectSquadPunchlines(teamInput({ stats: { ...teamInput().stats, totalRevives: 1, totalTeammateKnocks: 10 } }));
-    expect(low.find((item) => item.id === "revive_low")).toMatchObject({ kind: "roast", metric: "reviveRate" });
+    expect(low.map((item) => item.metric)).not.toContain("reviveRate");
     const high = selectSquadPunchlines(teamInput({ stats: { ...teamInput().stats, totalRevives: 4, totalTeammateKnocks: 10 } }));
     expect(high.find((item) => item.id === "revive_high")).toMatchObject({ kind: "hype", metric: "reviveRate" });
   });
 
   it("does not compare revive rates on fewer than five knocks", () => {
-    const picks = selectSquadPunchlines(teamInput({ stats: { ...teamInput().stats, totalRevives: 0, totalTeammateKnocks: 4 } }));
-    expect(picks.map((item) => item.id)).not.toContain("revive_low");
+    const picks = selectSquadPunchlines(teamInput({ stats: { ...teamInput().stats, totalRevives: 4, totalTeammateKnocks: 4 } }));
     expect(picks.map((item) => item.id)).not.toContain("revive_high");
   });
 
-  it("states the smoke-rescue zero only with five or more knocks and never mentions smoke attempts", () => {
-    const zero = selectSquadPunchlines(teamInput({ stats: { ...teamInput().stats, totalSmokeRescues: 0, totalTeammateKnocks: 6 } }));
-    const zeroFact = zero.find((item) => item.id === "smoke_rescue_zero");
-    expect(zeroFact).toMatchObject({ kind: "roast", fact: "아군 기절 6회 중 연막 구출 성공 기록은 0회입니다." });
-    expect(zeroFact?.fact).not.toMatch(/아꼈|안 쓰|던졌/);
-    const few = selectSquadPunchlines(teamInput({ stats: { ...teamInput().stats, totalSmokeRescues: 0, totalTeammateKnocks: 3 } }));
-    expect(few.map((item) => item.id)).not.toContain("smoke_rescue_zero");
+  it("hypes smoke rescues only when the rate clearly beats the population rate", () => {
+    const smoke = (totalSmokeRescues: number | null, totalTeammateKnocks: number, avgSmokeRate: number | null = 7) =>
+      selectSquadPunchlines(teamInput({
+        stats: { ...teamInput().stats, totalSmokeRescues, totalTeammateKnocks, totalRevives: 3 },
+        benchmarkStats: { ...teamInput().benchmarkStats, avgSmokeRate },
+      })).find((item) => item.metric === "smokeRescueRate");
+    // 40회 중 5회(12.5%)는 평균 7%의 1.3배 이상이고 차이도 3%p 이상이다.
+    expect(smoke(5, 40)).toMatchObject({ id: "smoke_rescue_high", kind: "hype", fact: "아군 기절 40회 중 연막 구출 5회로 전체 팀 평균보다 높습니다." });
+    // 80회 중 5회(6.3%)는 평균 수준이라 재료가 아니다.
+    expect(smoke(5, 80)).toBeUndefined();
+    expect(smoke(0, 40)).toBeUndefined();
+    expect(smoke(1, 5)).toBeUndefined();
+    expect(smoke(5, 40, null)).toBeUndefined();
+    expect(smoke(5, 40)?.fact).not.toMatch(/%|비율|률|아꼈|안 쓰|던졌/);
   });
 
-  it("hypes three or more smoke rescues", () => {
-    const picks = selectSquadPunchlines(teamInput({ stats: { ...teamInput().stats, totalSmokeRescues: 3, totalTeammateKnocks: 5, totalRevives: 3 } }));
-    expect(picks.find((item) => item.id === "smoke_rescue_many")).toMatchObject({ kind: "hype", fact: "연막 구출 성공 기록이 3회입니다." });
+  it("compares the tradeable trade rate to the population rate", () => {
+    const trade = (totalTradeableKnocks: number | null, totalTradeableTradeKills: number, avgTradeableTradeRate: number | null = 30) =>
+      selectSquadPunchlines(teamInput({
+        stats: { ...teamInput().stats, totalTradeableKnocks, totalTradeableTradeKills },
+        benchmarkStats: { ...teamInput().benchmarkStats, avgTradeableTradeRate },
+      })).find((item) => item.metric === "tradeableTradeRate");
+    expect(trade(12, 1)).toMatchObject({ id: "trade_rate_low", kind: "roast",
+      fact: "100m 안에서 적에게 눕은 아군 기절 12회 중 1회를 30초 안에 갚아 복수 성공률 8.3%, 전체 팀 평균 30%로 평균보다 낮습니다." });
+    expect(trade(12, 6)).toMatchObject({ id: "trade_rate_high", kind: "hype" });
+    expect(trade(12, 4)).toBeUndefined();
+    expect(trade(9, 0)).toBeUndefined();
+    expect(trade(null, 0)).toBeUndefined();
+    expect(trade(12, 1, null)).toBeUndefined();
+    expect(trade(12, 1)?.fact).not.toMatch(/백업|속도|시간/);
+  });
+
+  it("compares knocks per match to the population average", () => {
+    const knocks = (totalTeammateKnocks: number, observedMatchCount: number | null, avgTeammateKnocks: number | null = 4.5) =>
+      selectSquadPunchlines(teamInput({
+        stats: { ...teamInput().stats, totalTeammateKnocks, observedMatchCount },
+        benchmarkStats: { ...teamInput().benchmarkStats, avgTeammateKnocks },
+      })).find((item) => item.metric === "knocksPerMatch");
+    expect(knocks(20, 3)).toMatchObject({ id: "knocks_many", kind: "roast", fact: "팀 경기당 아군 기절 6.7회, 전체 팀 평균 4.5회로 평균보다 많습니다." });
+    expect(knocks(24, 10)).toMatchObject({ id: "knocks_few", kind: "hype", fact: "팀 경기당 아군 기절 2.4회, 전체 팀 평균 4.5회로 평균보다 적습니다." });
+    expect(knocks(45, 10)).toBeUndefined();
+    expect(knocks(20, 2)).toBeUndefined();
+    expect(knocks(20, null)).toBeUndefined();
+    expect(knocks(20, 3, null)).toBeUndefined();
+  });
+
+  it("turns knock facts into banmal for spicy prompts", () => {
+    expect(toSpicySquadFact("팀 경기당 아군 기절 6.7회, 전체 팀 평균 4.5회로 평균보다 많습니다.")).toBe("팀 경기당 아군 기절 6.7회, 전체 팀 평균 4.5회로 평균보다 많아.");
+    expect(toSpicySquadFact("팀 경기당 아군 기절 2.4회, 전체 팀 평균 4.5회로 평균보다 적습니다.")).toBe("팀 경기당 아군 기절 2.4회, 전체 팀 평균 4.5회로 평균보다 적어.");
   });
 
   it("roasts a damage spread of forty points or more between measured members", () => {
@@ -168,14 +204,14 @@ describe("squad punchline team facts", () => {
     expect(first.filter((item) => item.kind === "roast").length).toBeLessThanOrEqual(SQUAD_PUNCHLINE_KIND_LIMIT);
     expect(first.filter((item) => item.kind === "hype").length).toBeLessThanOrEqual(SQUAD_PUNCHLINE_KIND_LIMIT);
     expect(first.length).toBeGreaterThanOrEqual(2);
-    // 가중치 순서: 백업(0.47) → 딜 편차(0.46) → 구조 성공률(0.41) → 최고 순위(0.3)
-    expect(first.map((item) => item.id)).toEqual(["backup_slow", "damage_spread", "revive_low", "best_rank_top"]);
+    // 가중치 순서: 백업(0.47) → 딜 편차(0.46) → 우승 0회(0.4) → 최고 순위(0.3). 낮은 구조율은 놀림 재료가 아니다.
+    expect(first.map((item) => item.id)).toEqual(["backup_slow", "damage_spread", "wins_zero", "best_rank_top"]);
   });
 
   it("does not pad the list when only one fact is measurable", () => {
-    const picks = selectSquadPunchlines(teamInput({ stats: { ...teamInput().stats, totalTradeKills: 0, avgTradeLatency: null, totalSmokeRescues: null } }));
+    const picks = selectSquadPunchlines(teamInput({ stats: { ...teamInput().stats, totalTradeKills: 0, avgTradeLatency: null, totalSmokeRescues: null, totalRevives: 4 } }));
     expect(picks.length).toBe(1);
-    expect(picks[0].id).toBe("revive_low");
+    expect(picks[0].id).toBe("revive_high");
   });
 });
 
@@ -298,7 +334,7 @@ describe("매운맛 한마디", () => {
 
   it("매운맛은 팀 재료 뒤에 서버가 쓴 한마디를 붙이고, 사실 문장은 끝맺음만 반말로 바꾼다", () => {
     const block = formatSquadPunchlineBlock(team, members, { jabs: true });
-    expect(block).toContain("backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느려. → 한마디: 아군 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었어.");
+    expect(block).toContain("backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느려. → 한마디: 아군 기절 뒤 복수까지, 이 정도면 기록부도 기다리다 지치겠어.");
     // 개인 재료에는 한마디를 붙이지 않는다. 개인 칭찬은 서버가 따로 쓴다.
     expect(block.split("\n")).toContain("- A [hype] member_damage_carry: 팀 딜 비중이 73%야.");
   });
@@ -346,5 +382,31 @@ describe("매운맛 한마디", () => {
     expect(promptFor("spicy").prompt).toContain("→ 한마디:");
     expect(promptFor("mild").prompt).not.toContain("한마디");
     expect(promptFor("spicy").systemInstruction).toContain("must contain that 한마디");
+  });
+});
+
+describe("tradeable trade rate facts survive the evidence policy", () => {
+  it("keeps the banmal fact even when backup latency has too few trades", async () => {
+    const { applySquadEvidencePolicy } = await import("@/lib/pubg-analysis/squadAiEvidence");
+    const fact = toSpicySquadFact("100m 안에서 적에게 눕은 아군 기절 12회 중 1회를 30초 안에 갚아 복수 성공률 8.3%, 전체 팀 평균 30%로 평균보다 낮습니다.");
+    expect(fact.endsWith("낮아.")).toBe(true);
+    const stats = { avgTradeLatency: 8000, totalTradeKills: 1, totalTeammateKnocks: 30, totalRevives: 10, totalSmokeRescues: 1,
+      totalTradeableKnocks: 12, totalTradeableTradeKills: 1 };
+    const result = applySquadEvidencePolicy({ weakness: fact }, stats, null, undefined, [], { coachingStyle: "spicy" });
+    expect(result.weakness).toBe(fact);
+  });
+});
+
+
+describe("복수 한마디의 관측 범위", () => {
+  it("평균보다 낮거나 높은 복수 기록에 시야와 추격을 덧붙이지 않는다", () => {
+    const team = [
+      { id: "trade_rate_low", kind: "roast" as const, metric: "tradeableTradeRate", fact: "복수 성공률 10%, 전체 팀 평균 30%로 평균보다 낮습니다." },
+      { id: "trade_rate_high", kind: "hype" as const, metric: "tradeableTradeRate", fact: "복수 성공률 50%, 전체 팀 평균 30%로 평균보다 높습니다." },
+    ];
+    const block = formatSquadPunchlineBlock(team, [], { jabs: true });
+    expect(block).not.toMatch(/얼굴|봤|쫓아|추격|시야/);
+    expect(block).toContain("복수 기록은 한참 모자라네.");
+    expect(block).toContain("30초 안에 갚은 기록은 평균을 넘겼네.");
   });
 });

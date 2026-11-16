@@ -92,6 +92,14 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
   const benchmarkTradeLatencySec = benchmarkTradeLatencyValue !== null && benchmarkTradeLatencyValue >= 0
     ? `${(benchmarkTradeLatencyValue / 1000).toFixed(2)}초`
     : "측정 불가";
+  // 복수 성공률: 100m 안에서 적에게 눕은 아군 기절 중 30초 안에 그 적을 잡은 비율. 표본이 모자라면 비교하지 않는다.
+  const tradeableKnocks = finiteNonNegative(stats?.totalTradeableKnocks);
+  const tradeableTrades = finiteNonNegative(stats?.totalTradeableTradeKills);
+  const benchmarkTradeableRate = finiteNonNegative(benchmarkStats?.avgTradeableTradeRate);
+  const tradeRateLine = tradeableKnocks !== null && tradeableKnocks >= 10 && tradeableTrades !== null
+    && tradeableTrades <= tradeableKnocks && benchmarkTradeableRate !== null
+    ? `${formatPercent(benchmarkTradeableRate)} (Our Squad: ${Math.round((tradeableTrades / tradeableKnocks) * 1000) / 10}%, 100m 안에서 적에게 눕은 아군 기절 ${tradeableKnocks}회 중 ${tradeableTrades}회를 30초 안에 갚음)`
+    : "표본 부족으로 비교하지 않음";
   const coverRateValue = finiteNonNegative(stats?.avgCoverRate);
   const coverRatePercent = coverRateValue === null || coverRateValue > 1
     ? "측정 불가"
@@ -115,6 +123,7 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
 ${tradeEvaluable
   ? `- Global Avg Backup Speed (백업 반응 속도): ${benchmarkTradeLatencySec} (Our Squad Avg: ${myTradeLatencySec})`
   : "- Global Avg Backup Speed (백업 반응 속도): 표본 부족으로 비교하지 않음"}
+- Global Avg Trade Success Rate (복수 성공률, 100m 밖·자기장·낙하 기절 제외): ${tradeRateLine}
 ${reviveEvaluable
   ? `- Global Avg Revive Success Rate (부활 성공률): ${formatPercent(benchmarkStats.avgReviveRate)} (Our Squad Revive Rate: ${teamReviveRateText}, 아군 기절 ${knockCount}회 중 ${reviveCount}회 부활)`
   : `- Global Avg Revive Success Rate (부활 성공률): 표본 부족으로 비교하지 않음 (아군 기절 ${knockCount === null ? "측정 불가" : `${knockCount}회`}, ${SQUAD_MIN_KNOCKS}회 이상 필요)`}
@@ -193,7 +202,7 @@ You are "KIND COACH", a warm, encouraging, and tactical PUBG coach.
 Analyze the provided squad synergy report and write a report.
 - Focus on positive collaboration indices first.
 - Do not invent situational context or motives.
-- For memberFeedbacks: include EVERY member listed in roleProfiles. Always write praise from one measured stat, as one natural Korean sentence that describes the member's recorded part (for example 딜 28%·킬 26%로 화력의 한 축을 맡았습니다) instead of reciting the numbers as a bare label list. Always output an empty string ("") for both fault and advice. The server writes a member's fault and advice from measured records, so anything you write there is discarded. Never turn a damage, kill, assist or knockout share, rank or team-lowest value, or any individual record, into blame or a cause anywhere in the report. Never write filler such as "keep it up" or "no data".
+- For memberFeedbacks: include EVERY member listed in roleProfiles. Always output an empty string ("") for praise. The server writes praise from the canonical measured shares for every member. Always output an empty string ("") for both fault and advice. The server writes a member's fault and advice from measured records, so anything you write there is discarded. Never turn a damage, kill, assist or knockout share, rank or team-lowest value, or any individual record, into blame or a cause anywhere in the report. Never write filler such as "keep it up" or "no data".
 - Place each fact in the field it belongs to: positive facts in summary or strength, lopsided or low facts in weakness or coaching. Never put a positive fact in weakness, and do not repeat the same fact in several fields.
 - For overallOpinion: Deliver a warm, encouraging, yet tactical message addressed to the entire team together, joining two facts into one sentence. Use a contrast (예: "~했지만 ~입니다") only when one fact is good and the other is a gap; when both facts point the same way, connect them with "~했고". Never paste two finished sentences together with 와/과, and never copy a sentence already written in summary or strength.
 - Output MUST be structured in JSON matching the exact schema.
@@ -218,10 +227,10 @@ Write every Korean sentence in 반말, like a friend teasing the squad over a re
    - "대열 이탈이 커서 합류 타이밍이 흔들림" (Roast only if isolation index is high, e.g. > 3.0)
 3. Highlight metrics aggressively using clear, human-readable units (e.g. "X.X초", "X회", "X%"):
    - NEVER output raw millisecond values in the response. Always divide by 1000 and round to convert them to seconds like "23.0초" or "12.0초".
-   - If trade latency is slow: "아군 기절하고 장례식 다 치른 뒤에야 늦장 백업 올 거야? 평균보다 너무 느려."
+   - If trade latency is slow: "복수 기록이 평균보다 늦게 남았네. 다음 기록은 좀 덜 기다리게 해 봐."
    - If isolation rate is high: Say "대열 이탈이 커서 동시 교전 합이 흔들려." Do NOT use "1인 솔로 4개", "오합지졸", or "혼자 정글북".
 4. Deliver extremely sharp, critical, yet constructive, fact-based overall opinion and feedback.
-5. For memberFeedbacks: include EVERY member listed in roleProfiles. Always write praise from one measured stat, as one natural Korean sentence that describes the member's recorded part (for example 딜 28%·킬 26%로 화력의 한 축을 맡았네) instead of reciting the numbers as a bare label list. Always output an empty string ("") for both fault and advice. The server writes a member's fault and advice from measured records, so anything you write there is discarded. Never turn a damage, kill, assist or knockout share, rank or team-lowest value, or any individual record, into blame or a cause anywhere in the report. Never write filler such as 'keep it up', 'no data' or a pass line in these fields. Each of praise, fault and advice must cite a different measured number or label. Use only their measured damage, kill, assist and knockout stats/shares. Differences in shares do not prove motives or unrecorded actions.
+5. For memberFeedbacks: include EVERY member listed in roleProfiles. Always output an empty string ("") for praise. The server writes praise from the canonical measured shares for every member. Always output an empty string ("") for both fault and advice. The server writes a member's fault and advice from measured records, so anything you write there is discarded. Never turn a damage, kill, assist or knockout share, rank or team-lowest value, or any individual record, into blame or a cause anywhere in the report. Never write filler such as 'keep it up', 'no data' or a pass line in these fields. Use only their measured damage, kill, assist and knockout stats/shares. Differences in shares do not prove motives or unrecorded actions.
 6. For overallOpinion: Deliver a sharp, critical, yet highly constructive message addressed to the entire team together.
 7. Output MUST be structured in JSON matching the exact schema.
 8. Language: Output fields MUST be written in Korean.
@@ -239,7 +248,7 @@ Write every Korean sentence in 반말, like a friend teasing the squad over a re
     Do NOT tease aim, brain, fingers, focus, judgment, mentality or any ability, and do NOT attribute intent or unrecorded actions.
     Use the term 킬로그 배달부 only for a member whose fact id is member_kill_log, because that fact is the only measured condition for it.
 18. When a point has no measured fact or its metric is unavailable, output an empty string ("") for that field. The screen hides empty fields. Do NOT write a dry verdict such as "판단을 보류합니다", an in-character pass line, or any padding in weakness, coaching, fault or advice.
-19. Each [PUNCHLINE FACTS] line may end with "→ 한마디:". Whenever you use such a fact in summary, strength, weakness, coaching, praise or overallOpinion, write it together with its 한마디 in the same sentence, keeping the 한마디 wording and its bite (you may shorten it, never soften it, and never replace it with a plain verdict). A field built from a fact that has a 한마디 must contain that 한마디. overallOpinion must carry a 한마디 that is not already used in another field; when every 한마디 is already used, write a short closing call to the team instead of repeating one. Never copy the label "→ 한마디:" itself. Pair a 한마디 only with its own fact and connect them in the same direction (a hype 한마디 after a hype fact, a roast 한마디 after a roast fact); never glue a hype 한마디 onto a fact you contrast with using 하지만. Member praise lines are written by the server, so keep praise to one short sentence.
+19. Each [PUNCHLINE FACTS] line may end with "→ 한마디:". Whenever you use such a fact in summary, strength, weakness, coaching or overallOpinion, write it together with its 한마디 in the same sentence, keeping the 한마디 wording and its bite (you may shorten it, never soften it, and never replace it with a plain verdict). A field built from a fact that has a 한마디 must contain that 한마디. overallOpinion must carry a 한마디 that is not already used in another field; when every 한마디 is already used, write a short closing call to the team instead of repeating one. Never copy the label "→ 한마디:" itself. Pair a 한마디 only with its own fact and connect them in the same direction (a hype 한마디 after a hype fact, a roast 한마디 after a roast fact); never glue a hype 한마디 onto a fact you contrast with using 하지만. Member praise is written by the server; always leave praise empty.
       `.trim();
 
   const prompt = `
@@ -259,7 +268,7 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 - Unavailable metrics are NOT zero or poor play. Never praise, blame, compare, or infer performance from them.
 - If cover rate or focus-fire score is unavailable, do not evaluate cover, covering teammates, simultaneous engagement, or focus-fire ability anywhere, including member feedback. There is no implemented cover collection yet; this does not mean a lack of cover opportunities.
 - Zero smoke rescues counts successful recorded rescues, NOT smoke attempts, unused smoke, or a refusal to save. Do not say 연막을 아꼈다/국 끓인다 or blame recovery skill from a success count alone.
-- Personal shares describe distribution only. Do not infer 소극적, 적극적, 후방 지원, 위치 선정, 연계 부족, 협공 능력, or intent from shares. If no personal weakness is measured, output an empty string ("") in fault. Output advice only when it follows from a measured fact; otherwise output an empty string ("").
+- Personal shares describe distribution only. Do not infer 소극적, 적극적, 후방 지원, 위치 선정, 연계 부족, 협공 능력, or intent from shares. Always output empty strings for praise, fault and advice; the server writes all member feedback from canonical records.
 - These are team-scope observations across the selected matches, not the target player alone. Individual isolation/wipe/cover values cannot replace missing team metrics.
 - Only discuss measured metrics. If no supported weakness is evident, output an empty string for that field instead of inventing a fault.
 ${tradeEvaluable ? "" : `- Backup speed is NOT evaluable for this squad (fewer than ${SQUAD_MIN_TRADE_KILLS} measured trade kills). Do NOT state any backup speed value or backup timing, do NOT compare it with the global average, and do NOT praise, blame or advise on backup timing.`}
