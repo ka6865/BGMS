@@ -43,6 +43,11 @@ const CATEGORY_MATCHERS: Array<{
     category: "DMR",
     ids: ["mk12", "mini14", "fnfal", "slr", "sks", "vss", "mk14", "qbu", "dragunov"]
   },
+  // SR의 m24가 m249에 먼저 걸리지 않도록 LMG를 앞에 둔다
+  {
+    category: "LMG",
+    ids: ["m249", "dp28", "mg3", "rpd"]
+  },
   {
     category: "SR",
     ids: ["awm", "kar98", "m24", "win94", "win1894", "lynx", "l6", "mosin"]
@@ -50,10 +55,6 @@ const CATEGORY_MATCHERS: Array<{
   {
     category: "샷건",
     ids: ["shotgun", "s12k", "saiga12", "dbs", "dp12", "o12", "origins12", "s686", "berreta686", "beretta686", "s1897", "winchester", "sawedoff", "sawnoff"]
-  },
-  {
-    category: "LMG",
-    ids: ["m249", "dp28", "mg3"]
   },
   {
     category: "권총",
@@ -65,7 +66,7 @@ const CATEGORY_MATCHERS: Array<{
   },
   {
     category: "근접/특수",
-    ids: ["panzerfaust", "mortar", "m79", "crossbow", "pan_", "pan_c", "sickle", "machete", "crowbar", "melee"]
+    ids: ["panzerfaust", "mortar", "m79", "crossbow", "sickle", "machete", "crowbar", "melee"]
   }
 ];
 
@@ -112,7 +113,8 @@ export function normalizeWeaponMasteryItems(items: any[]): ParsedWeaponMastery[]
     rankHeadShots: numberValue(item?.rankHeadShots),
     rankLongestDefeat: numberValue(item?.rankLongestDefeat),
     rankMostDefeatsInAGame: numberValue(item?.rankMostDefeatsInAGame),
-    category: normalizeCachedCategory(item?.category, String(item?.weaponId || ""))
+    // 캐시에 저장된 분류는 과거 규칙일 수 있어 무기 ID로 다시 계산한다
+    category: getWeaponMasteryCategory(String(item?.weaponId || ""))
   })).sort(sortWeaponMastery);
 }
 
@@ -126,6 +128,8 @@ export function sortWeaponMastery(a: ParsedWeaponMastery, b: ParsedWeaponMastery
 
 export function getWeaponMasteryCategory(weaponId: string): WeaponMasteryCategory {
   const normalized = normalizeWeaponId(weaponId);
+  // pan은 panzerfaust 등과 겹치므로 정확히 일치할 때만 프라이팬으로 본다
+  if (normalized === "pan") return "근접/특수";
   const match = CATEGORY_MATCHERS.find((item) =>
     item.ids.some((id) => normalized.includes(id))
   );
@@ -139,11 +143,6 @@ function normalizeWeaponId(weaponId: string) {
     .replace(/_C$/i, "")
     .replace(/[_-]/g, "")
     .toLowerCase();
-}
-
-function normalizeCachedCategory(category: unknown, weaponId: string) {
-  if (category && category !== "기타") return category as WeaponMasteryCategory;
-  return getWeaponMasteryCategory(weaponId);
 }
 
 function numberValue(value: unknown) {

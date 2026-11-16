@@ -77,6 +77,7 @@ const WEAPON_NAME_MAP: Record<string, string> = {
   Item_Weapon_M1911_C: "M1911",
   Item_Weapon_NagantM1895_C: "R1895",
   Item_Weapon_DesertEagle_C: "데저트 이글",
+  Item_Weapon_vz61Skorpion_C: "스콜피온",
   
   // 투척 무기 및 유틸리티
   Item_Weapon_Grenade_C: "수류탄",
@@ -91,6 +92,8 @@ const WEAPON_NAME_MAP: Record<string, string> = {
   // 기타 특수 무기
   Item_Weapon_Mortar_C: "박격포",
   Item_Weapon_PanzerFaust_C: "판저파우스트",
+  Item_Weapon_PanzerFaust100M_C: "판저파우스트",
+  Item_Weapon_Crossbow_C: "석궁",
   Item_Weapon_M79_C: "M79",
   
   // 근접 무기
