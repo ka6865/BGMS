@@ -73,3 +73,13 @@ migration `20261114120000_pubg_benchmark_percentiles.sql`을 배포 전에 운�
 - 프롬프트·카드 근거·승패 판정·다정한 코치·총평·할 일은 그대로다.
 - `AI_SUMMARY_CACHE_VERSION`: `2026-11-09.spicy-punchline-v35` → `2026-11-15.spicy-banmal-v36`.
 - 비교: 운영 DB 읽기 전용 스냅샷(steam 6명, 최근 25경기)으로 `tests/ai-summary-quality-real.integration.test.ts`를 돌렸다. 같은 Gemini 원본을 재생해 4명 12카드의 전후를 비교했고, 새 버전으로 2명을 실제 Gemini로 다시 생성해 구조 검증을 통과했다. 원격 DB 쓰기는 없다.
+
+## 단일 경기 행동 선택·피해 기준·치킨 마무리 (2026-11-16)
+
+- `buildMatchAiActionHints`는 문자열 대신 `id`, `title`, `text`, `sceneId`를 반환한다. ID는 후보 종류와 관측 시각으로 만들어 후보 순서가 바뀌어도 유지한다. 장면은 실제 목록에서 해당 사건 시점 또는 교전 구간에 있는 것만 연결하며, 없으면 null이다.
+- 모델은 `actionItems[0].actionCandidateId`로 후보 하나를 선택한다. `applyMatchAiActionPolicy`가 선택된 서버 후보의 제목·조건·행동·장면으로 확정하므로, 유효 ID에 일반론이나 무관한 장면을 붙여도 통과하지 않는다. 선택 ID가 없거나 잘못됐으면 첫 적격 후보로 대체한다. 자유 문장을 검증하는 정규식을 늘리지 않는다.
+- 후보가 없으면 기존 관측 지표 기반 점검을 허용하고 후보 ID는 제거한다. 기존 시각·장면 정책으로 가짜 시각과 목록 밖 장면을 지운다. 자유 문장의 모든 의미를 검증하는 계약은 아니다. `briefFeedbackSceneIds`의 null 허용과 유효 연결이 하나도 없을 때 필드 생략은 유지한다.
+- 프롬프트는 개인 `stats.damageDealt`를 **공식 피해량**, 개인 `stats.processedDamageDealt`를 **유효 딜량**, 교전의 팀 피해를 **우리 팀이 준 피해**로 구분한다. 유효 딜량이 없으면 측정 불가로 적고 공식 피해량을 대신 넣지 않는다. 수치를 인용할 때 해당 라벨도 함께 쓰도록 지시하며, 서로 다른 집계값을 하나로 합치지 않는다. 백분위의 피해 지표는 계속 공식 피해량이다.
+- 치킨 마무리는 `matchId` 시드로 세 문장 중 하나를 고른다. 총평에 우승·치킨 언급이 있으면 추가 치킨 문장을 붙이지 않고, 이전 캐시 문구를 포함한 모든 치킨 변형도 중복 부착에서 보호한다.
+- 신규 생성과 캐시 조회는 같은 finalizer를 적용한다. `AI_MATCH_PROMPT_VERSION`의 접미사만 `scene-flow-pct-action-v3`에서 `scene-flow-pct-action-v4`로 올리고 실제 canonical `calculationVersion`을 붙이는 `.calcN` 구조는 유지한다. 엔진·텔레메트리·계산·공통 AI 캐시 버전은 변경하지 않는다.
+- 회귀 검증은 `tests/match-ai-quality.test.ts`, `tests/match-ai-scenes.test.ts`, `tests/spicy-punchlines.test.ts`, `tests/ai-cache-routes.test.ts`에서 후보 있음·없음, 잘못된 후보·장면, 기존 우승 언급, 구캐시 치킨 문구, 신규·캐시 결과 일치와 2회 정규화 멱등을 확인한다. 운영 DB·R2·실제 Gemini 호출은 실행하지 않는다.

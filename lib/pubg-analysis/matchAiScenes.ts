@@ -165,49 +165,72 @@ const ZONE_DAMAGE_EVIDENCE = 30;
 const HOT_LANDING_ENEMIES = 4;
 const WASTED_OPENING_DEALT = 150;
 
+export interface MatchAiActionHint {
+  id: string;
+  title: string;
+  text: string;
+  sceneId: string | null;
+}
+
+const ACTION_TITLES = {
+  "zone-knock": "원 안 진입 먼저", "zone-death": "새 원 이동 먼저", "isolated-bleed": "소생 거리 유지",
+  "team-bleed": "연막 후 소생", "third-party": "교전 뒤 주변 확인", rotating: "이동 경로 확인",
+  ambushed: "다음 멈출 지점 정하기", isolated: "팀원 합류 후 교전", outfought: "한 명에게 사격 집중",
+  "zone-damage": "교전 끊고 원 이동", "wasted-opening": "선제 교전 마무리", "shot-first-loss": "짧게 끊어 이동", "hot-landing": "무기 먼저 확보",
+} as const;
+
 /**
  * 프롬프트용 행동 후보. 사망 유형·자기장 이탈·교전 결과·착지에서 이 경기에만 해당하는 조건을 골라
  * 모델이 '엄폐물로 숨기' 같은 일반 조언 대신 측정된 상황에 묶인 행동을 고르게 한다. 사망 원인을 먼저 둔다.
  */
-export function buildMatchAiActionHints(match: unknown): string[] {
+export function buildMatchAiActionHints(match: unknown): MatchAiActionHint[] {
   const report = readMatchReport(match);
   if (!report) return [];
-  const hints: string[] = [];
+  const hints: MatchAiActionHint[] = [];
+  const catalog = buildMatchAiSceneCatalog(match);
+  const add = (kind: keyof typeof ACTION_TITLES, start: number, end: number, text: string) => {
+    const scene = kind === "hot-landing" || kind === "zone-damage" ? null : catalog.find((item) => (
+      item.ts >= Math.round(start) && item.ts <= Math.round(end)
+      && (kind === "wasted-opening" || kind === "shot-first-loss"
+        || item.event.type === (kind === "zone-knock" ? "DOWNED" : "DIED"))
+    ));
+    hints.push({ id: `${kind}-${Math.round(start)}`, title: ACTION_TITLES[kind], text, sceneId: scene?.id ?? null });
+  };
   const death = report.death;
   const zoneKnock = zoneKnockMs(match);
   if (zoneKnock !== null && death?.type !== "zone") {
-    hints.push(`${formatMatchClock(zoneKnock)} 자기장 피해로 기절 → 원이 줄어들 때는 교전보다 원 안 진입을 먼저 한다`);
+    add("zone-knock", zoneKnock, zoneKnock, `${formatMatchClock(zoneKnock)} 자기장 피해로 기절 → 원이 줄어들 때는 교전보다 원 안 진입을 먼저 한다`);
   }
   if (death && finite(death.timeMs) && Object.hasOwn(DEATH_TYPE_LABELS, death.type)) {
     const at = formatMatchClock(death.timeMs);
     const teammate = finite(death.nearestTeammateM) ? `${death.nearestTeammateM}m` : null;
     switch (death.type) {
       case "zone":
-        hints.push(`${at} 자기장 사망 → 새 원이 정해지면 교전보다 이동을 먼저 시작한다`);
+        add("zone-death", death.timeMs, death.timeMs, `${at} 자기장 사망 → 새 원이 정해지면 교전보다 이동을 먼저 시작한다`);
         break;
       case "bledOut":
         if (finite(death.nearestTeammateM) && death.nearestTeammateM >= ISOLATION_MIN_DISTANCE_M) {
-          hints.push(`${at} 기절 뒤 소생을 못 받고 사망(가장 가까운 팀원 ${teammate}) → 교전 전에 소생 가능한 거리로 팀원과 붙는다`);
+          add("isolated-bleed", death.timeMs, death.timeMs, `${at} 기절 뒤 소생을 못 받고 사망(가장 가까운 팀원 ${teammate}) → 교전 전에 소생 가능한 거리로 팀원과 붙는다`);
         } else if (lastFightTeamDowns(report, death.timeMs) >= 2) {
           // 팀원이 가까웠는데 못 살렸다면 같은 교전에서 함께 쓰러진 경우다.
-          hints.push(`${at} 팀원${teammate ? ` ${teammate}` : ""} 옆에서 같은 교전에 함께 쓰러져 소생을 못 받음 → 한 명이 기절하면 남은 사람은 맞서기 전에 연막부터 깔고 살린다`);
+          add("team-bleed", death.timeMs, death.timeMs, `${at} 팀원${teammate ? ` ${teammate}` : ""} 옆에서 같은 교전에 함께 쓰러져 소생을 못 받음 → 한 명이 기절하면 남은 사람은 맞서기 전에 연막부터 깔고 살린다`);
         }
         break;
       case "thirdParty":
-        hints.push(`${at} 최근 1분간 ${finite(death.teamsInLastMinute) ? `${death.teamsInLastMinute}팀` : "여러 팀"}이 얽힌 교전에서 사망 → 교전을 끝내면 바로 자리를 옮기거나 다른 팀이 올 방향부터 확인한다`);
+        add("third-party", death.timeMs, death.timeMs, `${at} 최근 1분간 ${finite(death.teamsInLastMinute) ? `${death.teamsInLastMinute}팀` : "여러 팀"}이 얽힌 교전에서 사망 → 교전을 끝내면 바로 자리를 옮기거나 다른 팀이 올 방향부터 확인한다`);
         break;
       case "rotating":
-        hints.push(`${at} ${death.inVehicle ? "차량 이동 중" : `직전 ${finite(death.movedBeforeFightM) ? `${death.movedBeforeFightM}m ` : ""}이동 중`} 사망 → 이동 전에 경로의 교전 소리·킬로그를 확인하고 짧게 끊어 이동한다`);
+        add("rotating", death.timeMs, death.timeMs, `${at} ${death.inVehicle ? "차량 이동 중" : `직전 ${finite(death.movedBeforeFightM) ? `${death.movedBeforeFightM}m ` : ""}이동 중`} 사망 → 이동 전에 경로의 교전 소리·킬로그를 확인하고 짧게 끊어 이동한다`);
         break;
       case "ambushed":
-        hints.push(`${at} 상대가 먼저 쏘고 반격 피해가 거의 없이 사망 → 이동을 시작하기 전에 다음 멈출 지점을 먼저 정한다`);
+        add("ambushed", death.timeMs, death.timeMs, `${at} 상대가 먼저 쏘고 반격 피해가 거의 없이 사망 → 이동을 시작하기 전에 다음 멈출 지점을 먼저 정한다`);
         break;
       case "isolated":
-        hints.push(`${at} 팀원과 ${teammate ?? "멀리"} 떨어져 사망 → 팀원과 거리를 좁힌 뒤에 교전을 연다`);
+        add("isolated", death.timeMs, death.timeMs, `${at} 팀원과 ${teammate ?? "멀리"} 떨어져 사망 → 팀원과 거리를 좁힌 뒤에 교전을 연다`);
         break;
       case "outfought":
         // 상대 수는 측정하지 않는다. 먼저 쏘고 진 경우만 사격 집중을 권한다.
-        if (death.openedBy === "us") hints.push(`${at} 먼저 쏘고도 정면 교전에서 사망 → 먼저 쏠 때는 한 명에게 사격을 모아 숫자 우위부터 만든다`);
+        if (death.openedBy === "us") add("outfought", death.timeMs, death.timeMs, `${at} 먼저 쏘고도 정면 교전에서 사망 → 먼저 쏠 때는 한 명에게 사격을 모아 숫자 우위부터 만든다`);
         break;
     }
   }
@@ -219,24 +242,24 @@ export function buildMatchAiActionHints(match: unknown): string[] {
   const farthest = circles.sort((a, b) => b.outsideByM - a.outsideByM)[0];
   const zoneDamage = zoneDamageTaken(report);
   if (farthest && zoneDamage >= ZONE_DAMAGE_EVIDENCE && death?.type !== "zone" && zoneKnock === null) {
-    hints.push(`${formatMatchClock(farthest.timeMs)} ${farthest.phase}페이즈 원 밖 ${Math.round(farthest.outsideByM)}m, 경기 중 자기장 피해 ${zoneDamage} → 원이 정해지면 교전을 끊고 원 쪽으로 먼저 이동한다`);
+    add("zone-damage", farthest.timeMs, farthest.timeMs, `${formatMatchClock(farthest.timeMs)} ${farthest.phase}페이즈 원 밖 ${Math.round(farthest.outsideByM)}m, 경기 중 자기장 피해 ${zoneDamage} → 원이 정해지면 교전을 끊고 원 쪽으로 먼저 이동한다`);
   }
 
   const fights = (Array.isArray(report.fights) ? report.fights : []).filter(isFight);
   const wasted = fights.filter((fight) => fight.openedBy === "us" && fight.enemyDowns === 0 && fight.dealt >= WASTED_OPENING_DEALT);
   if (wasted.length > 0) {
-    hints.push(`먼저 쏘고도 아무도 못 쓰러뜨린 교전 ${wasted.length}번(첫 번째 ${formatMatchClock(wasted[0].startMs)}) → 먼저 쏠 때는 한 명에게 사격을 모으거나 투척물로 마무리한다`);
+    add("wasted-opening", wasted[0].startMs, wasted[0].endMs, `먼저 쏘고도 아무도 못 쓰러뜨린 교전 ${wasted.length}번(첫 번째 ${formatMatchClock(wasted[0].startMs)}) → 먼저 쏠 때는 한 명에게 사격을 모으거나 투척물로 마무리한다`);
   }
 
   // 다른 후보가 없을 때만 쓴다. 먼저 맞아 진 교전은 흔해서 사망·자기장 후보보다 뒤에 둔다.
   const shotFirstLosses = fights.filter((fight) => fight.openedBy === "them" && fight.outcome === "lost" && fight.teamDowns > 0);
   if (hints.length === 0 && shotFirstLosses.length > 0) {
-    hints.push(`상대가 먼저 쏴서 우리 팀만 쓰러진 교전 ${shotFirstLosses.length}번(첫 번째 ${formatMatchClock(shotFirstLosses[0].startMs)}) → 넓은 곳은 다음 멈출 지점을 정하고 짧게 끊어 지난다`);
+    add("shot-first-loss", shotFirstLosses[0].startMs, shotFirstLosses[0].endMs, `상대가 먼저 쏴서 우리 팀만 쓰러진 교전 ${shotFirstLosses.length}번(첫 번째 ${formatMatchClock(shotFirstLosses[0].startMs)}) → 넓은 곳은 다음 멈출 지점을 정하고 짧게 끊어 지난다`);
   }
 
   const landing = report.landing;
   if (landing && finite(landing.timeMs) && finite(landing.enemiesNear) && landing.enemiesNear >= HOT_LANDING_ENEMIES) {
-    hints.push(`착지 ${formatMatchClock(landing.timeMs)} 300m 안 적 ${landing.enemiesNear}명 → 같은 곳에 내리면 무기 하나를 먼저 줍고 첫 교전 위치를 정한다`);
+    add("hot-landing", landing.timeMs, landing.timeMs, `착지 ${formatMatchClock(landing.timeMs)} 300m 안 적 ${landing.enemiesNear}명 → 같은 곳에 내리면 무기 하나를 먼저 줍고 첫 교전 위치를 정한다`);
   }
   return hints.slice(0, MAX_ACTION_HINTS);
 }
@@ -244,7 +267,7 @@ export function buildMatchAiActionHints(match: unknown): string[] {
 /** 응답이 쓸 수 있는 경과 시각. 장면 목록·경기 흐름·행동 후보에 적힌 시각만 허용한다. */
 function allowedMatchClocks(match: unknown): Set<string> {
   const clocks = new Set(buildMatchAiSceneCatalog(match).map((scene) => formatMatchClock(scene.ts)));
-  for (const line of [...buildMatchAiFlowLines(match), ...buildMatchAiActionHints(match)]) {
+  for (const line of [...buildMatchAiFlowLines(match), ...buildMatchAiActionHints(match).map((hint) => hint.text)]) {
     for (const clock of line.match(/\d{1,3}:[0-5]\d/gu) ?? []) clocks.add(clock);
   }
   return clocks;
@@ -254,7 +277,7 @@ function allowedMatchClocks(match: unknown): Set<string> {
 function allowedMatchDistances(match: unknown): Set<number> {
   const distances = new Set<number>();
   for (const scene of buildMatchAiSceneCatalog(match)) if (finite(scene.event.distance)) distances.add(Math.round(scene.event.distance));
-  for (const line of [...buildMatchAiFlowLines(match), ...buildMatchAiActionHints(match)]) {
+  for (const line of [...buildMatchAiFlowLines(match), ...buildMatchAiActionHints(match).map((hint) => hint.text)]) {
     for (const [, value] of line.matchAll(/(\d+(?:\.\d+)?)m/gu)) distances.add(Math.round(Number(value)));
   }
   const isolation = (match as { isolationData?: { minDist?: unknown; heightDiff?: unknown } } | null)?.isolationData;

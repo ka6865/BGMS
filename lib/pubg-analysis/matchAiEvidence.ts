@@ -2,9 +2,39 @@ import { isEarlyElimination } from "./benchmarkScore";
 import { hasComparableBenchmarkMetric, type NormalizedBenchmark } from './benchmarkAdapter';
 import { firstReplyLatencyMs, readFirstReplyEvidence, firstReplyFailureRate } from './firstReply';
 import { requiresRescueOpportunityEvidence, isNegatedCoachingDirectiveTail } from './aiCoachingQuality';
+import { buildMatchAiActionHints } from './matchAiScenes';
 
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 const display = (value: number) => Number(value.toFixed(1));
+
+/** 후보가 있으면 선택 ID와 장면을 서버 근거로 확정한다. 자연어를 다시 판정하지 않아 캐시에도 같은 결과를 낸다. */
+export function applyMatchAiActionPolicy(text: string, match: unknown): string {
+  try {
+    const record = JSON.parse(text);
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return text;
+    const hints = buildMatchAiActionHints(match);
+    if (hints.length === 0) {
+      if (!Array.isArray(record.actionItems)) return text;
+      record.actionItems = record.actionItems.map((item: unknown) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+        const rest = { ...item } as Record<string, unknown>;
+        delete rest.actionCandidateId;
+        return rest;
+      });
+    } else {
+      const selected = Array.isArray(record.actionItems)
+        ? record.actionItems.find((item: any) => hints.some((hint) => hint.id === item?.actionCandidateId)) : null;
+      const hint = hints.find((item) => item.id === selected?.actionCandidateId) ?? hints[0];
+      record.actionItems = [{
+        icon: '🎯', title: hint.title, desc: hint.text, actionCandidateId: hint.id,
+        ...(hint.sceneId ? { sceneId: hint.sceneId } : {}),
+      }];
+    }
+    return JSON.stringify(record);
+  } catch {
+    return text;
+  }
+}
 
 /** Reconcile known factual failure patterns against the canonical match on fresh/cache reads.
  * This is a bounded evidence policy, not a general verifier of arbitrary natural language.
