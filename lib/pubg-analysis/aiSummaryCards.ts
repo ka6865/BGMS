@@ -912,7 +912,8 @@ export function buildSummaryCards(input: {
 
   const evidenceByMetric = new Map<string, SummaryEvidence>();
   for (const rawEvidence of input.evidence) {
-    if (!isRecord(rawEvidence)) continue;
+    // 캐시·외부 입력에 객체가 아닌 항목이 섞여도 건너뛴다. 타입 좁힘은 원래 입력 타입을 유지한다.
+    if (!isRecord(rawEvidence as unknown)) continue;
     const normalized = normalizeEvidenceInput({ ...rawEvidence, userMatchCount: rawEvidence.userMatchCount ?? context.userMatchCount }, context.contextId);
     if (!normalized || (normalized.userMatchCount !== undefined && normalized.userMatchCount > context.userMatchCount)
       || (normalized.userMatchCount === 0 && normalized.userValue !== null)) continue;
