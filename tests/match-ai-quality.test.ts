@@ -209,6 +209,24 @@ describe("행동 후보", () => {
     expect(buildMatchAiActionHints(data)).toEqual([]);
   });
 
+  it("행동 후보가 없는 경기는 이 경기 수치·시각 없는 일반론 제안을 빼고 멱등이다", () => {
+    const data = { stats: { damageDealt: 606, processedDamageDealt: 585 }, timeline: [] };
+    const generic = { title: "투척물 활용 유지", desc: "엄폐물 뒤의 적이 보이면 → 피해형 투척물을 먼저 던져서 각을 벌린 뒤 사격한다" };
+    const grounded = { title: "피해 기록 점검", desc: "공식 피해량 606을 다음 경기에도 확인한다" };
+    const once = finalize(JSON.stringify({ actionItems: [generic, grounded] }), data);
+    expect(JSON.parse(once).actionItems).toEqual([grounded]);
+    expect(finalize(once, data)).toBe(once);
+    expect(JSON.parse(finalize(JSON.stringify({ actionItems: [generic] }), data)).actionItems).toEqual([]);
+  });
+
+  it("적중률이 100% 미만이면 '모두 유효하게' 같은 전부 표현을 뗀다", () => {
+    const data = { stats: { damageDealt: 300 }, combatPressure: { utilityStats: { throwCount: 6, lethalThrowCount: 6, hitCount: 3 } }, timeline: [] };
+    const text = JSON.stringify({ briefFeedback: ["총 투척 6회 중 피해형 투척 6회를 모두 유효하게 활용해 적중률 50%를 찍었잖아."] });
+    const once = applyMatchAiEvidencePolicy(text, data);
+    expect(JSON.parse(once).briefFeedback[0]).toBe("총 투척 6회 중 피해형 투척 6회를 유효하게 활용해 적중률 50%를 찍었잖아.");
+    expect(applyMatchAiEvidencePolicy(once, data)).toBe(once);
+  });
+
   it("행동 항목이 비어 있으면 첫 후보를 채우고 JSON이 아닌 응답은 그대로 둔다", () => {
     const once = finalize(JSON.stringify({ actionItems: [] }), match);
     expect(JSON.parse(once).actionItems[0].actionCandidateId).toBe(buildMatchAiActionHints(match)[0].id);
@@ -269,7 +287,8 @@ describe("단일 경기 코칭 프롬프트", () => {
     expect(prompt).toContain('"actionCandidateId"');
     const missing = buildMatchAiCoachingPrompt({ matchData: { ...base, stats: { ...base.stats, processedDamageDealt: undefined }, matchReport: null } }).fullPrompt;
     expect(missing).toContain("공식 피해량 300 / 유효 딜량 측정 불가");
-    expect(missing).toContain("관측 지표에 근거한 점검");
+    expect(missing).toContain("관측된 수치나 시각을 desc에 그대로 인용한 점검");
+    expect(missing).toContain("[전부 표현]");
   });
 
   it("경기 흐름·백분위 섹션과 행동 하나 규칙을 넣고 비교 평균을 엘리트로 부르지 않는다", () => {

@@ -126,9 +126,11 @@ describe('최근 요약 v37 응답 판정', () => {
     expect(cached.result.final.signatureSub).toContain('관측 2경기: 평균 화력: 150');
   });
 
-  it.each(['관측된 스쿼드 경쟁전 기록', '전적 분석', '전투 요약', '최근 관측'])('서술형 칭호 %s는 기존 기본 칭호로 바꾼다', signature => {
+  it.each(['관측된 스쿼드 경쟁전 기록', '전적 분석', '평균 화력', '반격 장인'])('칭호 %s 대신 설명과 같은 대표 강점 칭호를 쓴다', signature => {
     const { provider, cards } = evaluate([metric('damage_average', 150, 100)]);
-    expect(normalizeSummaryCardFinal({ ...provider, signature }, cards, options)?.final.signature).toBe('AI 전술 분석');
+    const final = normalizeSummaryCardFinal({ ...provider, signature }, cards, options)?.final;
+    expect(final?.signature).toBe('화력 우위');
+    expect(final?.signatureSub).toContain('평균 화력');
   });
 
   it('고립 지수는 비교 수치를 보존해도 판정 방향과 승자를 만들지 않는다', () => {

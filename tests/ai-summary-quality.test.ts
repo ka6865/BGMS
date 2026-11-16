@@ -113,7 +113,9 @@ describe('summary quality: precision and grounded conclusions', () => {
     // 비교 문장은 서버가 먼저 쓰고, 숫자·비교가 없는 모델 칭찬만 뒤에 붙는다. 승자는 비교 방향(화력 우위)으로 정한다.
     expect(result.final.cards[0].kindOpinion).toBe(`${buildSummaryCardComparisonText(cards[0])} 팀의 화력을 뒷받침하는 모습이 인상적입니다.`);
     expect(result.final.cards[0].winner).toBe('kind');
-    expect(result.final.signature).toBe('AI 전술 분석');
+    // 칭호는 모델 표현 대신 대표 강점 지표에서 서버가 정한다.
+    expect(result.final.signature).not.toContain('흐름');
+    expect(result.final.signature).toBe('화력 우위');
     expect(result.final.signatureSub).not.toContain('시도');
   });
 

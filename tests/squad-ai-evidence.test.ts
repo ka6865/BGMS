@@ -103,9 +103,22 @@ describe("스쿼드 서버 응답 품질", () => {
 
   it.each(["spicy", "mild"])("우승만 있어도 중복 제거 뒤 총평에 근거가 남는다: %s", (coachingStyle) => {
     const options = { coachingStyle, matchesSummary: [{ winPlace: 1 }, { winPlace: 1 }, { winPlace: 4 }] };
-    const once = applySquadEvidencePolicy({ ...source, summary: "최근 3경기에서 우승 2회를 기록했습니다.", overallOpinion: "최근 3경기에서 우승 2회를 기록했습니다." }, {}, null, undefined, [], options);
+    const once = applySquadEvidencePolicy({ ...source, overallOpinion: "최근 3경기에서 우승 2회를 기록했습니다." }, {}, null, undefined, [], options);
     expect(once.overallOpinion).toContain("최근 3경기에서 우승 2회");
     expect(once.overallOpinion).not.toBe("기록부는 여기까지야.");
+    expect(applySquadEvidencePolicy(once, {}, null, undefined, [], options)).toEqual(once);
+  });
+
+  it.each(["spicy", "mild"])("요약·강점에 이미 쓴 사실은 총평에서 반복하지 않는다: %s", (coachingStyle) => {
+    const options = { coachingStyle, matchesSummary: [{ winPlace: 2 }, { winPlace: 4 }, { winPlace: 6 }], analyzedMatchCount: 2 };
+    const once = applySquadEvidencePolicy({ ...source,
+      summary: "최근 3경기에서 우승 기록이 0회입니다.",
+      strength: "상세 분석 가능한 2경기 기준 최근 3경기 중 최고 순위는 2위입니다.",
+      overallOpinion: "최근 3경기에서 우승 기록이 0회입니다." }, {}, null, undefined, [], options);
+    expect(once.strength).toBe("최근 3경기 중 최고 순위는 2위입니다.");
+    expect(once.overallOpinion).not.toContain("우승 기록이 0회");
+    expect(once.overallOpinion).not.toContain("최고 순위는 2위");
+    expect(once.overallOpinion).not.toBe("");
     expect(applySquadEvidencePolicy(once, {}, null, undefined, [], options)).toEqual(once);
   });
 

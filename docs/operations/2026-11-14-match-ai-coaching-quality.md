@@ -83,3 +83,9 @@ migration `20261114120000_pubg_benchmark_percentiles.sql`을 배포 전에 운�
 - 치킨 마무리는 `matchId` 시드로 세 문장 중 하나를 고른다. 총평에 우승·치킨 언급이 있으면 추가 치킨 문장을 붙이지 않고, 이전 캐시 문구를 포함한 모든 치킨 변형도 중복 부착에서 보호한다.
 - 신규 생성과 캐시 조회는 같은 finalizer를 적용한다. `AI_MATCH_PROMPT_VERSION`의 접미사만 `scene-flow-pct-action-v3`에서 `scene-flow-pct-action-v4`로 올리고 실제 canonical `calculationVersion`을 붙이는 `.calcN` 구조는 유지한다. 엔진·텔레메트리·계산·공통 AI 캐시 버전은 변경하지 않는다.
 - 회귀 검증은 `tests/match-ai-quality.test.ts`, `tests/match-ai-scenes.test.ts`, `tests/spicy-punchlines.test.ts`, `tests/ai-cache-routes.test.ts`에서 후보 있음·없음, 잘못된 후보·장면, 기존 우승 언급, 구캐시 치킨 문구, 신규·캐시 결과 일치와 2회 정규화 멱등을 확인한다. 운영 DB·R2·실제 Gemini 호출은 실행하지 않는다.
+
+### 2026-11-16 배포 후 보정
+
+- 행동 후보가 없는 경기(예: 사망 없는 치킨)는 이 경기의 수치나 시각을 desc에 인용한 제안만 남기고, 인용이 없는 일반론은 뺀다. 근거 정책이 안전 문장으로 바꾼 항목도 같은 기준이라 빠질 수 있다. 화면은 빈 행동 목록을 그대로 처리한다.
+- 사실 칸(`signatureSub`, `briefFeedback`, `finalVerdict`)에서 적중률이 100% 미만인데 "모두 유효하게/모두 맞혀" 같은 전부 표현이 붙으면 "모두"만 뗀다. 프롬프트에도 전부 표현은 100%일 때만 쓰라는 규칙을 넣었다.
+- finalizer가 캐시에도 적용되므로 `AI_MATCH_PROMPT_VERSION`은 올리지 않는다.

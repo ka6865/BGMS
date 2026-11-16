@@ -208,6 +208,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
     "- 배지가 없다는 이유로 실속 없음/훈장 사냥꾼/기여 부족을 단정하지 마십시오. 배지는 특정 조건의 보상일 뿐 전체 성과의 평가 기준이 아닙니다.",
     "- 후방/전방/진입 위치는 측정되지 않았습니다. 칭호에도 사용하지 마십시오.",
     "- [배지 우선순위] 유저가 획득한 배지가 있다면 이를 signature(칭호) 결정의 핵심 근거로 사용하십시오.",
+    "- [전부 표현] '모두 맞혔다', '모두 유효하게' 같은 전부 표현은 해당 비율이 100%일 때만 쓰십시오.",
     "- [피해 기준] 공식 피해량은 PUBG 공식 개인 기록이고, 유효 딜량은 무기별 개인 집계로 투척물·차량 폭발 등 제외 항목이 있을 수 있습니다. [경기 흐름]의 '우리 팀이 준 피해'는 해당 교전의 팀 합계입니다. 피해 수치를 인용할 때는 반드시 '공식 피해량', '유효 딜량', '우리 팀이 준 피해' 라벨을 함께 쓰고 세 값을 같은 수치나 개인 기록으로 단정하지 마십시오. 팀 내 딜량 비중은 PUBG 공식 피해량 기준입니다.",
     "- [팀 영향력] 딜량 비중은 실제 화력 분담 비율만 설명하십시오. 비중만으로 교전 주도, 소극적 플레이, 후방 대기, 숨기, 동료 의존을 단정하지 마십시오.",
     "- [팀 영향력 해석 보호 규칙] 높은 딜량 비중은 '화력 기여'로만 설명하십시오. 비중은 진입/선제 공격의 증거가 아닙니다. 아군 소생 실패, 복구 실패, 팀원 사망 방치 데이터가 없으면 의도, 인성, 팀원 이용 여부를 단정하는 표현을 금지합니다.",
@@ -266,7 +267,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
   const flowSection = `[경기 흐름] (측정된 교전·사망·자기장 기록, 우리 팀 기준)\n${flowLines.length ? flowLines.join("\n") : "없음"}`;
   const percentileSection = formatMatchAiPercentileSection(percentiles);
   const actionHints = buildMatchAiActionHints(matchData);
-  const actionSection = actionHints.length ? `\n\n[행동 후보] (후보 ID | 장면 ID | 측정된 상황 → 행동 방향)\nactionItems는 이 중 하나를 고르고 actionCandidateId와 sceneId를 그대로 쓰십시오. 서버가 선택 후보의 관측 상황과 행동을 확정합니다.\n${actionHints.map((hint) => `- ${hint.id} | ${hint.sceneId ?? "null"} | ${hint.text}`).join("\n")}` : "\n\n[행동 후보] 없음. actionCandidateId는 null로 두고 관측 지표에 근거한 점검을 제안하십시오. 임의의 시각이나 장면을 만들지 마십시오.";
+  const actionSection = actionHints.length ? `\n\n[행동 후보] (후보 ID | 장면 ID | 측정된 상황 → 행동 방향)\nactionItems는 이 중 하나를 고르고 actionCandidateId와 sceneId를 그대로 쓰십시오. 서버가 선택 후보의 관측 상황과 행동을 확정합니다.\n${actionHints.map((hint) => `- ${hint.id} | ${hint.sceneId ?? "null"} | ${hint.text}`).join("\n")}` : "\n\n[행동 후보] 없음. actionCandidateId는 null로 두고 이 경기에서 관측된 수치나 시각을 desc에 그대로 인용한 점검을 제안하십시오. 인용할 수치가 없으면 actionItems를 빈 배열로 두십시오. 임의의 시각이나 장면을 만들지 마십시오.";
 
   return {
     fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}${percentileSection ? `\n\n${percentileSection}` : ""}\n\n${sceneSection}\n\n${flowSection}${actionSection}`,

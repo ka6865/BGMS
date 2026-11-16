@@ -123,6 +123,10 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   // 수치 뒤에 바로 "~면서"를 붙인 어색한 연결("기록이 5회면서")은 "~이고"로 고친다.
   const fixNumericMyeonseo = (text: unknown) => typeof text === "string" ? text.replace(/(\d+(?:\.\d+)?\s*(?:회|%|초|경기))면서\s/gu, "$1이고 ") : text;
   for (const field of ["summary", "strength", "overallOpinion"]) output[field] = fixNumericMyeonseo(splitFalseContrast(output[field]));
+  // 순위·우승은 전체 최근 경기 기준이라 상세 분석 범위를 앞에 붙이면 기준 경기 수가 두 개가 된다. 뒤에 다른 범위가 오면 앞 범위를 뗀다.
+  for (const field of ["summary", "strength", "weakness", "coaching", "overallOpinion"]) {
+    if (typeof output[field] === "string") output[field] = (output[field] as string).replace(/상세 분석 가능한 \d+경기 기준\s*(?=최근 \d+경기)/gu, "");
+  }
   // 총평이 다른 칸 문장을 그대로 반복하면 그 문장을 빼고, 남는 게 없으면 맛에 맞는 마무리 한마디를 쓴다.
   if (typeof output.overallOpinion === "string" && output.overallOpinion.trim()) {
     const used = new Set(["summary", "strength", "weakness", "coaching"].flatMap(field => typeof output[field] === "string"
@@ -157,12 +161,18 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
     }
   }
   const opinionCandidates = scopedPunchlines.filter(item => item.id !== "damage_spread");
-  const opinionFacts = opinionCandidates.slice(0, 2);
-  if (typeof output.overallOpinion === "string" && opinionFacts.length > 0) {
+  // 모델이 쓴 요약·강점에 이미 나온 사실은 총평에서 다시 말하지 않는다. 서버가 채운 약점은 총평 재료로 남긴다.
+  const statedElsewhere = ["summary", "strength"].map(field => typeof output[field] === "string" ? (output[field] as string).replace(/\s+/gu, "") : "").join("|");
+  const factCore = (fact: string) => fact.replace(/^상세 분석 가능한 \d+경기 기준\s*/u, "")
+    .replace(/(?:느립니다|빠릅니다|높습니다|낮습니다|많습니다|적습니다|입니다|했습니다)\.$/u, "").replace(/\s+/gu, "");
+  const opinionFacts = opinionCandidates.filter(item => !statedElsewhere.includes(factCore(item.fact))).slice(0, 2);
+  if (typeof output.overallOpinion === "string" && opinionCandidates.length > 0) {
     const closer = coachingStyle === "spicy"
       ? squadSpicyCloser(opinionCandidates, roleProfiles.map(profile => profile.name).sort().join(","))
       : "다음 경기에서도 이 기록을 바탕으로 함께 점검해 보세요.";
-    output.overallOpinion = `${squadOverallOpinion(opinionFacts, coachingStyle)} ${closer}`.trim();
+    // 새 사실이 없으면 마무리 한마디만 남기고, 마무리도 없을 때만 반복을 감수하고 대표 사실 하나를 쓴다.
+    const facts = opinionFacts.length || closer ? opinionFacts : opinionCandidates.slice(0, 1);
+    output.overallOpinion = `${squadOverallOpinion(facts, coachingStyle)} ${closer ?? ""}`.trim();
   } else if (coachingStyle === "spicy" && typeof output.overallOpinion === "string") {
     output.overallOpinion = output.overallOpinion.trim() || "기록부는 여기까지야.";
   }

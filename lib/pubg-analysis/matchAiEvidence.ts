@@ -15,11 +15,12 @@ export function applyMatchAiActionPolicy(text: string, match: unknown): string {
     const hints = buildMatchAiActionHints(match);
     if (hints.length === 0) {
       if (!Array.isArray(record.actionItems)) return text;
-      record.actionItems = record.actionItems.map((item: unknown) => {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+      // 후보가 없으면 이 경기의 시각이나 수치를 인용한 제안만 남긴다. 근거 없는 일반론은 빈 칸이 낫다.
+      record.actionItems = record.actionItems.flatMap((item: unknown) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
         const rest = { ...item } as Record<string, unknown>;
         delete rest.actionCandidateId;
-        return rest;
+        return typeof rest.desc === 'string' && /\d/.test(rest.desc) ? [rest] : [];
       });
     } else {
       const selected = Array.isArray(record.actionItems)
@@ -248,6 +249,10 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       if ((lethalClaim && Number(lethalClaim[1]) !== lethal)
         || (totalClaim && Number(totalClaim[1]) !== total)
         || (accuracyClaim && (accuracy === null || Math.abs(Number(accuracyClaim[1]) - accuracy) > 0.1))) return throwFacts;
+      // 적중률이 100% 미만인데 '모두 유효하게/모두 맞혀' 같은 전부 표현이 붙으면 '모두'만 뗀다.
+      if (accuracyClaim && Number(accuracyClaim[1]) < 100) {
+        return value.replace(/모두\s*(?=(?:유효|적중|명중|맞))/gu, '');
+      }
     }
     return value;
   };

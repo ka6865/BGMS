@@ -1120,9 +1120,14 @@ function serverWinner(card: SummaryCard): SummaryCard["winner"] {
   return "draw";
 }
 
+// 대표 강점 지표별 칭호. 측정한 지표의 이름에서만 나오며 성향·능력을 단정하지 않는다.
+const SUMMARY_METRIC_TITLES: Readonly<Record<string, string>> = {
+  damage_average: "화력 우위", initiative_rate: "선제 타격", pressure_index: "압박 우위", reaction_latency: "빠른 반격",
+  counter_failure_rate: "빠른 대응", solo_kill_share: "교전 마무리", trade_success_rate: "복수 담당", backup_latency: "빠른 백업",
+  smoke_opportunity_rate: "연막 구출", death_phase: "후반 생존", duel_win_rate: "1:1 우위",
+};
+
 const STRONG_PRAISE = /우수|훌륭|뛰어|탁월|안정적|확보|돋보|압도|완벽|잘\s/u;
-// 칭호는 숫자·인성·진입 위치·측정하지 않은 능력(흐름 읽기, 판단, 지휘 등)을 담을 수 없다.
-const UNSUPPORTED_SIGNATURE = /\d|무책임|무능|민폐|한심|이기적|집중력|판단력|멘탈|습관|성향|돌격|선봉|돌진|최전선|전선|돌파|돌입|진입|흐름|읽는|판단|지휘|리더|두뇌|전략가|감각|냉철|침착/u;
 
 function conditionalCheckText(text: string, spicy = false): string {
   // 관측 결과나 원인 단정을 섞지 않고, 다음 상황에서 확인할 행동만 채택한다.
@@ -1404,12 +1409,10 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     ? [...providerActionItems.filter(coversWeakCard), ...uncoveredWeakItems, ...providerActionItems.filter(item => !coversWeakCard(item))]
     : serverActionItems).slice(0, 3);
   const finalCards = normalizedCards.map(cloneCard);
-  // 칭호는 숫자·인성·측정하지 않은 능력 없이 짧을 때만 모델 표현을 쓴다.
-  const providerSignature = normalizedSignature.value.trim();
+  // 칭호는 설명 문장과 같은 대표 지표를 가리켜야 하므로 서버가 고른 대표 강점의 칭호로 확정한다.
+  // 대표 강점이 없거나 모델 칭호가 다른 맛·단정 표현으로 거부되면 기본 칭호를 쓴다.
   const titleEvidence = strongestMetric(readyCards);
-  safeSignature = titleEvidence !== null && !signatureModeRejected && !normalizedSignature.changed && providerSignature.length > 0 && providerSignature.length <= 16
-    && !/(?:기록|분석|요약|관측)(?:입니다|이다)?[.!?]?$/u.test(providerSignature)
-    && !UNSUPPORTED_SIGNATURE.test(providerSignature) && !hasUnsupportedSummaryInference(providerSignature) ? providerSignature : SAFE_SIGNATURE;
+  safeSignature = titleEvidence && !signatureModeRejected ? SUMMARY_METRIC_TITLES[titleEvidence.metricId] ?? SAFE_SIGNATURE : SAFE_SIGNATURE;
   const representative = titleEvidence ?? readyCards.flatMap(card => card.evidence).find(isObservedEvidence);
   const representativeCard = readyCards.find(card => card.evidence.some(row => row.id === representative?.id));
   safeSignatureSub = representative && representativeCard
