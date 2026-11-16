@@ -334,7 +334,7 @@ describe("매운맛 한마디", () => {
 
   it("매운맛은 팀 재료 뒤에 서버가 쓴 한마디를 붙이고, 사실 문장은 끝맺음만 반말로 바꾼다", () => {
     const block = formatSquadPunchlineBlock(team, members, { jabs: true });
-    expect(block).toContain("backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느려. → 한마디: 아군 쓰러지고 장례식 준비까지 끝난 뒤에야 도착하는 백업이었어.");
+    expect(block).toContain("backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느려. → 한마디: 아군 기절 뒤 복수까지, 이 정도면 기록부도 기다리다 지치겠어.");
     // 개인 재료에는 한마디를 붙이지 않는다. 개인 칭찬은 서버가 따로 쓴다.
     expect(block.split("\n")).toContain("- A [hype] member_damage_carry: 팀 딜 비중이 73%야.");
   });
@@ -394,5 +394,19 @@ describe("tradeable trade rate facts survive the evidence policy", () => {
       totalTradeableKnocks: 12, totalTradeableTradeKills: 1 };
     const result = applySquadEvidencePolicy({ weakness: fact }, stats, null, undefined, [], { coachingStyle: "spicy" });
     expect(result.weakness).toBe(fact);
+  });
+});
+
+
+describe("복수 한마디의 관측 범위", () => {
+  it("평균보다 낮거나 높은 복수 기록에 시야와 추격을 덧붙이지 않는다", () => {
+    const team = [
+      { id: "trade_rate_low", kind: "roast" as const, metric: "tradeableTradeRate", fact: "복수 성공률 10%, 전체 팀 평균 30%로 평균보다 낮습니다." },
+      { id: "trade_rate_high", kind: "hype" as const, metric: "tradeableTradeRate", fact: "복수 성공률 50%, 전체 팀 평균 30%로 평균보다 높습니다." },
+    ];
+    const block = formatSquadPunchlineBlock(team, [], { jabs: true });
+    expect(block).not.toMatch(/얼굴|봤|쫓아|추격|시야/);
+    expect(block).toContain("복수 기록은 한참 모자라네.");
+    expect(block).toContain("30초 안에 갚은 기록은 평균을 넘겼네.");
   });
 });
