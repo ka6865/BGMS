@@ -6,7 +6,8 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: '*',
-      allow: '/',
+      // 랭킹 본문 렌더링에 필요한 공개 조회만 허용한다.
+      allow: ['/', '/api/rankings$', '/api/rankings?'],
       disallow: [
         '/admin',
         '/login',
