@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import { requireLolPublicPage } from "@/lib/lol/publicAccess.server";
+import { allLolMayhemAugments } from "@/lib/lol/augments/catalog";
 import { getCachedLolAugmentCatalog } from "@/lib/lol/augments/catalog.server";
 import { getLolChampions } from "@/lib/lol/champions.server";
 import { getMayhemTip, getMayhemTipItems, listMayhemTipComments } from "@/lib/lol/mayhemTips.server";
@@ -44,7 +45,7 @@ export default async function LolMayhemTipPage({ params }: Props) {
     listMayhemTipComments(tip.id, null).catch(() => null),
     version && tip.itemIds.length ? getMayhemTipItems(version).catch(() => []) : [],
   ]);
-  const augments = new Map(catalog?.view.augments.map(a => [a.id, a]));
+  const augments = new Map((catalog ? allLolMayhemAugments(catalog.view) : []).map(a => [a.id, a]));
   const itemNames = new Map(items.map(i => [i.id, i.name]));
   const author = tip.anonymous ? "익명" : tip.author ?? "BGMS 유저";
   const date = (value: string) => new Date(value).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" });

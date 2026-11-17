@@ -104,12 +104,13 @@ export default function LolMayhemUpdateSummary({ refreshVersion = 0, onOpenMappi
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-semibold">{group.title}</h2>
             <span className={`text-sm ${group.targets.length ? "text-amber-300" : appliedAt ? "text-emerald-300" : "text-zinc-400"}`}>
-              {blocked ? "적용 전 확인 필요" : group.targets.length ? "새 자료 있음" : held ? "새 자료 보류" : appliedAt && group.rows.length ? "적용됨" : "수집 대기"}
+              {blocked ? "적용 전 확인 필요" : group.collectionProgress ? "수집 중" : group.targets.length ? "새 자료 있음" : held ? "새 자료 보류" : appliedAt && group.rows.length ? "적용됨" : "수집 대기"}
             </span>
           </div>
           <p className="break-words text-sm">{group.rows.length ? `${patches(group)} 패치 · ${amount ? `${amount.toLocaleString("ko-KR")}${group.unit}` : `${group.rows.length}개 자료`} 수집했습니다.` : "아직 수집한 자료가 없습니다."}</p>
           <p className="text-sm text-zinc-300">{group.effect}</p>
           <p className="text-xs leading-relaxed text-zinc-400">{livePatch && `공개 중 ${toDisplayPatch(livePatch) ?? livePatch} 패치 · `}최근 수집 {date(group.rows.map(row => row.fetchedAt).sort().at(-1))} · 최근 적용 {date(appliedAt)}</p>
+          {group.collectionProgress && <p role="status" className="text-sm text-zinc-300">{group.collectionProgress.done}/{group.collectionProgress.total}명 수집, 다음 실행에서 계속합니다. 기존 적용 자료는 유지됩니다.</p>}
           {group.syncError && <p className="text-sm text-amber-300">최근 수집이 완료되지 않았습니다. 기존 적용 자료는 유지됩니다.</p>}
           {blocked && <p className="text-sm text-amber-300">{blocked}</p>}
           {group.key === "combos" && group.targets.some(row => row.blocked) && onOpenMapping && <button type="button" className={button} disabled={!!busy} onClick={onOpenMapping}>이름 연결하기</button>}

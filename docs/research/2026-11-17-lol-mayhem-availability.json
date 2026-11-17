@@ -1,0 +1,612 @@
+{
+  "checkedAt": "2026-11-16T23:23:15.730Z",
+  "target": "BGMS production (read only)",
+  "method": "Stored normalized snapshot hashes, champion IDs and upstream versions verified before aggregating presence; no upstream paid API calls, database writes or storage writes.",
+  "snapshots": {
+    "16.21.5": {
+      "date": "2026-10-30",
+      "champions": 173,
+      "expected": 173
+    },
+    "16.22.1": {
+      "date": "2026-11-08",
+      "champions": 173,
+      "expected": 173
+    },
+    "16.22.2": {
+      "date": "2026-11-10",
+      "champions": 173,
+      "expected": 173
+    },
+    "16.22.3": {
+      "date": "2026-11-15",
+      "champions": 158,
+      "expected": 173
+    }
+  },
+  "activeCatalogCount": 235,
+  "filesChecked": 677,
+  "publicSnapshots": [
+    {
+      "meta": {
+        "patch": "26.20",
+        "patchReleaseDate": "2026-10-07",
+        "statsDate": "2026-10-20",
+        "statsDateSource": "estimated",
+        "comparedTo": {
+          "patch": "26.19",
+          "patchReleaseDate": "2026-09-23",
+          "statsDate": "2026-10-08",
+          "statsDateSource": "estimated"
+        },
+        "releaseId": "website:20261116_034514:5af3655ac31b"
+      },
+      "rowCount": 201
+    },
+    {
+      "meta": {
+        "patch": "26.21",
+        "patchReleaseDate": "2026-10-21",
+        "statsDate": "2026-11-03",
+        "statsDateSource": "estimated",
+        "comparedTo": {
+          "patch": "26.20",
+          "patchReleaseDate": "2026-10-07",
+          "statsDate": "2026-10-20",
+          "statsDateSource": "estimated"
+        },
+        "releaseId": "website:20261116_034514:5af3655ac31b"
+      },
+      "rowCount": 207
+    },
+    {
+      "meta": {
+        "patch": "26.22",
+        "patchReleaseDate": "2026-11-04",
+        "statsDate": "2026-11-15",
+        "statsDateSource": "release",
+        "comparedTo": {
+          "patch": "26.21",
+          "patchReleaseDate": "2026-10-21",
+          "statsDate": "2026-11-03",
+          "statsDateSource": "estimated"
+        },
+        "releaseId": "website:20261116_034514:5af3655ac31b"
+      },
+      "rowCount": 213
+    }
+  ],
+  "mayhemMeta": {
+    "url": "https://mayhemmeta.com/augments",
+    "patch": "26.22",
+    "checkedAt": "2026-11-16T23:24:32.158Z",
+    "trackedAugments": 222,
+    "absentActiveIds": [
+      2032,
+      2034,
+      2043,
+      2080,
+      2083,
+      2091,
+      2104,
+      2107,
+      2115,
+      2126,
+      2127,
+      2134,
+      2137
+    ]
+  },
+  "knownInterruptionAnalysis": "https://mayhemmeta.com/articles/augments-silently-disabled-26-21",
+  "candidates": [
+    {
+      "platform_id": 2032,
+      "rarity": "gold",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "상어 미끼",
+      "nameEn": "Shark Bait",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 6.59,
+          "retiredPatch": null,
+          "slug": "shark-bait"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2034,
+      "rarity": "gold",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "상어 폭풍",
+      "nameEn": "Shark Tempest",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 8.29,
+          "retiredPatch": null,
+          "slug": "shark-tempest"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2043,
+      "rarity": "gold",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "자연의 회복",
+      "nameEn": "Nature is Healing",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 7.17,
+          "retiredPatch": null,
+          "slug": "nature-is-healing"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2080,
+      "rarity": "gold",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "눈 폭발",
+      "nameEn": "Snowblast",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 9.24,
+          "retiredPatch": null,
+          "slug": "snowblast"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2083,
+      "rarity": "gold",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "이빨 요정",
+      "nameEn": "Tooth Fairy",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 39.27,
+          "retiredPatch": null,
+          "slug": "tooth-fairy"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2091,
+      "rarity": "gold",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "끝없는 학살",
+      "nameEn": "Endless Decimation",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 23.71,
+          "retiredPatch": null,
+          "slug": "endless-decimation"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2104,
+      "rarity": "prismatic",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "영혼 폭탄",
+      "nameEn": "Spirit Bomb",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 3.36,
+          "retiredPatch": null,
+          "slug": "spirit-bomb"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2107,
+      "rarity": "prismatic",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "열의",
+      "nameEn": "Hellbent",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 5.77,
+          "retiredPatch": null,
+          "slug": "hellbent"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2115,
+      "rarity": "prismatic",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "말랑 찰싹 손",
+      "nameEn": "Squishy Slappy Grab",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 3.2,
+          "retiredPatch": null,
+          "slug": "squishy-slappy-grab"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2126,
+      "rarity": "gold",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "재장전",
+      "nameEn": "Reload",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": null,
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "unobserved_needs_review",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2127,
+      "rarity": "silver",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "장인의 솜씨",
+      "nameEn": "Forged By The Master",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 33.7,
+          "retiredPatch": null,
+          "slug": "forged-by-the-master"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2134,
+      "rarity": "prismatic",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "방출 역장",
+      "nameEn": "Surge Field",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 3.73,
+          "retiredPatch": null,
+          "slug": "surge-field"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    },
+    {
+      "platform_id": 2137,
+      "rarity": "gold",
+      "is_internal": false,
+      "enabled": true,
+      "in_pool": true,
+      "state": "official_active",
+      "name": "격려하기",
+      "nameEn": "Pat On The Back",
+      "observations": {
+        "16.21.5": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.1": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.2": {
+          "present": 0,
+          "positive": 0
+        },
+        "16.22.3": {
+          "present": 0,
+          "positive": 0
+        }
+      },
+      "public": {
+        "26.20": {
+          "pickRate": 3.71,
+          "retiredPatch": "26.13",
+          "slug": "pat-on-the-back"
+        },
+        "26.21": null,
+        "26.22": null
+      },
+      "classification": "suspected_interruption",
+      "mayhemMetaObserved": false
+    }
+  ],
+  "limitations": [
+    "16.22.3 covers only 158 of 173 champions.",
+    "Absent aggregate rows do not prove zero games or global unavailability.",
+    "Missing rows are not official removal announcements.",
+    "The public sites may share upstream data."
+  ]
+}

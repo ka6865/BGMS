@@ -4,7 +4,7 @@ import { useEffect, useState, type SyntheticEvent } from "react";
 import Link from "next/link";
 import { CircleHelp, MessageCircle, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 import type { LolChampion } from "@/lib/lol/champions";
-import { LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments, type LolAugmentRarity, type LolMayhemCatalog } from "@/lib/lol/augments/catalog";
+import { allLolMayhemAugments, LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments, type LolAugmentRarity, type LolMayhemCatalog } from "@/lib/lol/augments/catalog";
 import { MAYHEM_TIP_LIMITS, type MayhemTip, type MayhemTipComment, type MayhemTipItem, type MayhemTipKind, type MayhemTipSort } from "@/lib/lol/mayhemTips";
 import { mayhemTipPath } from "@/lib/lol/mayhemSeo";
 import { AugmentIcon, ChampionPicker } from "./LolMayhemArchive";
@@ -46,9 +46,9 @@ function TipForm({ champions, version, catalog, items, initial = null, presetKin
   const [anonymous, setAnonymous] = useState(initial?.anonymous ?? false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const augmentMap = new Map(catalog.augments.map(a => [a.id, a]));
+  const augmentMap = new Map(allLolMayhemAugments(catalog).map(a => [a.id, a]));
   const itemMap = new Map(items.map(i => [i.id, i]));
-  const augmentChoices = filterLolMayhemAugments(catalog.augments, augmentQuery, augmentQuery.trim() ? null : rarity, false);
+  const augmentChoices = filterLolMayhemAugments(kind === "question" ? allLolMayhemAugments(catalog) : catalog.augments, augmentQuery, augmentQuery.trim() ? null : rarity, false);
   const itemNeedle = itemQuery.replace(/\s+/g, "");
   const itemChoices = items.filter(item => !itemNeedle || item.name.replace(/\s+/g, "").includes(itemNeedle));
 
@@ -284,7 +284,7 @@ export default function LolMayhemTips({ champions, championVersion = null, catal
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
   const championMap = new Map(champions.map(c => [c.id, c]));
-  const augmentMap = new Map(catalog.augments.map(a => [a.id, a]));
+  const augmentMap = new Map(allLolMayhemAugments(catalog).map(a => [a.id, a]));
   const itemMap = new Map(items.map(i => [i.id, i]));
   const replace = (tip: MayhemTip) => setTips(list => list.map(row => row.id === tip.id ? tip : row));
   useEffect(() => {

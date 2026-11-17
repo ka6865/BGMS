@@ -2,6 +2,8 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import type { MayhemDatasetAdminData, MayhemDatasetRelease, PublicMayhemDataset } from "./mayhemDatasetView";
+import { getMayhemAvailabilityOverride } from "./mayhemAvailability";
+import { allLolMayhemAugments } from "./augments/catalog";
 import { getCachedLolAugmentCatalog } from "./augments/catalog.server";
 import { mappingSources, type MappingPreview } from "./mayhemMappingReview";
 import { compareReferencePatches } from "./mayhemReference";
@@ -62,7 +64,7 @@ export async function getMayhemMappingPreview(id: number): Promise<MappingPrevie
   return {
     releaseId: id, sources,
     patches: catalogs.map(({ patch, catalog }) => ({ patch, purpose: patches.length === 1 ? "선택률·추천 조합" : patch === release.verified_client_patch ? "추천 조합" : "전체 선택률",
-      externalIds: sources.filter(row => patches.length === 1 || !row.uses.length || row.uses.includes(patch === release.verified_client_patch ? "combos" : "rates")).map(row => row.externalId), augments: catalog?.view.augments ?? [] })),
+      externalIds: sources.filter(row => patches.length === 1 || !row.uses.length || row.uses.includes(patch === release.verified_client_patch ? "combos" : "rates")).map(row => row.externalId), augments: catalog ? allLolMayhemAugments(catalog.view) : [] })),
     mappings: data.mappings.map(({ external_id, client_patch, platform_id, status }) => ({ external_id, client_patch, platform_id, status })),
   };
 }
@@ -132,5 +134,10 @@ export async function getPublicMayhemDataset(patch: string): Promise<PublicMayhe
   const publication = (await getMayhemDatasetPublications()).filter(row => compareReferencePatches(row.client_patch, patch) >= 0)
     .sort((a, b) => compareReferencePatches(a.client_patch, b.client_patch))[0];
   if (!publication) return null;
-  return { patch: publication.client_patch, publishedAt: publication.published_at, ...await getPayload(publication.release_id) };
+  const payload = await getPayload(publication.release_id);
+  const available = (id: number) => !getMayhemAvailabilityOverride(patch, id);
+  return { ...payload, patch: publication.client_patch, publishedAt: publication.published_at,
+    rates: payload.rates.filter(row => available(row.augmentId)),
+    combos: payload.combos.filter(row => row.augmentIds.every(available)),
+  };
 }

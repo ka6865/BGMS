@@ -18,7 +18,7 @@ beforeEach(()=>{
  mocks.db.mockReturnValue({rpc:mocks.rpc,from:mocks.from,storage:{from:()=>({upload:mocks.upload,download:mocks.download})}});
  vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({data:{Twitch:{key:'29'},Lux:{key:'99'}}}))));
 });
-afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();});
+afterEach(()=>{vi.useRealTimers();vi.unstubAllEnvs();vi.unstubAllGlobals();});
 describe('챔피언 통계 수집 운영 경계',()=>{
  it('키·쓰기 설정 누락은 네트워크와 DB 호출 전에 차단한다',async()=>{
   vi.stubEnv('LOL_MAYHEM_STATS_API_KEY','');await expect(ingestChampionDataset({apply:false})).rejects.toThrow('stats_api_key_missing');expect(mocks.config).not.toHaveBeenCalled();expect(mocks.db).not.toHaveBeenCalled();
@@ -57,5 +57,55 @@ describe('챔피언 통계 수집 운영 경계',()=>{
  it('원본 버전 혼합과 저장 실패는 후보 생성을 차단한다',async()=>{
   mocks.config.mockResolvedValueOnce(version).mockResolvedValue({...version,dataVersion:'16.21.6'});await expect(ingestChampionDataset({apply:true})).rejects.toThrow('source_version_mismatch');expect(mocks.candidate).not.toHaveBeenCalled();
   mocks.config.mockResolvedValue(version);mocks.upload.mockResolvedValue({error:{statusCode:'500'}});await expect(ingestChampionDataset({apply:true})).rejects.toThrow('stats_storage_error');expect(mocks.candidate).not.toHaveBeenCalled();
+ });
+});
+
+describe('제한 시간 전 checkpoint 재개',()=>{
+ function snapshots(){
+  const objects=new Map<string,string>();
+  mocks.upload.mockImplementation(async(path:string,body:string)=>{objects.set(path,body);return{error:null};});
+  mocks.download.mockImplementation(async(path:string)=>objects.has(path)?{data:new Blob([objects.get(path)!]),error:null}:{data:null,error:{status:404}});
+  return objects;
+ }
+ it('저장된 챔피언 단위로 정상 중단하고 남은 챔피언만 이어받는다',async()=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-17T00:00:00Z'));
+  const objects=snapshots(),upload=mocks.upload.getMockImplementation()!;
+  mocks.upload.mockImplementation(async(path:string,body:string)=>{const result=await upload(path,body);if(path.includes('/progress/'))vi.setSystemTime(Date.now()+480_001);return result;});
+  expect(await ingestChampionDataset({apply:true})).toMatchObject({status:'deferred_time',champions:1,totalChampions:2,upstreamVersion:'16.21.5',patch:'16.21'});
+  expect(mocks.candidate).not.toHaveBeenCalled();
+  expect([...objects.keys()].filter(path=>path.includes('/progress/'))).toHaveLength(1);
+  const saved=mocks.upsert.mock.calls.at(-1)![0];
+  expect(saved).toMatchObject({last_error_code:null,consecutive_failures:0,counts:{completed:false,status:'deferred_time',champions:1,totalChampions:2,upstreamVersion:'16.21.5'}});
+  expect(saved).not.toHaveProperty('last_success_at');expect(saved).not.toHaveProperty('last_fetch_succeeded_at');
+  expect(mocks.rpc).toHaveBeenLastCalledWith('release_lol_collection_lease',{p_key:'ops:lol-mayhem-champion:champion_api_v1',p_token:'token'});
+  mocks.upload.mockImplementation(upload);mocks.champion.mockClear();
+  expect(await ingestChampionDataset({apply:true})).toMatchObject({status:'awaiting_review',champions:2});
+  expect(mocks.champion.mock.calls.map(call=>call[0])).toEqual([99]);
+ });
+ it('마지막 챔피언이 모두 저장됐으면 soft deadline을 넘어도 최종 검증을 마친다',async()=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-17T00:00:00Z'));
+  snapshots();const upload=mocks.upload.getMockImplementation()!;let checkpoints=0;
+  mocks.upload.mockImplementation(async(path:string,body:string)=>{const result=await upload(path,body);if(path.includes('/progress/')&&++checkpoints===2)vi.setSystemTime(Date.now()+480_001);return result;});
+  expect(await ingestChampionDataset({apply:true})).toMatchObject({status:'awaiting_review',champions:2});expect(mocks.candidate).toHaveBeenCalledOnce();
+ });
+ it('checkpoint 저장 실패를 정상 중단으로 감추지 않는다',async()=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-17T00:00:00Z'));
+  snapshots();const upload=mocks.upload.getMockImplementation()!;
+  mocks.upload.mockImplementation(async(path:string,body:string)=>{if(path.includes('/progress/')){vi.setSystemTime(Date.now()+480_001);return{error:{statusCode:'500'}};}return upload(path,body);});
+  await expect(ingestChampionDataset({apply:true})).rejects.toThrow('stats_storage_error');expect(mocks.candidate).not.toHaveBeenCalled();
+  expect(mocks.upsert.mock.calls.at(-1)![0]).toMatchObject({last_error_code:'stats_storage_error',consecutive_failures:1});
+ });
+ it('정상 중단 전에 원본 버전이 바뀌면 실패로 기록한다',async()=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-17T00:00:00Z'));
+  snapshots();const upload=mocks.upload.getMockImplementation()!;
+  mocks.upload.mockImplementation(async(path:string,body:string)=>{const result=await upload(path,body);if(path.includes('/progress/'))vi.setSystemTime(Date.now()+480_001);return result;});
+  mocks.config.mockResolvedValueOnce(version).mockResolvedValue({...version,dataVersion:'16.21.6'});
+  await expect(ingestChampionDataset({apply:true})).rejects.toThrow('source_version_mismatch');expect(mocks.candidate).not.toHaveBeenCalled();
+ });
+ it('하드 제한을 넘은 요청은 계속 실패로 처리한다',async()=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-11-17T00:00:00Z'));
+  const champion=mocks.champion.getMockImplementation()!;
+  mocks.champion.mockImplementation(async(id:number)=>{vi.setSystemTime(Date.now()+540_001);return champion(id);});
+  await expect(ingestChampionDataset({apply:true})).rejects.toThrow('stats_sync_deadline');expect(mocks.candidate).not.toHaveBeenCalled();
  });
 });
