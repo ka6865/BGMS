@@ -24,6 +24,8 @@ export default function GtaExplorer() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [progress, setProgress] = useState<Progress>({ version: 1, favorites: [], visited: [] });
+  const progressRef = useRef(progress);
+  const storageFailed = useRef(false);
   const [progressReady, setProgressReady] = useState(false);
   const [storageError, setStorageError] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
@@ -40,9 +42,23 @@ export default function GtaExplorer() {
   }, [attempt]);
 
   useEffect(() => {
-    try { setProgress(parseProgress(localStorage.getItem(STORAGE_KEY))); }
-    catch { setStorageError(true); }
+    try {
+      const current = parseProgress(localStorage.getItem(STORAGE_KEY));
+      progressRef.current = current;
+      setProgress(current);
+    } catch { storageFailed.current = true; setStorageError(true); }
     setProgressReady(true);
+    function syncProgress(event: StorageEvent) {
+      if (storageFailed.current || (event.key !== STORAGE_KEY && event.key !== null)) return;
+      try {
+        if (event.storageArea !== localStorage) return;
+        const current = parseProgress(localStorage.getItem(STORAGE_KEY));
+        progressRef.current = current;
+        setProgress(current);
+        setStorageError(false);
+      } catch { storageFailed.current = true; setStorageError(true); }
+    }
+    window.addEventListener("storage", syncProgress);
     function readHash() {
       const id = window.location.hash.slice(1);
       setSelectedId(/^L[1-9]\d*$/.test(id) ? id : null);
@@ -50,7 +66,10 @@ export default function GtaExplorer() {
     }
     readHash();
     window.addEventListener("hashchange", readHash);
-    return () => window.removeEventListener("hashchange", readHash);
+    return () => {
+      window.removeEventListener("storage", syncProgress);
+      window.removeEventListener("hashchange", readHash);
+    };
   }, []);
 
   const favorites = useMemo(() => new Set(progress.favorites), [progress.favorites]);
@@ -76,11 +95,27 @@ export default function GtaExplorer() {
     change(); setLimit(60); if (selectedId) select(null);
   }
   function toggleSaved(key: "favorites" | "visited", id: string) {
-    const ids = progress[key];
-    const next = { ...progress, [key]: ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id] };
-    setProgress(next);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); setStorageError(false); }
-    catch { setStorageError(true); }
+    const applyToggle = () => {
+      let current = progressRef.current;
+      if (!storageFailed.current) {
+        try { current = parseProgress(localStorage.getItem(STORAGE_KEY)); }
+        catch { storageFailed.current = true; setStorageError(true); }
+      }
+      const ids = current[key];
+      const next = { ...current, [key]: ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id] };
+      progressRef.current = next;
+      setProgress(next);
+      if (!storageFailed.current) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); }
+        catch { storageFailed.current = true; setStorageError(true); }
+      }
+    }
+    if (navigator.locks) {
+      let applied = false;
+      void navigator.locks.request(STORAGE_KEY, () => { applied = true; applyToggle(); }).catch(() => {
+        if (!applied) applyToggle();
+      });
+    } else applyToggle();
   }
   async function share() {
     if (!selected) return;
@@ -91,11 +126,11 @@ export default function GtaExplorer() {
   }
 
   return <>
-    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      <section aria-label="레오니다 지도" className="relative min-h-[200px] flex-1 lg:order-2">
+    <div className={`flex min-h-0 flex-1 flex-col lg:flex-row ${styles.explorer}`}>
+      <section aria-label="레오니다 지도" className={`relative min-h-[200px] flex-1 lg:order-2 ${styles.mapPanel}`}>
         <GtaMap places={filtered} selected={selected} visited={visited} onSelect={select} />
       </section>
-      <aside aria-label="장소 탐색" className={`flex h-[46dvh] min-h-[260px] shrink-0 flex-col border-t border-white/10 bg-zinc-950 lg:order-1 lg:h-auto lg:min-h-0 lg:w-[360px] lg:border-r lg:border-t-0 ${styles.panel}`}>
+      <aside aria-label="장소 탐색" className={`flex h-[46dvh] min-h-[260px] shrink-0 flex-col border-t border-white/10 bg-zinc-950 lg:order-1 lg:h-auto lg:min-h-0 lg:w-[360px] lg:border-r lg:border-t-0 ${styles.panel} ${styles.listPanel}`}>
         {!selected && <div className="shrink-0 px-4 pb-3 pt-4">
           <div className="mb-3 flex items-baseline justify-between gap-3">
             <h1 className="text-lg font-bold tracking-tight">레오니다 탐색</h1>
