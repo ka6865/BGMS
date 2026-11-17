@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Check, CheckCheck, ChevronRight, MapPin, Search, Share2, Star, X } from "lucide-react";
 import { CATEGORIES, filterLandmarks, parseLandmarks, parseProgress, STORAGE_KEY, type Category, type Landmark, type Progress } from "@/lib/gta6/map";
 import manifest from "@/public/gta6/manifest.json";
@@ -67,11 +67,11 @@ export default function GtaExplorer() {
   }, [places]);
   const savedCount = (set: Set<string>) => (places ?? []).filter(place => set.has(place.id)).length;
 
-  function select(id: string | null) {
+  const select = useCallback((id: string | null) => {
     setSelectedId(id);
     setNotice("");
     window.location.hash = id ?? "";
-  }
+  }, []);
   function changeFilters(change: () => void) {
     change(); setLimit(60); if (selectedId) select(null);
   }
@@ -143,7 +143,12 @@ export default function GtaExplorer() {
               <button type="button" className="-ml-2 mb-2 inline-flex min-h-11 items-center gap-1 rounded px-2 text-xs font-semibold text-zinc-300 focus-visible:outline-2 focus-visible:outline-amber-300" onClick={() => select(null)}><ArrowLeft size={15} aria-hidden />장소 목록</button>
               <div className="mb-2 flex items-center gap-2 text-xs text-zinc-300"><span className="h-2 w-2 rounded-full" style={{ background: CATEGORIES[selected.category].color }} />{CATEGORIES[selected.category].label}<span className="text-zinc-400">{selected.id}</span></div>
               <h2 className="break-words text-xl font-bold leading-snug">{selected.name}</h2>
-              <p className="mt-2 break-words text-sm leading-relaxed text-zinc-300">{selected.address}</p>
+              {selected.originalName && selected.originalName !== selected.name && <p lang="en" className="mt-1 break-words text-xs leading-relaxed text-zinc-400">{selected.originalName}</p>}
+              <p className="mt-2 break-words text-sm leading-relaxed text-zinc-300">{selected.displayAddress}</p>
+              {selected.displayAddress !== selected.address && <details className="mt-2 text-xs leading-relaxed text-zinc-400">
+                <summary className="min-h-11 w-fit cursor-pointer rounded py-3 focus-visible:outline-2 focus-visible:outline-amber-300">원문 주소</summary>
+                <p lang="en" className="break-words">{selected.address}</p>
+              </details>}
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button type="button" disabled={!progressReady} aria-pressed={favorites.has(selected.id)} onClick={() => toggleSaved("favorites", selected.id)}
                   className={`${button} ${favorites.has(selected.id) ? "bg-amber-300 text-zinc-950" : "bg-zinc-800 text-zinc-100"} disabled:opacity-50`}>
@@ -172,7 +177,7 @@ export default function GtaExplorer() {
                 {filtered.slice(0, limit).map(place => <li key={place.id} className="border-t border-white/5">
                   <button type="button" onClick={() => select(place.id)} className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left hover:bg-zinc-900 focus-visible:bg-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-amber-300">
                     <MapPin size={17} aria-hidden className="shrink-0" style={{ color: CATEGORIES[place.category].color }} />
-                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{place.name}</span><span className="mt-1 block truncate text-xs text-zinc-400">{place.id} · {CATEGORIES[place.category].label} · {place.address.replace(/^[^,]*,?\s*/, "")}</span></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{place.name}</span><span className="mt-1 block truncate text-xs text-zinc-400">{place.id} · {CATEGORIES[place.category].label} · {place.displayAddress.replace(/^[^,]*,?\s*/, "")}</span></span>
                     {favorites.has(place.id) && <Star size={13} className="shrink-0 text-amber-300" aria-label="즐겨찾기" fill="currentColor" />}
                     {visited.has(place.id) && <Check size={15} className="shrink-0 text-emerald-200" aria-label="방문 완료" />}
                     <ChevronRight size={15} aria-hidden className="shrink-0 text-zinc-500" />
@@ -188,7 +193,7 @@ export default function GtaExplorer() {
       <span className="text-zinc-300">커뮤니티 추정 지도 · 공식 지도 아님</span><span className="mx-2">·</span>
       <a href={manifest.source} target="_blank" rel="noreferrer" className="underline underline-offset-2">gtadb.org and all contributors</a>{" · "}
       <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" className="underline underline-offset-2">CC BY 4.0</a>
-      <span className="ml-2">자료 {manifest.importedAt} · 한국어 검색어 추가</span>
+      <span className="ml-2">자료 {manifest.importedAt} · 한국어 비공식 표기·영문 검색 지원</span>
       <span className="hidden xl:inline"> · Rockstar Games 및 Take-Two Interactive와 관련 없는 팬 서비스입니다.</span>
     </footer>
   </>;

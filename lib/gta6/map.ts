@@ -1,3 +1,7 @@
+import { KOREAN_NAMES_BY_ID, KOREAN_NAMES_BY_TEXT, MAP_REGIONS, REGION_TRANSLATIONS } from "@/lib/gta6/ko";
+
+export { MAP_REGIONS };
+
 export const CATEGORIES = {
   all: { label: "전체 장소", color: "#efb64b" },
   hotel: { label: "호텔", color: "#de9fba" },
@@ -23,7 +27,9 @@ export type Category = keyof typeof CATEGORIES;
 export type Landmark = {
   id: string;
   name: string;
+  originalName: string;
   address: string;
+  displayAddress: string;
   coordinates: [number, number];
   realAddress: string;
   category: Category;
@@ -35,19 +41,6 @@ export const STORAGE_KEY = "bgms:gta6:progress:v1";
 export const TILE_BOUNDS: [[number, number], [number, number]] = [[-25600, 5376], [-5376, 26624]];
 export const MAP_BOUNDS: [[number, number], [number, number]] = [TILE_BOUNDS[0], [-5376, 19884]];
 const validId = /^L[1-9]\d*$/;
-
-const regions: Record<string, string> = {
-  "Vice City": "바이스 시티", "Vice Beach": "바이스 비치", "Ocean Beach": "오션 비치",
-  "Washington Beach": "워싱턴 비치", "Port Gellhorn": "포트 겔혼", "Key Lento": "키 렌토",
-  "Leonida Keys": "레오니다 키스", "Leonida": "레오니다", "Crosstown": "크로스타운",
-  "Ambrosia": "앰브로시아", "Grassrivers": "그래스리버스", "Mount Kalaga": "칼라가 산",
-  "Kelly County": "켈리 카운티", "Lummox County": "러먹스 카운티", "Hamlet": "햄릿",
-};
-const names: Record<string, string> = {
-  L16: "Y 바이스 시티", L17: "크리스털", L20: "디 아톨", L25: "도미니언 호텔",
-  L101: "바이스 비치 환영 벽화", L172: "잭 오브 하츠", L266: "제이슨의 집",
-  L308: "알파 주유소", L317: "보카마르 다리", L360: "사라의 미용실", L530: "칼라가 산",
-};
 
 export function parseLandmarks(input: unknown): Landmark[] {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("장소 데이터 형식 오류");
@@ -62,11 +55,15 @@ export function parseLandmarks(input: unknown): Landmark[] {
     const tags: string[] = row[6];
     const category = tags.find((tag): tag is Category => tag !== "all" && Object.hasOwn(CATEGORIES, tag)) ?? "other";
     const originalName = row[0].split(",")[0].trim();
-    const name = names[id] ?? (originalName && !originalName.startsWith("?") ? originalName : `이름 미확인 · ${CATEGORIES[category].label}`);
-    const aliases = Object.entries(regions).filter(([english]) => row[0].includes(english)).map(([, korean]) => korean);
-    return [{ id, name, address: row[0], coordinates: row[1] as [number, number], realAddress: row[3], category,
+    const translatedName = KOREAN_NAMES_BY_ID[id] ?? (Object.hasOwn(KOREAN_NAMES_BY_TEXT, originalName) ? KOREAN_NAMES_BY_TEXT[originalName] : undefined);
+    const name = translatedName ??
+      (originalName && !originalName.startsWith("?") ? originalName : `이름 미확인 · ${CATEGORIES[category].label}`);
+    const addressParts = row[0].split(",").map(part => Object.hasOwn(REGION_TRANSLATIONS, part.trim()) ? REGION_TRANSLATIONS[part.trim()] : part.trim());
+    if (translatedName) addressParts[0] = translatedName;
+    const displayAddress = addressParts.join(", ");
+    return [{ id, name, originalName, address: row[0], displayAddress, coordinates: row[1] as [number, number], realAddress: row[3], category,
       unconfirmed: tags.includes("unconfirmed"),
-      search: [id, name, row[0], CATEGORIES[category].label, ...aliases].join(" ").toLocaleLowerCase("ko-KR") }];
+      search: [id, name, originalName, row[0], displayAddress, CATEGORIES[category].label].join(" ").toLocaleLowerCase("ko-KR") }];
   });
 }
 
