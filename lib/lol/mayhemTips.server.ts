@@ -80,11 +80,19 @@ export async function createMayhemTip(userId: string, patch: string, input: Mayh
 }
 
 // 본인 제보만 고친다. 숨김 처리된 제보는 고칠 수 없다.
-export async function updateMayhemTip(userId: string, id: number, input: MayhemTipInput): Promise<MayhemTip | null> {
-  const { data, error } = await createServiceRoleSupabase().from(table).update({ ...fields(input), updated_at: new Date().toISOString() })
-    .eq("id", id).eq("user_id", userId).eq("status", "published").select(columns).abortSignal(signal()).maybeSingle();
+export async function updateMayhemTip(userId: string, id: number, input: MayhemTipInput, retainedAugmentIds: number[]): Promise<MayhemTip | "invalid_augment" | null> {
+  const db = createServiceRoleSupabase();
+  const query = db.from(table).update({ ...fields(input), updated_at: new Date().toISOString() })
+    .eq("id", id).eq("user_id", userId).eq("status", "published");
+  // 이미 빠진 증강을 이전 탭에서 다시 저장하거나 질문을 조합으로 바꿔 우회하지 못하게 한다.
+  if (retainedAugmentIds.length) query.eq("kind", "tip").contains("augment_ids", retainedAugmentIds);
+  const { data, error } = await query.select(columns).abortSignal(signal()).maybeSingle();
   if (error) throw new Error("mayhem_tips_unavailable");
-  return data ? (await toTips([data as Row], userId))[0] : null;
+  if (data) return (await toTips([data as Row], userId))[0];
+  if (!retainedAugmentIds.length) return null;
+  const existing = await db.from(table).select("id").eq("id", id).eq("user_id", userId).eq("status", "published").abortSignal(signal()).maybeSingle();
+  if (existing.error) throw new Error("mayhem_tips_unavailable");
+  return existing.data ? "invalid_augment" : null;
 }
 
 export async function deleteMayhemTip(userId: string, id: number): Promise<boolean> {

@@ -14,6 +14,7 @@ const unavailable = () => reply({ error: "조합 제보를 처리하지 못했�
 const tipsEnabled = () => process.env.LOL_MAYHEM_TIPS_ENABLED === "true";
 const notFound = () => reply({ error: "요청한 자료를 찾을 수 없습니다." }, 404);
 const loginRequired = () => reply({ error: "로그인 후 이용할 수 있습니다." }, 401);
+const invalidChoices = () => reply({ error: "현재 패치에 없는 챔피언·증강·아이템이 있습니다." }, 400);
 
 // 제보는 현재 증강 도감 패치에만 쌓는다.
 async function currentPatch() {
@@ -27,17 +28,20 @@ async function readJson(request: Request): Promise<unknown | Response> {
 }
 
 // 형식·비속어·현재 패치 목록을 차례로 확인하고, 통과하면 제보와 패치를 돌려준다.
-async function validTip(body: unknown): Promise<{ input: MayhemTipInput; patch: string } | Response> {
+async function validTip(body: unknown, editing = false): Promise<{ input: MayhemTipInput; patch: string; retainedAugmentIds: number[] } | Response> {
   const input = parseMayhemTipInput(body);
   if (!input) return reply({ error: "증강(질문은 선택) 6개 이하, 아이템 6개 이하, 제목 2~60자로 입력해 주세요." }, 400);
   if (checkProfanity(`${input.summary} ${input.usage}`).blocked) return reply({ error: "부적절한 표현이 포함되어 있습니다." }, 400);
   const [catalog, champions] = await Promise.all([currentPatch(), getLolChampions()]);
   if (!catalog || !champions) return unavailable();
   const items = await getMayhemTipItems(champions.version);
-  const augments = new Set((input.kind === "question" ? allLolMayhemAugments(catalog) : catalog.augments).map(a => a.id)), itemIds = new Set(items.map(i => i.id));
-  if (input.augmentIds.some(id => !augments.has(id)) || input.itemIds.some(id => !itemIds.has(id))
-    || (input.championId !== null && !champions.champions.some(c => c.id === input.championId))) return reply({ error: "현재 패치에 없는 챔피언·증강·아이템이 있습니다." }, 400);
-  return { input, patch: catalog.clientPatch };
+  const augments = new Set((input.kind === "question" ? allLolMayhemAugments(catalog) : catalog.augments).map(a => a.id));
+  const retainedAugmentIds = input.augmentIds.filter(id => !augments.has(id));
+  const itemIds = new Set(items.map(i => i.id));
+  if (retainedAugmentIds.some(id => !editing || !catalog.unavailable?.some(a => a.id === id))
+    || input.itemIds.some(id => !itemIds.has(id))
+    || (input.championId !== null && !champions.champions.some(c => c.id === input.championId))) return invalidChoices();
+  return { input, patch: catalog.clientPatch, retainedAugmentIds };
 }
 
 export async function GET(request: Request) {
@@ -84,9 +88,10 @@ export async function PATCH(request: Request) {
   const id = parseMayhemTipId((body as { id?: unknown } | null)?.id);
   if (!id) return reply({ error: "고칠 제보를 찾을 수 없습니다." }, 400);
   try {
-    const valid = await validTip(body);
+    const valid = await validTip(body, true);
     if (valid instanceof Response) return valid;
-    const tip = await updateMayhemTip(auth.user.id, id, valid.input);
+    const tip = await updateMayhemTip(auth.user.id, id, valid.input, valid.retainedAugmentIds);
+    if (tip === "invalid_augment") return reply({ error: "등장 중단 추정 증강은 기존 조합에 있던 경우만 유지할 수 있습니다." }, 400);
     return tip ? reply({ tip }) : reply({ error: "본인이 쓴 제보만 고칠 수 있습니다." }, 404);
   } catch { return unavailable(); }
 }
