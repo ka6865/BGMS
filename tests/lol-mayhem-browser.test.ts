@@ -56,7 +56,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
   let server: Server; let browser: Browser; let base: string;
   beforeAll(async () => {
     const client = await build({ bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic", tsconfig: "tsconfig.json",
-      define: { "process.env.NODE_ENV": '"production"' },
+      define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
       stdin: { loader: "tsx", resolveDir: process.cwd(), contents: `
         import { hydrateRoot } from 'react-dom/client'; import View from './components/lol/LolMayhemView';
         import Admin from './app/admin/lol/mayhem-datasets/MayhemDatasetReviewPanel';
@@ -700,7 +700,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     await page.setRequestInterception(true);page.on("request",r=>r.url().startsWith(base)?void r.continue():void r.abort());
     const press=(label:string)=>page.$$eval('button',(buttons,text)=>(buttons as HTMLButtonElement[]).find(b=>b.textContent?.trim().startsWith(text))!.click(),label);
     await page.goto(`${base}/availability`,{waitUntil:"networkidle0"});
-    await press("전체 증강 도감");await page.waitForSelector('[aria-label="증강 목록"]');
+    await press("전체 증강 도감");
+    await page.waitForSelector('[aria-label="증강 목록"]');
     expect(await page.$eval('[aria-label="증강 목록"]',n=>n.textContent)).not.toContain("영혼 폭탄");
     await press("조합·증강 상태");await page.waitForSelector('[aria-label="보존 조합 목록"]');
     await press("증강 상태");await page.waitForSelector('[aria-label="보존 증강 목록"]');
