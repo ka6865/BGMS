@@ -1,12 +1,20 @@
 GTA VI map tiles and landmark data
 Source: https://github.com/rolux/gtadb.org
+Copyright (C) 2025-2026 GTADB.ORG and contributors
 Attribution: gtadb.org and all contributors
+Map artwork: YANIS v17, Yanis and the GTA VI Mapping Community
+GTA VI Landmarks Data (CC BY 4.0) — https://map.gtadb.org
+GTA VI Map Tiles (CC BY 4.0) — https://map.gtadb.org
 License: Creative Commons Attribution 4.0 International
 https://creativecommons.org/licenses/by/4.0/
 
 The files in landmarks.json and tiles/yanis-17 are unmodified upstream assets.
 Commit and integrity information: manifest.json
-BGMS translates categories and adds search aliases separately.
+BGMS separately adds unofficial Korean names, addresses, categories, search aliases and region labels.
 This is a community reconstruction and includes approximate, unverified positions.
 BGMS is not affiliated with Rockstar Games or Take-Two Interactive.
 BGMS clips the displayed map area to omit the original legend; game coordinates are retained.
+
+Upstream license notice is preserved verbatim in LICENSE-DATA.
+Pinned notice: https://github.com/rolux/gtadb.org/blob/5c1d69ff864623d181da5457afaacd00b623e1a4/LICENSE-DATA
+The upstream license does not establish permissions for independently owned third-party game imagery, trademarks or other rights.

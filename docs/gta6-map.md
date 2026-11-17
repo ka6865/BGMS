@@ -10,9 +10,11 @@
 - 장소: `map/data/6/landmarks.json` → `public/gta6/landmarks.json`, 3,431개 중 좌표가 있는 3,340개 표시
 - 출처·해시·수량: `public/gta6/manifest.json`
 - 원본 타일과 JSON은 내용 변경 없이 보관한다. 한국어 이름·주소 사전과 표시용 지역 좌표는 `lib/gta6/ko.ts`, 검색·분류·원본/표시 필드 구성은 `lib/gta6/map.ts`에서 관리한다.
-- 데이터/타일: CC BY 4.0, `gtadb.org and all contributors`. 라이선스 안내: `public/gta6/LICENSE.txt`.
+- 데이터/타일: 원본 저장소는 CC BY 4.0으로 제공한다. `gtadb.org and all contributors`, YANIS v17 및 커뮤니티 출처를 표시한다. 라이선스 안내: `public/gta6/LICENSE.txt`, 가져온 commit의 원문 고지: `public/gta6/LICENSE-DATA`.
 
 원본 사이트에 라이브 요청하거나 핫링크하지 않는다. 외부 사진은 배포하지 않는다. 지역/건물의 위치·명칭·현실 대응은 확정된 게임 정보가 아니며, `unconfirmed` 태그는 현실 매칭 미확인으로 표시한다. 좌표가 없으면 마커와 검색 목록에서 제외한다.
+
+원본 README는 데이터를 Git으로 복제해 재사용하도록 명시한다. CC BY 4.0은 상업적 복제·수정도 허용하되 출처, 라이선스 링크, 변경사항 표시 등을 요구한다. 우리 화면은 출처·라이선스를 표시하고 한국어 표기·지역 레이블·표시 영역 크롭을 별도로 적용한다. 다만 저장소의 라이선스 선언이 Rockstar 또는 별도 제3자 권리자의 권리까지 확보했다는 보증은 아니다. GTADB.net 자체 편집 데이터·UI와 외부 사진은 가져오지 않았다.
 
 ## 좌표와 타일
 
