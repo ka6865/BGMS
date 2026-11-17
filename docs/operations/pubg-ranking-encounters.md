@@ -10,6 +10,12 @@
 - 상대 공식 경쟁전 티어 및 해당 경기 모드의 시즌 평균 피해량을 표시한다. BGMS 성과 등급과 공식 티어는 다른 값이다. 없는 기록은 0으로 추정하지 않는다.
 - 랭킹 화면은 제목·탭·필터를 먼저 표시한 뒤 선택한 탭만 `/api/rankings`로 조회한다. 조회 중에는 로딩 표시, 실패하면 재시도 버튼을 보여주며 이전 필터의 늦은 응답은 표시하지 않는다. 탭을 다시 열 때도 새로 조회한다.
 
+## 랭킹 검색 수집 계약
+
+- `/rankings` 본문 렌더링에 필요한 공개 `/api/rankings`만 robots.txt의 `/api` 차단에서 예외로 허용한다. `Allow: /api/rankings$`는 쿼리 없는 정확한 경로, `Allow: /api/rankings?`는 필터 쿼리를 허용한다. 하위 경로·비슷한 접두사와 다른 API, `/admin`·`/login`·`/map-editor`의 차단은 유지한다. [Google의 경로·쿼리 매칭 및 우선순위 규칙](https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec)을 따른다.
+- API JSON 자체는 `X-Robots-Tag: noindex`로 검색 결과에서 제외한다. 헤더는 Next.js의 `/api/rankings` 경로 설정으로 모든 응답 상태와 필터 쿼리에 적용하며 `/rankings` 페이지에는 적용하지 않는다. [비 HTML 응답의 색인 제어](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag#using-the-x-robots-tag-http-header)와 본문 리소스 수집 허용을 구분한다. 공개 필드·비공개 검증·캐시·집계 정책은 기존 계약을 따른다.
+- 배포 후 Search Console 실시간 검사에서 랭킹 API의 robots 차단 해소, 렌더링 HTML의 실제 순위와 `/stats/...` 링크를 다시 확인한다. 로컬 검증만으로 Google의 재수집·색인 완료를 판단하지 않는다.
+
 ## 최초 구현 반영 순서 (2026-09-14 기록)
 
 아래는 최초 구현 당시의 적용 순서다. 이후 운영 DB·계산 버전 반영 결과는 [2026-10-10 계산 공존 검증 결과](2026-10-10-calculation-coexistence-results.md)를 기준으로 확인한다.
