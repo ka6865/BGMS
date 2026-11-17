@@ -152,7 +152,7 @@ describe("LoL 공개 보안 경계", () => {
     expect((await import("@/app/lol/layout")).metadata.robots).toEqual({ index: false, follow: false });
   });
 
-  it.each(["/lol", "/lol/kr", "/lol/kr/홍길동-KR1"])("프로덕션 %s 레이아웃에서 광고 스크립트·슬롯과 사이트 공통 푸터를 렌더링하지 않는다", async (path) => {
+  it.each(["/lol", "/lol/kr", "/lol/kr/홍길동-KR1", "/gta6", "/gta6/sources"])("프로덕션 %s 레이아웃에서 광고 스크립트·슬롯과 사이트 공통 푸터를 렌더링하지 않는다", async (path) => {
     mocks.pathname = path;
     vi.stubEnv("NODE_ENV", "production");
     const { default: Wrapper } = await import("@/components/layout/SidebarFooterWrapper");

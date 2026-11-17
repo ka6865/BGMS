@@ -21,8 +21,9 @@ export default function SidebarFooterWrapper({ children }: { children: React.Rea
   const isSupportPage = pathname === '/support' || pathname.startsWith('/support/');
   const isAdminSupportPage = pathname === '/admin/support' || pathname.startsWith('/admin/support/');
   const isLolPage = pathname === "/lol" || pathname.startsWith("/lol/");
+  const isGtaPage = pathname === "/gta6" || pathname.startsWith("/gta6/");
   // 홈 허브는 내용이 자리 잡을 때까지 광고를 싣지 않는다.
-  const isAdFreePage = pathname === '/' || isAdminToolPage || isSupportPage || isLolPage;
+  const isAdFreePage = pathname === '/' || isAdminToolPage || isSupportPage || isLolPage || isGtaPage;
 
   return (
     <>
@@ -37,7 +38,7 @@ export default function SidebarFooterWrapper({ children }: { children: React.Rea
       </main>
       {/* 지도, 리플레이, 어드민 도구 페이지가 아닐 때만 하단 글로벌 푸터를 노출하여 스크롤 트랩 방지 */}
       {/* 공개 LoL 경로는 LoL 전용 푸터(LolFooter)를 쓴다. */}
-      {!isMapPage && !isReplayPage && !isAdminToolPage && !isLolPage && <Footer />}
+      {!isMapPage && !isReplayPage && !isAdminToolPage && !isLolPage && !isGtaPage && <Footer />}
       {!isAdFreePage && shouldLoadExternalAdScripts(process.env.NODE_ENV) && (
         <Script
           id="adsbygoogle-main-js"

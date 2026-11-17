@@ -47,7 +47,7 @@ export default function BottomNav() {
 
   // 3D 리플레이와 어드민 도구 페이지에서는 하단 탭바를 숨겨 작업 화면을 보장한다.
   // 공개 LoL 경로(/lol)는 PUBG 메뉴 대신 LoL 헤더만 쓴다.
-  if (pathname.startsWith('/replay/') || pathname.startsWith('/admin/') || pathname === '/lol' || pathname.startsWith('/lol/')) {
+  if (pathname.startsWith('/replay/') || pathname.startsWith('/admin/') || pathname === '/lol' || pathname.startsWith('/lol/') || pathname === '/gta6' || pathname.startsWith('/gta6/')) {
     return null;
   }
 

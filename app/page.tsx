@@ -3,8 +3,8 @@ import HomeHub from '@/components/home/HomeHub';
 import { permanentRedirect } from 'next/navigation';
 
 export const metadata: Metadata = {
-  title: { absolute: 'BGMS | 배틀그라운드·리그 오브 레전드 전적과 전술 정보' },
-  description: '배틀그라운드 지도·AI 전적 분석·랭킹과 리그 오브 레전드 증바람 증강 정보를 한곳에서 확인하세요.',
+  title: { absolute: 'BGMS | 배틀그라운드·LoL 게임 정보와 GTA6 지도' },
+  description: '배틀그라운드 지도·AI 전적 분석·랭킹, 리그 오브 레전드 증바람 증강 정보와 GTA6 지도를 한곳에서 확인하세요.',
   alternates: { canonical: '/' },
 };
 

@@ -1,0 +1,11 @@
+GTA VI map tiles and landmark data
+Source: https://github.com/rolux/gtadb.org
+Attribution: gtadb.org and all contributors
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+
+The files in landmarks.json and tiles/yanis-17 are unmodified upstream assets.
+Commit and integrity information: manifest.json
+BGMS translates categories and adds search aliases separately.
+This is a community reconstruction and includes approximate, unverified positions.
+BGMS is not affiliated with Rockstar Games or Take-Two Interactive.
