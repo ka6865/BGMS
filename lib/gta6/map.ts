@@ -33,6 +33,7 @@ export type Landmark = {
 export type Progress = { version: 1; favorites: string[]; visited: string[] };
 export const STORAGE_KEY = "bgms:gta6:progress:v1";
 export const TILE_BOUNDS: [[number, number], [number, number]] = [[-25600, 5376], [-5376, 26624]];
+export const MAP_BOUNDS: [[number, number], [number, number]] = [TILE_BOUNDS[0], [-5376, 19884]];
 const validId = /^L[1-9]\d*$/;
 
 const regions: Record<string, string> = {
@@ -77,6 +78,11 @@ export function filterLandmarks(places: Landmark[], query: string, category: Cat
 // 원본 z=5의 픽셀 좌표를 CRS.Simple의 북쪽 양수 좌표와 맞춘다.
 export function worldToMap([x, y]: [number, number]): [number, number] {
   return [y - 16384, x + 16384];
+}
+
+// 경계에 걸친 타일도 잘라내야 축소·이동 중 원본 설명판이 다시 나타나지 않는다.
+export function tileCropRight(column: number, zoom: number): number {
+  return Math.max(0, Math.min(256, (column + 1) * 256 - MAP_BOUNDS[1][1] * 2 ** zoom));
 }
 
 export function parseProgress(raw: string | null): Progress {

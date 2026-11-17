@@ -5,10 +5,10 @@ import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap, useMapEvents } 
 import { CRS, DomEvent } from "leaflet";
 import { Expand, Minus, Plus } from "lucide-react";
 import "leaflet/dist/leaflet.css";
-import { CATEGORIES, TILE_BOUNDS, worldToMap, type Landmark } from "@/lib/gta6/map";
+import { CATEGORIES, MAP_BOUNDS, tileCropRight, worldToMap, type Landmark } from "@/lib/gta6/map";
 import styles from "./gta6.module.css";
 
-const overviewBounds: [[number, number], [number, number]] = [worldToMap([-11000, -9000]), worldToMap([4500, 10000])];
+const overviewBounds: [[number, number], [number, number]] = [worldToMap([-11000, -9000]), worldToMap([3500, 10000])];
 
 function MapControls({ selected }: { selected: Landmark | null }) {
   const map = useMap();
@@ -61,12 +61,15 @@ export default function GtaMap({ places, selected, visited, onSelect }: {
   const [attempt, setAttempt] = useState(0);
   return <div className={`${styles.map} relative h-full w-full`} data-testid="gta6-map">
     <MapContainer center={worldToMap([-4000, 2000])} zoom={-4} minZoom={-7} maxZoom={2} zoomSnap={0.25}
-      crs={CRS.Simple} maxBounds={TILE_BOUNDS} maxBoundsViscosity={0.8} preferCanvas zoomControl={false}
-      style={{ height: "100%", width: "100%", background: "#31a6b3" }}>
-      <TileLayer key={attempt} url="/gta6/tiles/yanis-17/{z}/{z},{y},{x}.jpg" bounds={TILE_BOUNDS}
+      crs={CRS.Simple} maxBounds={MAP_BOUNDS} maxBoundsViscosity={0.8} preferCanvas zoomControl={false}
+      style={{ height: "100%", width: "100%", background: "#2c66a5" }}>
+      <TileLayer key={attempt} url="/gta6/tiles/yanis-17/{z}/{z},{y},{x}.jpg" bounds={MAP_BOUNDS}
         minZoom={-7} maxZoom={2} minNativeZoom={-5} maxNativeZoom={0} zoomOffset={5} noWrap
         attribution='<a href="https://github.com/rolux/gtadb.org" target="_blank" rel="noreferrer">gtadb.org and all contributors</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>'
-        eventHandlers={{ tileerror: () => setTileError(true) }} />
+        eventHandlers={{
+          tileloadstart: ({ tile, coords }) => { tile.style.clipPath = `inset(0 ${tileCropRight(coords.x, coords.z)}px 0 0)`; },
+          tileerror: () => setTileError(true),
+        }} />
       <PlaceMarkers places={places} selected={selected} visited={visited} onSelect={onSelect} />
       <MapControls selected={selected} />
     </MapContainer>

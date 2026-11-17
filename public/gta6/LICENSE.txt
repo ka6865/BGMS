@@ -9,3 +9,4 @@ Commit and integrity information: manifest.json
 BGMS translates categories and adds search aliases separately.
 This is a community reconstruction and includes approximate, unverified positions.
 BGMS is not affiliated with Rockstar Games or Take-Two Interactive.
+BGMS clips the displayed map area to omit the original legend; game coordinates are retained.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import raw from "@/public/gta6/landmarks.json";
 import manifest from "@/public/gta6/manifest.json";
 import { readdirSync, existsSync } from "node:fs";
-import { filterLandmarks, parseLandmarks, parseProgress, TILE_BOUNDS, worldToMap } from "@/lib/gta6/map";
+import { filterLandmarks, MAP_BOUNDS, parseLandmarks, parseProgress, tileCropRight, TILE_BOUNDS, worldToMap } from "@/lib/gta6/map";
 
 describe("GTA6 지도 데이터", () => {
   it("고정 원본의 좌표 있는 장소만 불러오고 한국어·영어·ID로 검색한다", () => {
@@ -40,6 +40,19 @@ describe("GTA6 지도 데이터", () => {
       [-(Math.max(...rows) + 1) * 256, Math.min(...columns) * 256],
       [-Math.min(...rows) * 256, (Math.max(...columns) + 1) * 256],
     ]);
+  });
+
+  it("오른쪽 설명판을 모든 줌에서 잘라내되 장소 좌표는 모두 남긴다", () => {
+    const east = worldToMap([3500, 0])[1];
+    expect(MAP_BOUNDS[1][1]).toBe(east);
+    expect(parseLandmarks(raw).every(place => worldToMap(place.coordinates)[1] < east)).toBe(true);
+    for (let z = -5; z <= 0; z++) {
+      const edge = east * 2 ** z;
+      const column = Math.floor(edge / 256);
+      expect(column * 256 + 256 - tileCropRight(column, z)).toBeCloseTo(edge);
+      expect(tileCropRight(column - 1, z)).toBe(0);
+      expect(tileCropRight(column + 1, z)).toBe(256);
+    }
   });
 
   it("방향만 붙은 미확인 이름을 실제 장소 이름처럼 노출하지 않는다", () => {
