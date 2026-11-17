@@ -1,7 +1,8 @@
+import { getMayhemAvailabilityOverride } from "./mayhemAvailability";
 import type { LolMayhemAugment } from "./augments/catalog";
 import type { MayhemDataset } from "./mayhemDataset";
 import { mappingSources, suggestedMapping, type MappingSource } from "./mayhemMappingReview";
-import { MAYHEM_AVAILABILITY_LABELS, availabilityCounts, comboAvailability, parseMayhemArchive, type ArchiveAugment, type ArchiveSummary, type MayhemArchive, type MayhemAvailability } from "./mayhemArchive";
+import { MAYHEM_AVAILABILITY_LABELS, applyMayhemAvailabilityOverrides, availabilityCounts, comboAvailability, parseMayhemArchive, type ArchiveAugment, type ArchiveSummary, type MayhemAvailability } from "./mayhemArchive";
 import reviewData from "./data/mayhem-augment-review-16.21.json";
 
 export type MayhemOfficialAugment = LolMayhemAugment & { enabled: boolean; inPool: boolean; internal: boolean; state: string };
@@ -12,9 +13,9 @@ const carriedFrom = (m: ReviewedMapping) => { const from = (m.evidence as { carr
 // 이어받은 연결은 사람이 검수한 원래 패치를 기준으로 다시 판정한다.
 export const mappingOriginPatch = (m: ReviewedMapping) => carriedFrom(m) ?? m.client_patch;
 const normalize = (name: string | null) => name?.normalize("NFKC").trim().toLocaleLowerCase("ko") ?? null;
-const officialStatus = (a: MayhemOfficialAugment): MayhemAvailability => a.state === "official_removed" ? "removed" : !a.enabled || a.state === "official_disabled" ? "disabled" : a.inPool && ["official_active", "official_reenabled"].includes(a.state) ? "active" : "unverified";
-const officialRow = (a: MayhemOfficialAugment): ArchiveAugment => ({ key: `official:${a.id}`, officialId: a.id, externalIds: [], name: a.name, nameEn: a.nameEn, sourceName: null,
-  rarity: a.rarity, status: officialStatus(a), removedPatch: null, reason: `공식 카탈로그: ${MAYHEM_AVAILABILITY_LABELS[officialStatus(a)]}`, text: a.text, sourceUrl: null });
+const officialStatus = (a: MayhemOfficialAugment, patch = ""): MayhemAvailability => a.state === "official_removed" ? "removed" : !a.enabled || a.state === "official_disabled" ? "disabled" : a.inPool && ["official_active", "official_reenabled"].includes(a.state) ? getMayhemAvailabilityOverride(patch, a.id)?.status ?? "active" : "unverified";
+const officialRow = (a: MayhemOfficialAugment, patch: string): ArchiveAugment => ({ key: `official:${a.id}`, officialId: a.id, externalIds: [], name: a.name, nameEn: a.nameEn, sourceName: null,
+  rarity: a.rarity, status: officialStatus(a, patch), removedPatch: null, reason: `공식 카탈로그: ${MAYHEM_AVAILABILITY_LABELS[officialStatus(a, patch)]}`, text: a.text, sourceUrl: null });
 
 export function prepareReviewedMayhemDataset<M extends ReviewedMapping>(input: { dataset: MayhemDataset; patch: string; sourcePatch: string; combos: MayhemNumericCombo[]; officials: Record<string, MayhemOfficialAugment[]>; mappings: M[] }) {
   const { dataset, patch, sourcePatch, combos, officials, mappings } = input;
@@ -35,7 +36,7 @@ export function prepareReviewedMayhemDataset<M extends ReviewedMapping>(input: {
       const next = officials[scope].find(a => a.id === inherited.platform_id && !a.internal);
       if (base?.official?.id === inherited.platform_id && next && next.name === base.official.name && next.nameEn === base.official.nameEn && next.rarity === base.official.rarity) {
         if (inherited === prior) carried.push({ from: inherited, client_patch: scope });
-        return { key: `official:${next.id}`, status: officialStatus(next), official: next, source: s, reason: `${origin} 검수 연결을 이어받음(같은 ID·이름·등급)`, removedPatch: null, url: base.url };
+        return { key: `official:${next.id}`, status: officialStatus(next, scope), official: next, source: s, reason: `${origin} 검수 연결을 이어받음(같은 ID·이름·등급)`, removedPatch: null, url: base.url };
       }
       if (inherited !== prior) return { key: `external:${s.externalId}`, status: "unverified", official: null, source: s, reason: "이어받은 연결의 공식 증강이 바뀌어 확인 필요", removedPatch: null, url: null };
     }
@@ -55,7 +56,7 @@ export function prepareReviewedMayhemDataset<M extends ReviewedMapping>(input: {
     // 예전 명칭이 현행 한국어 이름과 같더라도 검토된 삭제 기록을 임의 연결하지 않는다.
     if (rule?.status === "removed") return { key: `external:${s.externalId}`, status: "removed", official: null, source: s, reason: `원본 ${rule.retiredPatch} 삭제 기록`, removedPatch: rule.retiredPatch, url: rule.sourceUrl };
     if (official && !s.conflict) {
-      const status = officialStatus(official);
+      const status = officialStatus(official, scope);
       const reviewed = rule && rule.officialId === official.id && rule.officialNameEn === official.nameEn && rule.officialRarity === official.rarity;
       const literal = suggestedMapping(s, officials[scope].filter(a => !a.internal && officialStatus(a) === "active"))?.id === official.id;
       if ((reviewed || literal) && !(status === "active" && !mapping)) return { key: `official:${official.id}`, status, official, source: s,
@@ -65,7 +66,7 @@ export function prepareReviewedMayhemDataset<M extends ReviewedMapping>(input: {
   };
   const current = new Map(sources.map(s => [s.externalId, decide(s, patch)]));
   const rated = sourcePatch === patch ? current : new Map(sources.map(s => [s.externalId, decide(s, sourcePatch)]));
-  const augments = new Map(officials[patch].filter(a => !a.internal).map(a => [ `official:${a.id}`, officialRow(a) ]));
+  const augments = new Map(officials[patch].filter(a => !a.internal).map(a => [ `official:${a.id}`, officialRow(a, patch) ]));
   for (const d of current.values()) {
     if (!augments.has(d.key)) augments.set(d.key, { key: d.key, officialId: null, externalIds: [], name: d.source.name ?? d.source.nameEn ?? d.source.externalId, nameEn: d.source.nameEn, sourceName: null,
       rarity: d.source.rarity, status: d.status, removedPatch: d.removedPatch, reason: d.reason, text: "", sourceUrl: d.url });
@@ -73,11 +74,11 @@ export function prepareReviewedMayhemDataset<M extends ReviewedMapping>(input: {
     row.externalIds.push(d.source.externalId); row.sourceName = d.source.name; row.sourceUrl ??= d.url; row.reason = d.reason;
     if (d.status !== row.status) throw new Error("reviewed_augment_state_conflict");
   }
-  const archive: MayhemArchive = { schemaVersion: 1, patch, augments: [...augments.values()].sort((a, b) => a.name.localeCompare(b.name, "ko")), combos: combos.map(c => ({
+  const archive = applyMayhemAvailabilityOverrides({ schemaVersion: 1, patch, augments: [...augments.values()].sort((a, b) => a.name.localeCompare(b.name, "ko")), combos: combos.map(c => ({
     id: c.comboId, championId: c.championId, augments: c.augmentIds.map(id => current.get(id)!.key), status: comboAvailability(c.augmentIds.map(id => current.get(id)!.status)), types: c.types, sourceUrl: c.sourceUrl,
-  })) };
+  })) });
   parseMayhemArchive(archive, patch);
-  const rates = dataset.rates.filter(r => rated.get(r.externalId)?.status === "active");
+  const rates = dataset.rates.filter(r => rated.get(r.externalId)?.status === "active" && !getMayhemAvailabilityOverride(patch, rated.get(r.externalId)!.official!.id));
   if (new Set(rates.map(r => rated.get(r.externalId)!.official!.id)).size !== rates.length) throw new Error("duplicate_reviewed_rate");
   const activeIds = new Set(archive.combos.filter(c => c.status === "active").map(c => c.id));
   const usableCombos = combos.filter(c => activeIds.has(c.comboId));

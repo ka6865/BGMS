@@ -1,11 +1,13 @@
+import { createClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseMayhemTipCommentInput, parseMayhemTipInput } from "@/lib/lol/mayhemTips";
 
-const mock = vi.hoisted(() => ({ guard: vi.fn(), auth: vi.fn(), list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(), vote: vi.fn(), comments: vi.fn(), comment: vi.fn(), uncomment: vi.fn() }));
+const mock = vi.hoisted(() => ({ guard: vi.fn(), auth: vi.fn(), list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(), vote: vi.fn(), comments: vi.fn(), comment: vi.fn(), uncomment: vi.fn(), service: vi.fn() }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({ createServiceRoleSupabase: mock.service }));
 vi.mock("@/lib/lol/publicAccess.server", () => ({ guardLolPublicRequest: mock.guard }));
 vi.mock("@/utils/supabase/guard", () => ({ withAuthGuard: mock.auth }));
-vi.mock("@/lib/lol/augments/catalog.server", () => ({ getCachedLolAugmentCatalog: async () => ({ view: { clientPatch: "16.22", augments: [{ id: 1 }, { id: 2 }] } }) }));
+vi.mock("@/lib/lol/augments/catalog.server", () => ({ getCachedLolAugmentCatalog: async () => ({ view: { clientPatch: "16.22", augments: [{ id: 1 }, { id: 2 }], unavailable: [{ id: 2104 }] } }) }));
 vi.mock("@/lib/lol/champions.server", () => ({ getLolChampions: async () => ({ version: "16.22.1", champions: [{ id: 63 }] }) }));
 vi.mock("@/lib/lol/mayhemTips.server", () => ({ getMayhemTipItems: async () => [{ id: 3020 }, { id: 6655 }], listMayhemTips: mock.list, createMayhemTip: mock.create, updateMayhemTip: mock.update, deleteMayhemTip: mock.remove, voteMayhemTip: mock.vote, listMayhemTipComments: mock.comments, createMayhemTipComment: mock.comment, deleteMayhemTipComment: mock.uncomment }));
 
@@ -96,7 +98,7 @@ describe("조합 제보 API", () => {
     mock.update.mockResolvedValueOnce({ id: 5 });
     const patch = (body: unknown) => new Request("http://localhost/api/lol/mayhem/tips", { method: "PATCH", body: JSON.stringify(body) });
     expect((await PATCH(patch({ ...valid, id: 5, anonymous: true }))).status).toBe(200);
-    expect(mock.update).toHaveBeenCalledWith("user-1", 5, expect.objectContaining({ anonymous: true }));
+    expect(mock.update).toHaveBeenCalledWith("user-1", 5, expect.objectContaining({ anonymous: true }), []);
     mock.update.mockResolvedValueOnce(null);
     expect((await PATCH(patch({ ...valid, id: 6 }))).status).toBe(404);
     expect((await PATCH(patch({ ...valid, id: "5" }))).status).toBe(400);
@@ -107,6 +109,34 @@ describe("조합 제보 API", () => {
     expect((await DELETE(new Request("http://localhost/api/lol/mayhem/tips?id=abc", { method: "DELETE" }))).status).toBe(400);
     mock.auth.mockResolvedValueOnce({ error: new Response() });
     expect((await DELETE(new Request("http://localhost/api/lol/mayhem/tips?id=5", { method: "DELETE" }))).status).toBe(401);
+  });
+
+  it("기존 조합은 등장 중단 추정 증강을 유지할 수 있고 새로 추가하면 거부한다", async () => {
+    const { PATCH } = await route();
+    const patch = (id: number, augmentIds: number[]) => new Request("http://localhost/api/lol/mayhem/tips", {
+      method: "PATCH", body: JSON.stringify({ ...valid, id, augmentIds, summary: "제목 수정" }),
+    });
+    mock.update.mockResolvedValueOnce({ id: 5 }).mockResolvedValueOnce("invalid_augment").mockResolvedValueOnce(null);
+    expect((await PATCH(patch(5, [1, 2104]))).status).toBe(200);
+    expect(mock.update).toHaveBeenCalledWith("user-1", 5, expect.objectContaining({ augmentIds: [1, 2104] }), [2104]);
+    expect((await PATCH(patch(6, [2104]))).status).toBe(400);
+    expect((await PATCH(patch(7, [2104]))).status).toBe(404);
+    expect((await PATCH(patch(5, [9999]))).status).toBe(400);
+    expect(mock.update).toHaveBeenCalledTimes(3);
+  });
+
+  it("저장 시점에도 본인 조합에 유지할 증강이 모두 있는지 확인한다", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(Response.json([{ id: 5 }]));
+    mock.service.mockReturnValue(createClient("https://fixture.supabase.co", "fixture-key", { global: { fetch } }));
+    const { updateMayhemTip } = await vi.importActual<typeof import("@/lib/lol/mayhemTips.server")>("@/lib/lol/mayhemTips.server");
+    const input = parseMayhemTipInput({ ...valid, augmentIds: [1, 2104] })!;
+    await expect(updateMayhemTip("user-1", 5, input, [2104])).resolves.toBe("invalid_augment");
+    const [url, request] = fetch.mock.calls[0];
+    expect(request?.method).toBe("PATCH");
+    expect(Object.fromEntries(new URL(url instanceof Request ? url.url : url).searchParams)).toMatchObject({
+      id: "eq.5", user_id: "eq.user-1", status: "eq.published", kind: "eq.tip", augment_ids: "cs.{2104}",
+    });
   });
 
   it("추천·비추천·취소만 받고 본인 제보 투표는 막는다", async () => {
@@ -173,4 +203,11 @@ describe("제보 아이템 목록", () => {
     } };
     expect(selectMayhemTipItems(json).map(i => i.id)).toEqual([3084, 226668, 3089, 994403, 3020]);
   });
+});
+
+it("등장 중단 추정 증강은 새 추천으로 받지 않지만 관련 질문은 받는다", async () => {
+ const { POST } = await route();
+ expect((await POST(post({ ...valid, augmentIds: [2104] }))).status).toBe(400);
+ expect(mock.create).not.toHaveBeenCalled();
+ expect((await POST(post({ ...valid, kind: "question", augmentIds: [2104], summary: "영혼 폭탄 아직 나오나요?" }))).status).toBe(201);
 });

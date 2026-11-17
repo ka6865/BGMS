@@ -1,3 +1,4 @@
+import { getMayhemAvailabilityOverride } from "../mayhemAvailability";
 import type { AugmentCatalog } from "./persistence.server";
 
 export const LOL_AUGMENT_ICON_PATH = /^assets\/ux\/(kiwi|cherry)\/augments\/icons\/[a-z0-9_-]+\.png$/;
@@ -11,7 +12,7 @@ export type LolMayhemAugment = {
 };
 export type LolMayhemCatalog = {
   clientPatch: string; displayPatch: string; releasedAt: string; notesUrl: string | null;
-  augments: LolMayhemAugment[]; removed: string[];
+  augments: LolMayhemAugment[]; unavailable?: LolMayhemAugment[]; removed: string[];
 };
 
 // 작은 아이콘은 회색 실루엣이라 색이 있는 큰 아이콘을 우선하고, 큰 아이콘 경로가 해시뿐인 증강만 작은 아이콘을 쓴다.
@@ -41,7 +42,12 @@ export function toLolMayhemCatalog(catalog: AugmentCatalog): LolMayhemCatalog {
     })
     .sort((a, b) => order(a.rarity) - order(b.rarity) || a.name.localeCompare(b.name, "ko"));
   return {
-    clientPatch: catalog.clientPatch, displayPatch: catalog.displayPatch, releasedAt: catalog.releasedAt, notesUrl: catalog.notesUrlKo, augments,
+    clientPatch: catalog.clientPatch, displayPatch: catalog.displayPatch, releasedAt: catalog.releasedAt, notesUrl: catalog.notesUrlKo,
+    augments: augments.filter(a => !getMayhemAvailabilityOverride(catalog.clientPatch, a.id)),
+    unavailable: augments.flatMap(a => {
+      const rule = getMayhemAvailabilityOverride(catalog.clientPatch, a.id);
+      return rule ? [{ ...a, notice: rule.reason }] : [];
+    }),
     removed: catalog.changes.filter(change => change.changeType === "removed").flatMap(change => removedNames(change.summaryKo)),
   };
 }
@@ -55,4 +61,9 @@ export function filterLolMayhemAugments(augments: LolMayhemAugment[], query: str
   const needle = query.trim().toLocaleLowerCase("ko");
   return augments.filter(augment => (!rarity || augment.rarity === rarity) && (!newOnly || augment.isNew)
     && (!needle || [augment.name, augment.nameEn ?? "", augment.text].some(value => value.toLocaleLowerCase("ko").includes(needle))));
+}
+
+// 기본 도감에서 제외해도 질문·보관된 제보와 관측 이력의 이름은 보존한다.
+export function allLolMayhemAugments(catalog: LolMayhemCatalog): LolMayhemAugment[] {
+  return [...catalog.augments, ...(catalog.unavailable ?? [])];
 }

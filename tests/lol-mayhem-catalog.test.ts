@@ -74,3 +74,12 @@ describe("증강 아이콘 수집", () => {
     expect(upload).not.toHaveBeenCalled(); expect(isPng(PNG)).toBe(true);
   });
 });
+
+it('등장 중단 추정은 기본 도감에서 제외하고 이력용 목록에는 보존한다', () => {
+  const source = { ...catalog, clientPatch: '16.22', augments: [augment(2104, 'prismatic', '영혼 폭탄'), augment(2126, 'gold', '재장전'), augment(1, 'silver', '정상')] };
+  const result = toLolMayhemCatalog(source);
+  expect(result.augments.map(a => a.id)).toEqual([2126, 1]);
+  expect(result.unavailable).toEqual([expect.objectContaining({ id: 2104, name: '영혼 폭탄', notice: expect.stringContaining('등장 중단 추정') })]);
+  expect(source.augments[0]).toMatchObject({ enabled: true, inPool: true, state: 'official_active' });
+  expect(toLolMayhemCatalog({ ...source, clientPatch: '16.21' }).augments.map(a => a.id)).toContain(2104);
+});

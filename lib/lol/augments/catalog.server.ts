@@ -12,4 +12,4 @@ export const getCachedLolAugmentCatalog = unstable_cache(async (patch: string | 
     view: toLolMayhemCatalog(catalog),
     icons: lolAugmentIcons(catalog.augments.map(augment => ({ large: augment.iconLargePath, small: augment.iconSmallPath }))),
   };
-}, ["lol-augment-catalog-v1"], { revalidate: 3600, tags: [LOL_AUGMENT_CATALOG_TAG] });
+}, ["lol-augment-catalog-v2"], { revalidate: 3600, tags: [LOL_AUGMENT_CATALOG_TAG] });
