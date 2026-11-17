@@ -126,15 +126,15 @@ describe("조합 제보 API", () => {
   });
 
   it("저장 시점에도 본인 조합에 유지할 증강이 모두 있는지 확인한다", async () => {
-    const fetch = vi.fn<(url: string, options: RequestInit) => Promise<Response>>()
+    const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(Response.json([{ id: 5 }]));
     mock.service.mockReturnValue(createClient("https://fixture.supabase.co", "fixture-key", { global: { fetch } }));
     const { updateMayhemTip } = await vi.importActual<typeof import("@/lib/lol/mayhemTips.server")>("@/lib/lol/mayhemTips.server");
     const input = parseMayhemTipInput({ ...valid, augmentIds: [1, 2104] })!;
     await expect(updateMayhemTip("user-1", 5, input, [2104])).resolves.toBe("invalid_augment");
     const [url, request] = fetch.mock.calls[0];
-    expect(request.method).toBe("PATCH");
-    expect(Object.fromEntries(new URL(url).searchParams)).toMatchObject({
+    expect(request?.method).toBe("PATCH");
+    expect(Object.fromEntries(new URL(url instanceof Request ? url.url : url).searchParams)).toMatchObject({
       id: "eq.5", user_id: "eq.user-1", status: "eq.published", kind: "eq.tip", augment_ids: "cs.{2104}",
     });
   });
