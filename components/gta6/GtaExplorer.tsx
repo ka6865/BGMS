@@ -229,7 +229,7 @@ export default function GtaExplorer() {
       <a href={manifest.source} target="_blank" rel="noreferrer" className="underline underline-offset-2">gtadb.org and all contributors</a>{" · "}
       <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" className="underline underline-offset-2">CC BY 4.0</a>
       <span className="ml-2">자료 {manifest.importedAt} · 한국어 비공식 표기·영문 검색 지원</span>
-      <span className="hidden xl:inline"> · Rockstar Games 및 Take-Two Interactive와 관련 없는 팬 서비스입니다.</span>
+      <span> · Rockstar Games 및 Take-Two Interactive와 관련 없는 팬 서비스입니다.</span>
     </footer>
   </>;
 }

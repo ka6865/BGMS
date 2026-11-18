@@ -35,7 +35,8 @@ const nextConfig: NextConfig = {
       { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
       { key: 'X-Content-Type-Options', value: 'nosniff' },
     ] }, { source: '/gta6/tiles/:path*', headers: [
-      { key: 'Cache-Control', value: 'public, max-age=3600' },
+      // 타일 경로에 지도 버전(yanis-17)이 들어 있어 내용이 바뀌지 않는다.
+      { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
       { key: 'X-Content-Type-Options', value: 'nosniff' },
     ] }, { source: '/api/rankings', headers: [
       { key: 'X-Robots-Tag', value: 'noindex' },

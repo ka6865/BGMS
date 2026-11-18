@@ -13,8 +13,9 @@ import { useAuth } from "@/components/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import AdSenseBanner from "@/components/ads/AdSenseBanner";
 import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
+import { GTA6_GUIDE_CATEGORY } from "@/lib/gta6/guides";
 
-const BOARD_CATEGORIES = ["배그 소식", "자유", "듀오/스쿼드 모집", "클랜홍보", "제보/문의"];
+const BOARD_CATEGORIES = ["배그 소식", "자유", "듀오/스쿼드 모집", "클랜홍보", "제보/문의", GTA6_GUIDE_CATEGORY];
 const POSTS_PER_PAGE = 10;
 const MAX_VISIBLE_PAGES = 5;
 

@@ -10,12 +10,13 @@ import { ClanInfo } from "@/types/board";
 import ConfirmModal from "@/components/common/ConfirmModal";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { classifyUploadedBoardImages, type UploadedBoardImage } from "@/lib/board-image-cleanup";
+import { GTA6_GUIDE_CATEGORY } from "@/lib/gta6/guides";
 
 const ReactQuill = dynamic(() => import("react-quill-new"), {
   ssr: false,
 }) as any;
 
-const BOARD_CATEGORIES = ["배그 소식", "자유", "듀오/스쿼드 모집", "클랜홍보", "제보/문의"];
+const BOARD_CATEGORIES = ["배그 소식", "자유", "듀오/스쿼드 모집", "클랜홍보", "제보/문의", GTA6_GUIDE_CATEGORY];
 const IMAGE_CONFIG = {
   MAX_FILE_SIZE_MB: 20,
   COMPRESSION_MAX_SIZE_MB: 1.5,

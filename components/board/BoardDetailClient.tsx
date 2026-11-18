@@ -19,6 +19,7 @@ import { TURNSTILE_ACTIONS } from "@/lib/board/turnstileContract";
 import AdSenseBanner from "@/components/ads/AdSenseBanner";
 import { rewriteBoardImageUrls, toBoardImageProxyUrl } from "@/lib/board-image-proxy";
 import { fillMissingImageAlt } from "@/lib/board/imageAlt";
+import { postBasePath } from "@/lib/gta6/guides";
 import { AppModal } from "@/components/common/AppModal";
 import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
@@ -133,7 +134,7 @@ export default function BoardDetailClient({
         }
       });
 
-      router.push(`/board/${result.data?.id || ""}`);
+      router.push(`${postBasePath(post.category)}/${result.data?.id || ""}`);
     } catch (e: any) {
       toast.error(e.message || "승격 중 오류가 발생했습니다.");
     } finally {
@@ -421,7 +422,7 @@ export default function BoardDetailClient({
             if (error) throw error;
           }
           toast.success("삭제되었습니다.");
-          router.push("/board");
+          router.push(postBasePath(post.category));
         } catch {
           toast.error("삭제 실패");
         }
@@ -479,7 +480,7 @@ export default function BoardDetailClient({
       toast.success("삭제되었습니다.");
       setGuestDeleteModal(null);
       if (targetType === 'post') {
-        router.push("/board");
+        router.push(postBasePath(post.category));
       } else {
         fetchComments();
       }
@@ -533,7 +534,7 @@ export default function BoardDetailClient({
                 AI 재수정 요청
               </button>
               <button
-                onClick={() => router.push(`/board/write?edit=${post.id}`)}
+                onClick={() => router.push(`${postBasePath(post.category)}/write?edit=${post.id}`)}
                 className="px-4 py-2.5 bg-[#252525] border border-[#34A853]/40 text-[#34A853] text-xs font-bold rounded-lg hover:bg-[#34A853]/10 transition-all active:scale-95 shrink-0"
               >
                 직접 수정
@@ -726,7 +727,7 @@ export default function BoardDetailClient({
           />
 
           <div className="mt-[40px] flex gap-[10px]">
-            <button onClick={() => router.push("/board")} className="flex-1 p-[12px] bg-[#333] text-white border-none rounded-[4px] hover:bg-[#444] transition-colors text-[14px]">
+            <button onClick={() => router.push(postBasePath(post.category))} className="flex-1 p-[12px] bg-[#333] text-white border-none rounded-[4px] hover:bg-[#444] transition-colors text-[14px]">
               목록으로
             </button>
 
@@ -742,7 +743,7 @@ export default function BoardDetailClient({
 
             {(user?.id === post.user_id || isAdmin) && (
               <button
-                onClick={() => router.push(`/board/write?edit=${post.id}`)}
+                onClick={() => router.push(`${postBasePath(post.category)}/write?edit=${post.id}`)}
                 className="px-[20px] py-[12px] bg-[#34A853] text-white border-none rounded-[4px] hover:bg-[#2a9040] transition-colors text-[14px]"
               >
                 수정
