@@ -87,7 +87,7 @@ export default function GtaMap({ places, selected, visited, onSelect }: {
       zoomSnap={0} zoomAnimation={false} wheelDebounceTime={16} wheelPxPerZoomLevel={20}
       crs={CRS.Simple} maxBounds={MAP_BOUNDS} maxBoundsViscosity={0.8} preferCanvas zoomControl={false}
       style={{ height: "100%", width: "100%", background: "#2c66a5" }}>
-      <TileLayer key={attempt} url="/gta6/tiles/yanis-17/{z}/{z},{y},{x}.jpg" bounds={MAP_BOUNDS}
+      <TileLayer key={attempt} url="/gta6/tiles/yanis-18/{z}/{z},{y},{x}.jpg" bounds={MAP_BOUNDS}
         minZoom={-7} maxZoom={2} minNativeZoom={-5} maxNativeZoom={0} zoomOffset={5} noWrap
         attribution='<a href="https://github.com/rolux/gtadb.org" target="_blank" rel="noreferrer">gtadb.org and all contributors</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>'
         eventHandlers={{
@@ -97,7 +97,7 @@ export default function GtaMap({ places, selected, visited, onSelect }: {
       <PlaceMarkers places={places} selected={selected} visited={visited} onSelect={onSelect} />
       <MapControls selected={selected} />
     </MapContainer>
-    <p className="pointer-events-none absolute left-3 top-3 z-[500] rounded-md bg-zinc-950/90 px-3 py-2 text-xs font-medium text-zinc-100">YANIS v17 <span className="ml-2 text-zinc-300">커뮤니티 추정 지도</span></p>
+    <p className="pointer-events-none absolute left-3 top-3 z-[500] rounded-md bg-zinc-950/90 px-3 py-2 text-xs font-medium text-zinc-100">YANIS v18 <span className="ml-2 text-zinc-300">커뮤니티 추정 지도</span></p>
     {tileError && <div role="alert" className="absolute bottom-8 left-3 right-16 z-[500] rounded-lg bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-100">
       일부 지도를 불러오지 못했습니다.
       <button type="button" className="ml-2 min-h-11 px-2 font-semibold text-amber-300 underline" onClick={() => { setTileError(false); setAttempt(a => a + 1); }}>다시 불러오기</button>

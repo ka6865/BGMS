@@ -5,12 +5,13 @@
 ## 데이터와 출처
 
 - 원본: https://github.com/rolux/gtadb.org
-- commit: `5c1d69ff864623d181da5457afaacd00b623e1a4`
-- 타일: `maps/tiles/6/yanis,17` → `public/gta6/tiles/yanis-17`, 8,830개, 43,805,053바이트
+- commit: `8b1dc4f0619d8760fd87881c396225c147f4d738`
+- 타일: `maps/tiles/6/yanis,18` → `public/gta6/tiles/yanis-18`, 8,830개, 44,792,383바이트
 - 장소: `map/data/6/landmarks.json` → `public/gta6/landmarks.json`, 3,431개 중 좌표가 있는 3,340개 표시
 - 출처·해시·수량: `public/gta6/manifest.json`
+- v18 갱신에서 장소 ID와 지도 좌표는 그대로다. `L1`의 이름과 `L3282`의 현실 대응 위치가 갱신됐다.
 - 원본 타일과 JSON은 내용 변경 없이 보관한다. 한국어 이름·주소 사전과 표시용 지역 좌표는 `lib/gta6/ko.ts`, 검색·분류·원본/표시 필드 구성은 `lib/gta6/map.ts`에서 관리한다.
-- 데이터/타일: 원본 저장소는 CC BY 4.0으로 제공한다. `gtadb.org and all contributors`, YANIS v17 및 커뮤니티 출처를 표시한다. 라이선스 안내: `public/gta6/LICENSE.txt`, 가져온 commit의 원문 고지: `public/gta6/LICENSE-DATA`.
+- 데이터/타일: 원본 저장소는 CC BY 4.0으로 제공한다. `gtadb.org and all contributors`, YANIS v18 및 커뮤니티 출처를 표시한다. 라이선스 안내: `public/gta6/LICENSE.txt`, 가져온 commit의 원문 고지: `public/gta6/LICENSE-DATA`.
 
 원본 사이트에 라이브 요청하거나 핫링크하지 않는다. 외부 사진은 배포하지 않는다. 지역/건물의 위치·명칭·현실 대응은 확정된 게임 정보가 아니며, `unconfirmed` 태그는 현실 매칭 미확인으로 표시한다. 좌표가 없으면 마커와 검색 목록에서 제외한다.
 
@@ -24,7 +25,7 @@
 
 ## 한국어 표시와 입력
 
-이름이 있는 933개 장소 중 354개에 비공식 한국어 이름을 제공한다. 이름 번역은 기존 ID 별칭과 정확히 일치하는 이름 사전으로 제한하며, 나머지 이름과 `?` 등 추정 표기는 원문을 유지한다. 76개 지역·주소 항목을 번역해 3,340개 중 3,325개의 표시 주소를 보완했다. `address`·`originalName`은 원문, `displayAddress`·`name`은 표시용이며 한글과 영문 모두 검색된다. 상세 화면에서 원문 이름과 접을 수 있는 원문 주소를 확인할 수 있다.
+이름이 있는 934개 장소 중 354개에 비공식 한국어 이름을 제공한다. 이름 번역은 기존 ID 별칭과 정확히 일치하는 이름 사전으로 제한하며, 나머지 이름과 `?` 등 추정 표기는 원문을 유지한다. 76개 지역·주소 항목을 번역해 3,340개 중 3,325개의 표시 주소를 보완했다. `address`·`originalName`은 원문, `displayAddress`·`name`은 표시용이며 한글과 영문 모두 검색된다. 상세 화면에서 원문 이름과 접을 수 있는 원문 주소를 확인할 수 있다.
 
 주요 6개 지역은 원본 타일을 바꾸지 않고 한글 레이블을 겹쳐 표시한다. `MAP_REGIONS.coordinates`는 변환 전 world `[x, y]`이며 경계나 확정 장소 위치를 뜻하지 않는 표시용 근사 중심이다. 상세 확대에서는 레이블을 숨긴다.
 
@@ -47,7 +48,7 @@ Leaflet의 휠 입력 누적을 사용하며 `zoomSnap=0`, `zoomAnimation=false`
 
 ```bash
 git clone --filter=blob:none --depth 1 --sparse https://github.com/rolux/gtadb.org /tmp/bgms-gta6-upstream
-git -C /tmp/bgms-gta6-upstream sparse-checkout set map/data/6 'maps/tiles/6/yanis,17'
+git -C /tmp/bgms-gta6-upstream sparse-checkout set map/data/6 'maps/tiles/6/yanis,18'
 git -C /tmp/bgms-gta6-upstream rev-parse HEAD
 ```
 
