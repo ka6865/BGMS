@@ -5,6 +5,7 @@ import { checkIpBlacklist, extractClientIp } from "@/lib/board/ipUtils";
 import { toBoardImageProxyUrl } from "@/lib/board-image-proxy";
 import { boardCategoryFilterValues, parseCurrentBoardCategory } from "@/lib/board/mobileCategories";
 import { POST as writeBoardPost } from "@/app/api/posts/write/route";
+import { GTA6_GUIDE_CATEGORY } from "@/lib/gta6/guides";
 
 const clean = (value: string | undefined) => (value || "").replace(/['";\s]+/g, "").trim();
 const supabaseUrl = clean(process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -133,6 +134,7 @@ export async function GET(request: Request) {
     .from("posts")
     .select("id,title,author,user_id,category,image_url,is_notice,created_at,views,likes,status,comments(count),profiles(nickname)")
     .eq("status", "published")
+    .neq("category", GTA6_GUIDE_CATEGORY)
     .order("is_notice", { ascending: false })
     .order("created_at", { ascending: false })
     .order("id", { ascending: false });

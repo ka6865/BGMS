@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import { getTabSeo } from '@/lib/seo-config';
 import BoardListClient from '@/components/board/BoardListClient';
 import { maskIp } from "@/lib/board/ipUtils";
+import { GTA6_GUIDE_CATEGORY } from "@/lib/gta6/guides";
 
 export async function generateMetadata(): Promise<Metadata> {
   return getTabSeo("Board");
@@ -40,6 +41,8 @@ export default async function BoardPage({
   } else {
     // 일반 탭: status = 'published' 인 발행 완료된 글만 쿼리 (어드민이 조회할 때도 초안이 전체 탭에 섞이지 않도록 방지)
     query = query.eq("status", "published");
+    // GTA6 공략은 /gta6/guides에서만 보여 주고 배그 게시판 목록에는 섞지 않는다.
+    query = query.neq("category", GTA6_GUIDE_CATEGORY);
 
     if (filter !== "전체" && filter !== "추천") {
       query = query.eq("category", filter);
