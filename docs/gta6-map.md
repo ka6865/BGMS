@@ -90,3 +90,11 @@ npm run test:unit
 - 일반 게시판에도 `GTA6 공략` 분류 탭이 생기고 `/board/{id}`로도 열린다.
 - 광고: 지도(`/gta6`)는 광고 없이 두고, 공략 게시판은 일반 게시판처럼 광고 스크립트를 싣는다.
 - 신뢰: 운영자는 스팸·욕설만 관리하고, 내용의 정확성은 추천·댓글로 커뮤니티가 판단한다는 안내를 목록 상단에 둔다.
+
+## 검색·공유 정보
+
+- `/gta6`, `/gta6/guides`는 GTA6 전용 openGraph·twitter 정보와 `public/gta6/og.jpg`(1200×630)를 쓴다. 이 이미지는 YANIS v17 타일(z=2)을 이어 붙여 바이스 시티 주변을 잘라내고 글자를 얹은 변경본이며, 이미지 안에 gtadb.org CC BY 4.0 출처를 적었다. Rockstar 로고나 공식 이미지는 쓰지 않는다.
+- 지도 목록 하단 "GTA6 지도 소개"는 서버 HTML에 포함되는 실제 본문이다. 지역 이름은 `MAP_REGIONS`, 장소 수는 `manifest.locatedCount`에서 가져온다.
+- `/gta6`에 WebPage(about VideoGame)·BreadcrumbList JSON-LD를 넣는다.
+- `GTA6 공략` 분류 글의 canonical은 `/gta6/guides/{id}`이고, 기본 공유 이미지는 GTA6 이미지다.
+- 장소별 개별 페이지는 추정 위치 기반이라 내용이 얇아 만들지 않는다. PC판 출시 후 데이터가 확정되면 검토한다.

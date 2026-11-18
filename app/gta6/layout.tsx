@@ -1,11 +1,18 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
+import { GTA6_OG_IMAGE } from "@/lib/gta6/guides";
 
 export const metadata: Metadata = {
   title: { absolute: "GTA6 지도 · 장소 검색 | BGMS" },
   description: "레오니다와 바이스 시티를 탐색하는 GTA6 커뮤니티 지도. 한국어 장소 검색, 카테고리 필터, 즐겨찾기와 방문 체크를 지원합니다. 추정 위치가 포함됩니다.",
   alternates: { canonical: "/gta6" },
+  openGraph: {
+    title: "GTA6 지도 · 레오니다 한국어 장소 검색 | BGMS",
+    description: "바이스 시티와 레오니다 주 3,340곳을 한국어로 검색하는 GTA6 커뮤니티 지도와 공략 게시판.",
+    url: "/gta6", type: "website", images: [GTA6_OG_IMAGE],
+  },
+  twitter: { card: "summary_large_image", title: "GTA6 지도 · 레오니다 한국어 장소 검색 | BGMS", images: [GTA6_OG_IMAGE.url] },
 };
 
 export default function Gta6Layout({ children }: { children: React.ReactNode }) {

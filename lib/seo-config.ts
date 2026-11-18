@@ -3,6 +3,7 @@ import { cache } from 'react';
 import { BreadcrumbList, ArticleSchema } from '@/types/seo';
 import { createClient } from '@/utils/supabase/server';
 import { toBoardImageProxyUrl } from '@/lib/board-image-proxy';
+import { GTA6_GUIDE_CATEGORY, GTA6_OG_IMAGE, postBasePath } from '@/lib/gta6/guides';
 
 // 환경 변수 정기화 유틸리티 (항시 최상단 위치)
 const clean = (val: string | undefined) => (val || '').replace(/['";\s]+/g, '').trim();
@@ -57,8 +58,10 @@ export async function getPostMetadata(postId: string): Promise<Metadata | null> 
   // 본문이 짧은 글은 검색 결과 설명이 비지 않도록 제목과 카테고리로 보충한다
   const plainText = (rawText.length >= 40 ? rawText : `${rawText} ${post.title} - ${post.category} 게시글입니다. BGMS 커뮤니티에서 확인하세요.`.trim()).substring(0, 150);
   const shortTitle = post.title.length > 40 ? `${post.title.substring(0, 39)}…` : post.title;
-  const canonicalUrl = `${baseUrl}/board/${postId}`;
-  const imageUrl = post.image_url ? toBoardImageProxyUrl(post.image_url, baseUrl) : `${baseUrl}/logo.png`;
+  // GTA6 공략 글은 /board/{id}로도 열리지만 대표 주소는 GTA6 화면으로 둔다.
+  const canonicalUrl = `${baseUrl}${postBasePath(post.category)}/${postId}`;
+  const defaultImage = post.category === GTA6_GUIDE_CATEGORY ? GTA6_OG_IMAGE.url : '/logo.png';
+  const imageUrl = post.image_url ? toBoardImageProxyUrl(post.image_url, baseUrl) : `${baseUrl}${defaultImage}`;
   
   return {
     title: `${shortTitle} | ${post.category}`,
