@@ -1,15 +1,16 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { createClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseMayhemTipCommentInput, parseMayhemTipInput } from "@/lib/lol/mayhemTips";
 
-const mock = vi.hoisted(() => ({ guard: vi.fn(), auth: vi.fn(), list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(), vote: vi.fn(), comments: vi.fn(), comment: vi.fn(), uncomment: vi.fn(), service: vi.fn() }));
+const mock = vi.hoisted(() => ({ guard: vi.fn(), auth: vi.fn(), list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(), vote: vi.fn(), comments: vi.fn(), comment: vi.fn(), uncomment: vi.fn(), service: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({ createServiceRoleSupabase: mock.service }));
-vi.mock("@/lib/lol/publicAccess.server", () => ({ guardLolPublicRequest: mock.guard }));
+vi.mock("@/lib/lol/publicAccess.server", () => ({ guardLolPublicRequest: mock.guard, requireLolPublicPage: vi.fn() }));
 vi.mock("@/utils/supabase/guard", () => ({ withAuthGuard: mock.auth }));
 vi.mock("@/lib/lol/augments/catalog.server", () => ({ getCachedLolAugmentCatalog: async () => ({ view: { clientPatch: "16.22", augments: [{ id: 1 }, { id: 2 }], unavailable: [{ id: 2104 }] } }) }));
 vi.mock("@/lib/lol/champions.server", () => ({ getLolChampions: async () => ({ version: "16.22.1", champions: [{ id: 63 }] }) }));
-vi.mock("@/lib/lol/mayhemTips.server", () => ({ getMayhemTipItems: async () => [{ id: 3020 }, { id: 6655 }], listMayhemTips: mock.list, createMayhemTip: mock.create, updateMayhemTip: mock.update, deleteMayhemTip: mock.remove, voteMayhemTip: mock.vote, listMayhemTipComments: mock.comments, createMayhemTipComment: mock.comment, deleteMayhemTipComment: mock.uncomment }));
+vi.mock("@/lib/lol/mayhemTips.server", () => ({ getMayhemTipItems: async () => [{ id: 3020 }, { id: 6655 }], listMayhemTips: mock.list, getMayhemTip: mock.get, createMayhemTip: mock.create, updateMayhemTip: mock.update, deleteMayhemTip: mock.remove, voteMayhemTip: mock.vote, listMayhemTipComments: mock.comments, createMayhemTipComment: mock.comment, deleteMayhemTipComment: mock.uncomment }));
 
 const valid = { championId: null, augmentIds: [1, 2], itemIds: [6655, 3020], summary: "공용으로 좋아요", usage: "초반에 고르면 좋음" };
 const post = (body: unknown) => new Request("http://localhost/api/lol/mayhem/tips", { method: "POST", body: typeof body === "string" ? body : JSON.stringify(body) });
@@ -22,7 +23,7 @@ beforeEach(() => {
   mock.guard.mockResolvedValue(null);
   mock.auth.mockResolvedValue({ user: { id: "user-1" } });
   mock.list.mockResolvedValue({ rows: [], total: 0 });
-  mock.create.mockImplementation(async (_user: string, patch: string, input: object) => ({ id: 1, patch, ...input }));
+  mock.create.mockImplementation(async (_user: string, patch: string, input: object) => ({ id: 1, clientPatch: patch, ...input }));
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
@@ -60,15 +61,43 @@ describe("조합 제보 API", () => {
     const { GET } = await route();
     const response = await GET(new Request("http://localhost/api/lol/mayhem/tips?champion=common&sort=top&offset=20"));
     expect(await response.json()).toMatchObject({ patch: "16.22", signedIn: true, offset: 20 });
-    expect(mock.list).toHaveBeenCalledWith("16.22", "common", null, "top", 20, "user-1");
+    expect(mock.list).toHaveBeenCalledWith(null, "common", null, "top", 20, "user-1");
     mock.auth.mockResolvedValueOnce({ error: new Response() });
     expect(await (await GET(new Request("http://localhost/api/lol/mayhem/tips"))).json()).toMatchObject({ signedIn: false });
-    expect(mock.list).toHaveBeenLastCalledWith("16.22", null, null, "recent", 0, null);
+    expect(mock.list).toHaveBeenLastCalledWith(null, null, null, "recent", 0, null);
     await GET(new Request("http://localhost/api/lol/mayhem/tips?kind=question"));
-    expect(mock.list).toHaveBeenLastCalledWith("16.22", null, "question", "recent", 0, "user-1");
+    expect(mock.list).toHaveBeenLastCalledWith(null, null, "question", "recent", 0, "user-1");
     expect((await GET(new Request("http://localhost/api/lol/mayhem/tips?kind=guide"))).status).toBe(400);
     expect((await GET(new Request("http://localhost/api/lol/mayhem/tips?sort=old"))).status).toBe(400);
     expect((await GET(new Request("http://localhost/api/lol/mayhem/tips?champion=abc"))).status).toBe(400);
+  });
+
+  it("공개 질문을 작성 패치와 함께 조회하고 현재 패치로 제한하지 않는다", async () => {
+    const posts = ["16.23", "16.22"].map((client_patch, index) => ({
+      id: index + 1, client_patch, kind: "question", anonymous: true, summary: "공용 질문",
+    }));
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(Response.json(posts, { headers: { "Content-Range": "0-1/2" } }));
+    mock.service.mockReturnValue(createClient("https://fixture.supabase.co", "fixture-key", { global: { fetch } }));
+    const { listMayhemTips } = await vi.importActual<typeof import("@/lib/lol/mayhemTips.server")>("@/lib/lol/mayhemTips.server");
+    await expect(listMayhemTips(null, null, "question", "recent", 0, null)).resolves.toMatchObject({
+      rows: [{ id: 1, clientPatch: "16.23" }, { id: 2, clientPatch: "16.22" }], total: 2,
+    });
+    const [url] = fetch.mock.calls[0];
+    const params = new URL(url instanceof Request ? url.url : url).searchParams;
+    expect(Object.fromEntries(params)).toMatchObject({ status: "eq.published", kind: "eq.question", order: "created_at.desc,id.desc" });
+    expect(params.has("client_patch")).toBe(false);
+    expect(params.get("select")?.split(",")).toContain("client_patch");
+  });
+
+  it("과거 질문 상세에 게시 당시 패치를 표시한다", async () => {
+    mock.get.mockResolvedValueOnce({ id: 5, clientPatch: "16.21", kind: "question", championId: null,
+      augmentIds: [], itemIds: [], summary: "공용 질문", usage: "", anonymous: true, up: 0, comments: 0,
+      createdAt: "2026-10-24T12:00:00Z", updatedAt: "2026-11-06T12:00:00Z" });
+    mock.comments.mockResolvedValueOnce([]);
+    const { default: TipPage } = await import("@/app/lol/kr/aram-mayhem/tips/[id]/page");
+    const html = renderToStaticMarkup(await TipPage({ params: Promise.resolve({ id: "5" }) }));
+    expect(html).toContain("작성 패치 26.21");
+    expect(html).not.toContain("작성 패치 26.22");
   });
 
   it("로그인한 사용자의 유효한 제보만 현재 패치로 저장한다", async () => {
