@@ -1,9 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Check, CheckCheck, ChevronRight, MapPin, Search, Share2, Star, X } from "lucide-react";
-import { CATEGORIES, filterLandmarks, parseLandmarks, parseProgress, STORAGE_KEY, type Category, type Landmark, type Progress } from "@/lib/gta6/map";
+import { CATEGORIES, MAP_REGIONS, filterLandmarks, parseLandmarks, parseProgress, STORAGE_KEY, type Category, type Landmark, type Progress } from "@/lib/gta6/map";
 import manifest from "@/public/gta6/manifest.json";
 import styles from "./gta6.module.css";
 
@@ -133,7 +134,7 @@ export default function GtaExplorer() {
       <aside aria-label="장소 탐색" className={`flex h-[46dvh] min-h-[260px] shrink-0 flex-col border-t border-white/10 bg-zinc-950 lg:order-1 lg:h-auto lg:min-h-0 lg:w-[360px] lg:border-r lg:border-t-0 ${styles.panel} ${styles.listPanel}`}>
         {!selected && <div className="shrink-0 px-4 pb-3 pt-4">
           <div className="mb-3 flex items-baseline justify-between gap-3">
-            <h1 className="text-lg font-bold tracking-tight">레오니다 탐색</h1>
+            <h1 className="text-lg font-bold tracking-tight">GTA6 지도</h1>
             <span className="text-xs tabular-nums text-zinc-400">{places ? `${places.length.toLocaleString("ko-KR")}개 장소` : "장소 불러오는 중"}</span>
           </div>
           <form role="search" onSubmit={e => e.preventDefault()}>
@@ -221,6 +222,11 @@ export default function GtaExplorer() {
               </ul>}
               {filtered.length > limit && <button type="button" onClick={() => setLimit(value => value + 60)} className={`${button} m-4 border border-zinc-700 text-zinc-200`}>장소 더 보기 ({Math.min(limit, filtered.length)}/{filtered.length})</button>}
             </>}
+          {!selected && <section aria-labelledby="gta6-about" className="border-t border-white/10 px-4 py-5 text-xs leading-relaxed text-zinc-400">
+            <h2 id="gta6-about" className="text-sm font-semibold text-zinc-200">GTA6 지도 소개</h2>
+            <p className="mt-2">GTA VI의 무대인 레오니다 주를 한국어로 검색하는 커뮤니티 지도입니다. {MAP_REGIONS.map(region => region.name).join(", ")} 등 주요 지역과 장소 {manifest.locatedCount.toLocaleString("ko-KR")}곳의 추정 위치를 지도에서 찾고, 즐겨찾기와 방문 체크로 기록할 수 있습니다.</p>
+            <p className="mt-2">위치는 출시 전 공개 자료를 바탕으로 한 추정이며 확인되는 대로 갱신합니다. 미션 공략과 팁은 <Link href="/gta6/guides" className="font-semibold text-amber-300 underline underline-offset-2">GTA6 공략 게시판</Link>에서 나눌 수 있습니다.</p>
+          </section>}
         </div>
       </aside>
     </div>

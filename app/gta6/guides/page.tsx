@@ -2,12 +2,17 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { PenLine, ThumbsUp } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
-import { GTA6_GUIDE_CATEGORY } from "@/lib/gta6/guides";
+import { GTA6_GUIDE_CATEGORY, GTA6_OG_IMAGE } from "@/lib/gta6/guides";
 
 export const metadata: Metadata = {
   title: { absolute: "GTA6 공략 게시판 · 가이드와 팁 | BGMS" },
   description: "GTA6 미션 공략, 돈 버는 법, 숨은 장소와 팁을 유저들이 직접 공유하는 게시판입니다.",
   alternates: { canonical: "/gta6/guides" },
+  openGraph: {
+    title: "GTA6 공략 게시판 | BGMS", description: "GTA6 미션 공략, 돈 버는 법, 숨은 장소와 팁을 유저들이 직접 공유하는 게시판입니다.",
+    url: "/gta6/guides", type: "website", images: [GTA6_OG_IMAGE],
+  },
+  twitter: { card: "summary_large_image", title: "GTA6 공략 게시판 | BGMS", images: [GTA6_OG_IMAGE.url] },
 };
 
 const PER_PAGE = 20;
