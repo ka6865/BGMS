@@ -6,6 +6,7 @@ import { CircleHelp, MessageCircle, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2, 
 import type { LolChampion } from "@/lib/lol/champions";
 import { allLolMayhemAugments, LOL_AUGMENT_RARITIES, LOL_AUGMENT_RARITY_LABELS, filterLolMayhemAugments, type LolAugmentRarity, type LolMayhemCatalog } from "@/lib/lol/augments/catalog";
 import { MAYHEM_TIP_LIMITS, type MayhemTip, type MayhemTipComment, type MayhemTipItem, type MayhemTipKind, type MayhemTipSort } from "@/lib/lol/mayhemTips";
+import { toDisplayPatch } from "@/lib/lol/augments/patchMap";
 import { mayhemTipPath } from "@/lib/lol/mayhemSeo";
 import { AugmentIcon, ChampionPicker } from "./LolMayhemArchive";
 import { ChampionPortrait } from "./LolMayhemChampionStats";
@@ -234,7 +235,7 @@ function TipCard({ tip, champion, version, catalog, augmentMap, itemMap, signedI
     <div className="flex items-center gap-2.5">
       {champion ? <ChampionPortrait champion={champion} version={version} size={36} /> : <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-[11px] font-bold text-zinc-300">공용</span>}
       <div className="min-w-0 flex-1"><strong className="block">{tip.kind === "question" && <span className="mr-1.5 inline-flex items-center gap-0.5 rounded bg-sky-400/15 px-1.5 align-[1px] text-[11px] font-bold text-sky-300"><CircleHelp aria-hidden="true" size={11} />질문</span>}<Link href={mayhemTipPath(tip.id)} className="hover:underline">{tip.summary}</Link></strong>
-        <span className="text-xs text-zinc-400">{champion?.name ?? "공용 조합"} · {tip.anonymous ? "익명" : tip.author ?? "BGMS 유저"}{tip.mine && <span className="ml-1 text-amber-300">(내 글)</span>} · {new Date(tip.createdAt).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}{tip.updatedAt && " · 수정됨"}</span>
+        <span className="text-xs text-zinc-400">{champion?.name ?? "공용 조합"} · {tip.anonymous ? "익명" : tip.author ?? "BGMS 유저"}{tip.mine && <span className="ml-1 text-amber-300">(내 글)</span>} · {new Date(tip.createdAt).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}{tip.updatedAt && " · 수정됨"} · 작성 패치 {toDisplayPatch(tip.clientPatch) ?? tip.clientPatch}</span>
       </div>
     </div>
     <ol aria-label="제보 증강" className="flex flex-wrap items-center gap-1.5">{tip.augmentIds.map((id, index) => { const a = augmentMap.get(id); return <li key={id} className="flex items-center gap-1.5">
@@ -306,7 +307,7 @@ export default function LolMayhemTips({ champions, championVersion = null, catal
 
   return <section aria-label="유저 조합 제보" className="space-y-4 py-4">
     <header className="flex flex-wrap items-end justify-between gap-3">
-      <div><h2 className="text-lg font-semibold">유저 조합 제보</h2><p className="mt-1 text-sm text-zinc-400">직접 써 본 증강 조합과 아이템을 공유하거나, 궁금한 빌드를 물어보세요. 패치 {catalog.displayPatch} 기준으로 모입니다.</p></div>
+      <div><h2 className="text-lg font-semibold">유저 조합 제보</h2><p className="mt-1 text-sm text-zinc-400">직접 써 본 증강 조합과 아이템을 공유하거나, 궁금한 빌드를 물어보세요. 현재 패치 {catalog.displayPatch}</p></div>
       {!writing && <div className="flex gap-2">
         <button type="button" onClick={() => setWriting("tip")} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-amber-400 px-4 text-sm font-bold text-zinc-950 hover:bg-amber-300"><Plus aria-hidden="true" size={16} />조합 제보하기</button>
         <button type="button" onClick={() => setWriting("question")} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-sky-400/40 px-4 text-sm font-bold text-sky-300 hover:bg-sky-400/10"><CircleHelp aria-hidden="true" size={16} />질문하기</button>

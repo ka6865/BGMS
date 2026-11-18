@@ -6,7 +6,7 @@ export type MayhemTipSort = "recent" | "top";
 export type MayhemTipKind = "tip" | "question";
 export type MayhemTipItem = { id: number; name: string; image: string; boots: boolean };
 export type MayhemTip = {
-  id: number; kind: MayhemTipKind; championId: number | null; augmentIds: number[]; itemIds: number[]; summary: string; usage: string;
+  id: number; clientPatch: string; kind: MayhemTipKind; championId: number | null; augmentIds: number[]; itemIds: number[]; summary: string; usage: string;
   anonymous: boolean; author: string | null; up: number; down: number; myVote: -1 | 0 | 1; mine: boolean; comments: number; createdAt: string; updatedAt: string | null;
 };
 // 지운 댓글은 답글이 있을 때만 자리로 남고 본문과 작성자는 비운다. byTipAuthor는 글쓴이가 단 댓글 표시다.

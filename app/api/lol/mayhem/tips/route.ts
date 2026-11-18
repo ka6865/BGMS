@@ -55,7 +55,7 @@ export async function GET(request: Request) {
     const [catalog, auth] = await Promise.all([currentPatch(), withAuthGuard().catch(() => null)]);
     if (!catalog) return unavailable();
     const viewer = auth && !auth.error ? auth.user.id : null;
-    const page = await listMayhemTips(catalog.clientPatch, champion === null ? null : champion === "common" ? "common" : Number(champion), kind as "tip" | "question" | null, sort, Number(rawOffset), viewer);
+    const page = await listMayhemTips(null, champion === null ? null : champion === "common" ? "common" : Number(champion), kind as "tip" | "question" | null, sort, Number(rawOffset), viewer);
     return reply({ patch: catalog.clientPatch, offset: Number(rawOffset), signedIn: viewer !== null, ...page });
   } catch { return unavailable(); }
 }
