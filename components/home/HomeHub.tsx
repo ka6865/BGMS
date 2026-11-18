@@ -51,6 +51,8 @@ async function getNews(): Promise<NewsItem[]> {
 
 const dateLabel = (value: string) => new Date(value).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", year: "2-digit", month: "2-digit", day: "2-digit" });
 const chip = "inline-flex min-h-10 items-center rounded-lg border border-white/10 px-3 text-sm font-semibold text-white/80 transition hover:border-white/25 hover:text-white";
+// 공식 로고는 상표 사용 조건이 게임사마다 달라 자체 제작한 글자 표식만 쓴다.
+const gameMark = "flex size-12 shrink-0 items-center justify-center rounded-xl text-base font-black italic tracking-tighter";
 
 export default async function HomeHub() {
   const news = await getNews();
@@ -68,10 +70,13 @@ export default async function HomeHub() {
         <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
             <section aria-labelledby="home-pubg" className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[var(--color-bg-surface)] p-5">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-widest text-[#F2A900]">PUBG</p>
-                <h2 id="home-pubg" className="mt-1 text-xl font-black">배틀그라운드</h2>
-                <p className="mt-1 text-sm text-white/60">맵별 차량·비밀방 위치, AI 전적 분석과 랭킹</p>
+              <div className="flex items-start gap-3">
+                <span aria-hidden className={`${gameMark} bg-[#F2A900] text-zinc-950`}>BG</span>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-[#F2A900]">PUBG</p>
+                  <h2 id="home-pubg" className="mt-1 text-xl font-black">배틀그라운드</h2>
+                  <p className="mt-1 text-sm text-white/60">맵별 차량·비밀방 위치, AI 전적 분석과 랭킹</p>
+                </div>
               </div>
               <HomeStatsSearch />
               <nav aria-label="배틀그라운드 메뉴" className="flex flex-wrap gap-2">
@@ -80,10 +85,13 @@ export default async function HomeHub() {
             </section>
 
             <section aria-labelledby="home-lol" className="flex flex-col gap-4 rounded-2xl border border-amber-500/20 bg-[var(--color-bg-surface)] p-5">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-widest text-amber-300">League of Legends</p>
-                <h2 id="home-lol" className="mt-1 text-xl font-black">리그 오브 레전드</h2>
-                <p className="mt-1 text-sm text-white/60">무작위 총력전: 아수라장 증강 도감과 챔피언별 조합</p>
+              <div className="flex items-start gap-3">
+                <span aria-hidden className={`${gameMark} border border-amber-300/60 bg-[#0a1428] text-amber-300`}>LoL</span>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-amber-300">League of Legends</p>
+                  <h2 id="home-lol" className="mt-1 text-xl font-black">리그 오브 레전드</h2>
+                  <p className="mt-1 text-sm text-white/60">무작위 총력전: 아수라장 증강 도감과 챔피언별 조합</p>
+                </div>
               </div>
               <Link href="/lol/kr/aram-mayhem" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-amber-400 px-4 text-sm font-bold text-zinc-950 transition hover:bg-amber-300">
                 증바람 증강 보기
@@ -98,12 +106,19 @@ export default async function HomeHub() {
               </nav>
               <p lang="en" className="mt-auto text-[11px] leading-relaxed text-white/40">{LOL_LEGAL_ENGLISH}</p>
             </section>
-            <section aria-labelledby="home-gta6" className="flex flex-col justify-between gap-4 rounded-2xl border border-white/10 bg-[var(--color-bg-surface)] p-5 md:col-span-2 sm:flex-row sm:items-center">
-              <div>
-                <h2 id="home-gta6" className="text-xl font-black">GTA VI 지도</h2>
-                <p className="mt-2 text-sm text-white/60">레오니다 장소 검색·즐겨찾기·방문 체크. 커뮤니티 추정 지도를 탐색하세요.</p>
+            <section aria-labelledby="home-gta6" className="flex flex-col justify-between gap-4 rounded-2xl border border-pink-400/20 bg-[var(--color-bg-surface)] p-5 md:col-span-2 sm:flex-row sm:items-center">
+              <div className="flex items-start gap-3">
+                <span aria-hidden className={`${gameMark} bg-gradient-to-br from-pink-500 to-orange-400 text-white`}>VI</span>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-pink-300">Grand Theft Auto VI</p>
+                  <h2 id="home-gta6" className="mt-1 text-xl font-black">GTA6 지도</h2>
+                  <p className="mt-1 text-sm text-white/60">레오니다 장소 검색·즐겨찾기·방문 체크. 커뮤니티 추정 지도를 탐색하세요.</p>
+                </div>
               </div>
-              <Link href="/gta6" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-amber-300 px-4 text-sm font-bold text-zinc-950 transition hover:bg-amber-200">지도 탐색하기</Link>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Link href="/gta6" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-pink-400 px-4 text-sm font-bold text-zinc-950 transition hover:bg-pink-300">지도 탐색하기</Link>
+                <Link href="/gta6/guides" className={chip}>공략 게시판</Link>
+              </div>
             </section>
           </div>
 

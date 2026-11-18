@@ -14,10 +14,11 @@ import { trackEvent } from "@/lib/analytics";
 import TurnstileWidget from "./TurnstileWidget";
 import { TURNSTILE_ACTIONS } from "@/lib/board/turnstileContract";
 import { svgIcon, type SvgIconName } from "@/lib/ui/icon-svg";
+import { postBasePath } from "@/lib/gta6/guides";
 
 const LEGACY_AI_SECTION_ICON_PATTERN = /^(?:\u{1F539}|\u2699\uFE0F?|\u2696\uFE0F?|\u{1F6E0}\uFE0F?|\u{1F5FA}\uFE0F?|\u{1F52B})/u;
 
-export default function BoardWriteClient() {
+export default function BoardWriteClient({ initialCategory = "자유" }: { initialCategory?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editPostId = searchParams?.get("edit");
@@ -25,7 +26,7 @@ export default function BoardWriteClient() {
 
   const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState("");
-  const [newCategory, setNewCategory] = useState("자유");
+  const [newCategory, setNewCategory] = useState(initialCategory);
   const [newDiscordUrl, setNewDiscordUrl] = useState("");
   const [newDiscordChannelId, setNewDiscordChannelId] = useState("");
   const [newIsNotice, setNewIsNotice] = useState(false);
@@ -148,9 +149,9 @@ export default function BoardWriteClient() {
       
       if (newPostId) {
         // 수정 완료 후에는 깨끗한 URL로 이동
-        router.push(`/board/${newPostId}`);
+        router.push(`${postBasePath(newCategory)}/${newPostId}`);
       } else {
-        router.push("/board");
+        router.push(postBasePath(newCategory));
       }
       return true;
     } catch (error: any) {

@@ -13,9 +13,13 @@ export default function Gta6Layout({ children }: { children: React.ReactNode }) 
     <header className="safe-top flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 sm:px-6">
       <Link href="/gta6" aria-label="BGMS GTA6 지도" className="inline-flex min-h-11 items-center gap-3 rounded focus-visible:outline-2 focus-visible:outline-amber-300">
         <span className="text-lg font-black italic tracking-tight text-amber-300">BG<span className="text-white">MS</span></span>
-        <span className="border-l border-white/20 pl-3 text-sm font-semibold">GTA VI 지도</span>
+        <span className="border-l border-white/20 pl-3 text-sm font-semibold">GTA VI</span>
       </Link>
-      <Link href="/" className="inline-flex min-h-11 items-center gap-1.5 rounded px-2 text-xs font-medium text-zinc-300 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-300"><ArrowLeft size={15} aria-hidden />BGMS 홈</Link>
+      <nav aria-label="GTA6 메뉴" className="flex items-center gap-1">
+        <Link href="/gta6" className="inline-flex min-h-11 items-center rounded px-2 text-xs font-semibold text-zinc-200 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-300">지도</Link>
+        <Link href="/gta6/guides"className="inline-flex min-h-11 items-center rounded px-2 text-xs font-semibold text-zinc-200 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-300">공략 게시판</Link>
+        <Link href="/" className="inline-flex min-h-11 items-center gap-1.5 rounded px-2 text-xs font-medium text-zinc-300 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-300"><ArrowLeft size={15} aria-hidden />BGMS 홈</Link>
+      </nav>
     </header>
     {children}
   </div>;

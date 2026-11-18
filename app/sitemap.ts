@@ -29,6 +29,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.7,
     },
     {
+      url: `${siteUrl}/gta6/guides`,
+      changeFrequency: 'daily',
+      priority: 0.6,
+    },
+    {
       url: `${siteUrl}/`,
       changeFrequency: 'daily',
       priority: 0.9,

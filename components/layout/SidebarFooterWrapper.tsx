@@ -23,7 +23,8 @@ export default function SidebarFooterWrapper({ children }: { children: React.Rea
   const isLolPage = pathname === "/lol" || pathname.startsWith("/lol/");
   const isGtaPage = pathname === "/gta6" || pathname.startsWith("/gta6/");
   // 홈 허브는 내용이 자리 잡을 때까지 광고를 싣지 않는다.
-  const isAdFreePage = pathname === '/' || isAdminToolPage || isSupportPage || isLolPage || isGtaPage;
+  // GTA6 공략 게시판은 일반 게시판처럼 광고를 싣고, 지도 화면만 광고 없이 둔다.
+  const isAdFreePage = pathname === '/' || isAdminToolPage || isSupportPage || isLolPage || (isGtaPage && !pathname.startsWith('/gta6/guides'));
 
   return (
     <>
