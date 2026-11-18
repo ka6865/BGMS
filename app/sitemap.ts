@@ -1,5 +1,6 @@
 import { MetadataRoute } from 'next';
 import { createClient } from '@/utils/supabase/server';
+import { postBasePath } from '@/lib/gta6/guides';
 import { getLolChampions } from '@/lib/lol/champions.server';
 import { listMayhemTipSitemap } from '@/lib/lol/mayhemTips.server';
 import { listPublicPlayersForSitemap } from '@/lib/stats/playerSeo.server';
@@ -76,13 +77,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const supabase = await createClient();
     const { data: posts } = await supabase
       .from('posts')
-      .select('id, created_at')
+      .select('id, category, created_at')
+      .eq('status', 'published')
       .order('created_at', { ascending: false })
       .limit(100);
 
     if (posts) {
       postEntries = posts.map((post) => ({
-        url: `${siteUrl}/board/${post.id}`,
+        url: `${siteUrl}${postBasePath(post.category)}/${post.id}`,
         lastModified: new Date(post.created_at),
         changeFrequency: 'weekly',
         priority: 0.6,

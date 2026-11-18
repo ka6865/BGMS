@@ -2,11 +2,20 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/utils/supabase/server", () => ({
-  createClient: async () => ({
-    from: () => ({ select: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [], error: null }) }) }) }) }),
-  }),
-}));
+vi.mock("@/utils/supabase/server", () => {
+  const order = () => ({
+    limit: async () => ({
+      data: [
+        { id: 225, category: "GTA6 공략", created_at: "2026-11-18T00:00:00Z" },
+        { id: 226, category: "자유", created_at: "2026-11-18T00:00:00Z" },
+      ],
+      error: null,
+    }),
+  });
+  return { createClient: async () => ({
+    from: () => ({ select: () => ({ eq: () => ({ order }) }) }),
+  }) };
+});
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/lol/champions.server", () => ({ getLolChampions: async () => ({ version: "16.22.1", champions: [{ id: 157, imageId: "Yasuo", name: "야스오" }] }) }));
@@ -33,6 +42,14 @@ describe("SEO 메타데이터 계약", () => {
     expect(urls).toEqual(expect.arrayContaining(["/", "/maps/erangel", "/rankings", "/crates", "/board", "/stats"]));
     expect(urls).not.toContain("/meta");
     expect(urls).toContain("/stats/steam/Player%20One");
+  });
+
+  it("사이트맵의 GTA6 공략과 일반 게시글 주소는 각각의 대표 경로를 사용한다", async () => {
+    const { default: sitemap } = await import("@/app/sitemap");
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname);
+    expect(paths).toContain("/gta6/guides/225");
+    expect(paths).toContain("/board/226");
+    expect(paths).not.toContain("/board/225");
   });
 
   it("정리한 /meta 시험 페이지는 무기도감으로 영구 이동한다", async () => {
