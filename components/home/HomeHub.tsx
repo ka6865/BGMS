@@ -59,9 +59,9 @@ export default async function HomeHub() {
     <div className="w-full bg-[var(--color-bg-base)] text-white">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8 sm:py-10">
         <header className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#F2A900]/15 via-[var(--color-bg-surface)] to-amber-500/5 p-6 sm:p-8">
-          <h1 className="text-2xl font-black tracking-tight sm:text-3xl">배그와 롤, 전적과 전술 정보를 한곳에서</h1>
+          <h1 className="text-2xl font-black tracking-tight sm:text-3xl">게임 정보와 지도를 한곳에서</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/60 sm:text-base">
-            배틀그라운드 지도·AI 전적 분석과 리그 오브 레전드 증바람 증강 정보를 제공합니다.
+            배틀그라운드 전술·AI 전적, 리그 오브 레전드 증바람 증강, GTA6 지도를 제공합니다.
           </p>
         </header>
 
@@ -97,6 +97,13 @@ export default async function HomeHub() {
                 ))}
               </nav>
               <p lang="en" className="mt-auto text-[11px] leading-relaxed text-white/40">{LOL_LEGAL_ENGLISH}</p>
+            </section>
+            <section aria-labelledby="home-gta6" className="flex flex-col justify-between gap-4 rounded-2xl border border-white/10 bg-[var(--color-bg-surface)] p-5 md:col-span-2 sm:flex-row sm:items-center">
+              <div>
+                <h2 id="home-gta6" className="text-xl font-black">GTA VI 지도</h2>
+                <p className="mt-2 text-sm text-white/60">레오니다 장소 검색·즐겨찾기·방문 체크. 커뮤니티 추정 지도를 탐색하세요.</p>
+              </div>
+              <Link href="/gta6" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg bg-amber-300 px-4 text-sm font-bold text-zinc-950 transition hover:bg-amber-200">지도 탐색하기</Link>
             </section>
           </div>
 

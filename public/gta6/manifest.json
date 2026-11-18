@@ -1,0 +1,13 @@
+{
+  "source": "https://github.com/rolux/gtadb.org",
+  "commit": "5c1d69ff864623d181da5457afaacd00b623e1a4",
+  "importedAt": "2026-11-17",
+  "map": "YANIS v17",
+  "license": "CC BY 4.0",
+  "attribution": "gtadb.org and all contributors",
+  "landmarksSha256": "2209a4ff385815cad4d1f217248daaae3e29d029c34c137ce870eee1e8181083",
+  "landmarkCount": 3431,
+  "locatedCount": 3340,
+  "tileCount": 8830,
+  "tileBytes": 43805053
+}

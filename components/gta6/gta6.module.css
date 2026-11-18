@@ -1,0 +1,19 @@
+.map :global(.leaflet-container) { font: inherit; }
+.map :global(.leaflet-container .leaflet-control-attribution) { max-width: 100%; background: #18181b; color: #e4e4e7; font-size: 10px; }
+.map :global(.leaflet-control-attribution a) { color: #fcd34d; }
+.map :global(.leaflet-container .leaflet-tooltip) { width: max-content; max-width: min(240px, calc(100vw - 96px)); white-space: normal; overflow-wrap: anywhere; border: 0; background: #18181b; color: #fafafa; padding: 8px 10px; box-shadow: 0 3px 12px #0003; }
+.map :global(.leaflet-tooltip-top::before) { border-top-color: #18181b; }
+.map :global(.leaflet-interactive):focus-visible { outline: 3px solid #18181b; }
+.controls { position: absolute; z-index: 600; right: 12px; top: 12px; overflow: hidden; border-radius: 8px; background: #18181b; color: #fafafa; box-shadow: 0 3px 12px #0003; }
+.controls button { display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; }
+.controls button + button { border-top: 1px solid #3f3f46; }
+.controls button:hover { background: #3f3f46; }
+.controls button:focus-visible { outline: 2px solid #fcd34d; outline-offset: -3px; }
+.panel { scrollbar-width: thin; scrollbar-color: #52525b #18181b; }
+@media (max-height: 560px) and (min-width: 480px) {
+  .explorer { flex-direction: row; }
+  .explorer .mapPanel { min-width: 0; min-height: 0; }
+  .explorer .listPanel { order: -1; width: min(42vw, 360px); height: auto; min-height: 0; border-top: 0; border-right: 1px solid rgb(255 255 255 / 10%); }
+}
+.regionLabel { pointer-events: none; color: #fff; font-size: 12px; font-weight: 700; line-height: 24px; text-align: center; white-space: nowrap; text-shadow: 0 1px 3px #10283d, 0 0 5px #10283d, 0 0 8px #10283d; }
+@media (prefers-reduced-motion: no-preference) { .panel button { transition: background-color 120ms ease-out, color 120ms ease-out; } }

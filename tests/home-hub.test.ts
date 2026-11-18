@@ -47,6 +47,7 @@ describe("홈 허브", () => {
     const html = await renderHome({ utm_source: "ad" });
     expect(html).toContain("배틀그라운드");
     expect(html).toContain('href="/lol/kr/aram-mayhem"');
+    expect(html).toContain('href="/gta6"');
     expect(html).toContain('role="search"');
     expect(html.indexOf("증바람 26.22 조합·증강 자료 갱신")).toBeLessThan(html.indexOf("점검 안내"));
     expect(html).toContain('href="/board/7"');
