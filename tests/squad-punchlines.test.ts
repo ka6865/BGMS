@@ -101,7 +101,7 @@ describe("squad punchline team facts", () => {
         benchmarkStats: { ...teamInput().benchmarkStats, avgTradeableTradeRate },
       })).find((item) => item.metric === "tradeableTradeRate");
     expect(trade(12, 1)).toMatchObject({ id: "trade_rate_low", kind: "roast",
-      fact: "100m 안에서 적에게 눕은 아군 기절 12회 중 1회를 30초 안에 갚아 복수 성공률 8.3%, 전체 팀 평균 30%로 평균보다 낮습니다." });
+      fact: "100m 안에서 적에게 누운 아군 기절 12회 중 1회를 30초 안에 갚아 복수 성공률 8.3%, 전체 팀 평균 30%로 평균보다 낮습니다." });
     expect(trade(12, 6)).toMatchObject({ id: "trade_rate_high", kind: "hype" });
     expect(trade(12, 4)).toBeUndefined();
     expect(trade(9, 0)).toBeUndefined();
@@ -388,7 +388,7 @@ describe("매운맛 한마디", () => {
 describe("tradeable trade rate facts survive the evidence policy", () => {
   it("keeps the banmal fact even when backup latency has too few trades", async () => {
     const { applySquadEvidencePolicy } = await import("@/lib/pubg-analysis/squadAiEvidence");
-    const fact = toSpicySquadFact("100m 안에서 적에게 눕은 아군 기절 12회 중 1회를 30초 안에 갚아 복수 성공률 8.3%, 전체 팀 평균 30%로 평균보다 낮습니다.");
+    const fact = toSpicySquadFact("100m 안에서 적에게 누운 아군 기절 12회 중 1회를 30초 안에 갚아 복수 성공률 8.3%, 전체 팀 평균 30%로 평균보다 낮습니다.");
     expect(fact.endsWith("낮아.")).toBe(true);
     const stats = { avgTradeLatency: 8000, totalTradeKills: 1, totalTeammateKnocks: 30, totalRevives: 10, totalSmokeRescues: 1,
       totalTradeableKnocks: 12, totalTradeableTradeKills: 1 };
