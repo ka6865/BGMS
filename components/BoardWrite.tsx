@@ -16,7 +16,7 @@ const ReactQuill = dynamic(() => import("react-quill-new"), {
   ssr: false,
 }) as any;
 
-const BOARD_CATEGORIES = ["배그 소식", "자유", "듀오/스쿼드 모집", "클랜홍보", "제보/문의", GTA6_GUIDE_CATEGORY];
+const BOARD_CATEGORIES = ["배그 소식", "자유", "듀오/스쿼드 모집", "클랜홍보", "제보/문의"];
 const IMAGE_CONFIG = {
   MAX_FILE_SIZE_MB: 20,
   COMPRESSION_MAX_SIZE_MB: 1.5,
@@ -681,7 +681,8 @@ export default function BoardWrite({
           onChange={(e) => setNewCategory(e.target.value)}
           style={{ padding: "8px 10px", backgroundColor: "#252525", color: "white", border: "1px solid #333", borderRadius: "4px" }}
         >
-          {BOARD_CATEGORIES.filter((c) => isAdmin || c !== "패치노트").map((c) => (
+          {/* GTA6 공략 글은 GTA6 분류만, 배그 글은 배그 분류만 고를 수 있다. */}
+          {(newCategory === GTA6_GUIDE_CATEGORY ? [GTA6_GUIDE_CATEGORY] : BOARD_CATEGORIES.filter((c) => isAdmin || c !== "패치노트")).map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
@@ -1024,7 +1025,7 @@ export default function BoardWrite({
           value={newContent}
           onChange={setNewContent}
           modules={modules}
-          placeholder="생존자님의 소중한 정보를 공유해 주세요! (이미지는 드래그 혹은 아이콘 클릭으로 첨부 가능)"
+          placeholder={newCategory === GTA6_GUIDE_CATEGORY ? "공략, 꿀팁, 지도 제보를 자유롭게 남겨 주세요! (이미지는 드래그 혹은 아이콘 클릭으로 첨부 가능)" : "생존자님의 소중한 정보를 공유해 주세요! (이미지는 드래그 혹은 아이콘 클릭으로 첨부 가능)"}
         />
       </div>
 

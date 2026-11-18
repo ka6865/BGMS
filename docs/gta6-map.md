@@ -87,7 +87,7 @@ npm run test:unit
 
 - 저장: 기존 게시판 `posts`에 분류 `GTA6 공략`(`lib/gta6/guides.ts`)으로 저장한다. migration·API 변경은 없고 글쓰기 Turnstile·작성 쿼터·sanitize·신고·추천을 그대로 쓴다.
 - 화면: 목록 `/gta6/guides`는 자체 화면, 상세·글쓰기는 게시판 컴포넌트를 GTA6 레이아웃 안에서 재사용한다. 다른 분류 글을 `/gta6/guides/{id}`로 열면 `/board/{id}`로 308 이동한다. 작성·수정·삭제 후 이동 경로는 `postBasePath(category)`로 정한다.
-- 배그 게시판 목록(`/board`, 모바일 앱 `/api/mobile/board/posts`)에서는 `GTA6 공략` 글을 빼고 분류 탭도 두지 않는다. 글은 `/board/{id}`로도 열리지만 canonical은 `/gta6/guides/{id}`다. 홈 "최근 소식"에는 남고 링크는 `/gta6/guides/{id}`로 간다.
+- 배그 게시판 목록(`/board`, 모바일 앱 `/api/mobile/board/posts`)에서는 `GTA6 공략` 글을 빼고 분류 탭도 두지 않는다. 글쓰기 분류도 GTA6 글은 `GTA6 공략`만, 배그 글은 기존 분류만 보인다. 글은 `/board/{id}`로도 열리지만 canonical은 `/gta6/guides/{id}`다. 홈 "최근 소식"에는 남고 링크는 `/gta6/guides/{id}`로 간다.
 - 광고: 지도(`/gta6`)는 광고 없이 두고, 공략 게시판은 일반 게시판처럼 광고 스크립트를 싣는다.
 - 신뢰: 운영자는 스팸·욕설만 관리하고, 내용의 정확성은 추천·댓글로 커뮤니티가 판단한다는 안내를 목록 상단에 둔다.
 
