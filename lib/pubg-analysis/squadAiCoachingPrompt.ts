@@ -92,13 +92,13 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
   const benchmarkTradeLatencySec = benchmarkTradeLatencyValue !== null && benchmarkTradeLatencyValue >= 0
     ? `${(benchmarkTradeLatencyValue / 1000).toFixed(2)}초`
     : "측정 불가";
-  // 복수 성공률: 100m 안에서 적에게 눕은 아군 기절 중 30초 안에 그 적을 잡은 비율. 표본이 모자라면 비교하지 않는다.
+  // 복수 성공률: 100m 안에서 적에게 누운 아군 기절 중 30초 안에 그 적을 잡은 비율. 표본이 모자라면 비교하지 않는다.
   const tradeableKnocks = finiteNonNegative(stats?.totalTradeableKnocks);
   const tradeableTrades = finiteNonNegative(stats?.totalTradeableTradeKills);
   const benchmarkTradeableRate = finiteNonNegative(benchmarkStats?.avgTradeableTradeRate);
   const tradeRateLine = tradeableKnocks !== null && tradeableKnocks >= 10 && tradeableTrades !== null
     && tradeableTrades <= tradeableKnocks && benchmarkTradeableRate !== null
-    ? `${formatPercent(benchmarkTradeableRate)} (Our Squad: ${Math.round((tradeableTrades / tradeableKnocks) * 1000) / 10}%, 100m 안에서 적에게 눕은 아군 기절 ${tradeableKnocks}회 중 ${tradeableTrades}회를 30초 안에 갚음)`
+    ? `${formatPercent(benchmarkTradeableRate)} (Our Squad: ${Math.round((tradeableTrades / tradeableKnocks) * 1000) / 10}%, 100m 안에서 적에게 누운 아군 기절 ${tradeableKnocks}회 중 ${tradeableTrades}회를 30초 안에 갚음)`
     : "표본 부족으로 비교하지 않음";
   const coverRateValue = finiteNonNegative(stats?.avgCoverRate);
   const coverRatePercent = coverRateValue === null || coverRateValue > 1

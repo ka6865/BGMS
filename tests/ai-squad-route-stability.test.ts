@@ -233,7 +233,11 @@ describe("AI squad route stability", () => {
         expect(fresh.coaching).toBe("");
       }
       if (scenario === "wins") expect(fresh.overallOpinion).toContain("최근 5경기에서 우승 5회");
-      if (scenario === "same" || scenario === "opposite") {
+      if (scenario === "opposite" && coachingStyle === "spicy") {
+        // 서버가 약점 칸에 쓴 느린 백업 사실은 총평에서 다시 말하지 않는다.
+        expect(fresh.overallOpinion).not.toContain("평균보다 느려");
+        expect(fresh.overallOpinion).toContain("우승 1회");
+      } else if (scenario === "same" || scenario === "opposite") {
         expect(fresh.overallOpinion).toMatch(scenario === "same" ? /(?:했|빨랐)고/ : /지만/);
         expect(fresh.overallOpinion).toContain("상세 분석 가능한 3경기 기준");
       }
