@@ -44,11 +44,11 @@ describe("GTA6 지도 데이터", () => {
     expect(worldToMap([256, 256])).toEqual([-16128, 16640]);
     const [lat, lng] = worldToMap([2008, 912]);
     expect([Math.floor(-lat / 256), Math.floor(lng / 256)]).toEqual([60, 71]);
-    expect(existsSync("public/gta6/tiles/yanis-17/5/5,60,71.jpg")).toBe(true);
+    expect(existsSync("public/gta6/tiles/yanis-18/5/5,60,71.jpg")).toBe(true);
   });
 
   it("지도 경계는 실제 파일의 y행·x열 전체를 포함한다", () => {
-    const coordinates = readdirSync("public/gta6/tiles/yanis-17/5").map(file => file.replace(".jpg", "").split(",").map(Number));
+    const coordinates = readdirSync("public/gta6/tiles/yanis-18/5").map(file => file.replace(".jpg", "").split(",").map(Number));
     const rows = coordinates.map(c => c[1]);
     const columns = coordinates.map(c => c[2]);
     expect(TILE_BOUNDS).toEqual([
