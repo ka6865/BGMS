@@ -100,14 +100,14 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
             const body = JSON.parse(raw);
             if (req.url === "/api/lol/mayhem/tips/vote") { res.end(JSON.stringify({ up: body.value === 1 ? 6 : 5, down: body.value === -1 ? 1 : 0, myVote: body.value })); return; }
             res.statusCode = req.method === "POST" ? 201 : 200;
-            res.end(JSON.stringify({ tip: { id: 99, createdAt: "2026-11-11T00:00:00Z", updatedAt: req.method === "PATCH" ? "2026-11-11T01:00:00Z" : null, author: body.anonymous ? null : "내닉네임", up: 0, down: 0, myVote: 0, mine: true, comments: 0, ...body } }));
+            res.end(JSON.stringify({ tip: { id: 99, clientPatch: "16.21", createdAt: "2026-11-11T00:00:00Z", updatedAt: req.method === "PATCH" ? "2026-11-11T01:00:00Z" : null, author: body.anonymous ? null : "내닉네임", up: 0, down: 0, myVote: 0, mine: true, comments: 0, ...body } }));
           });
           return;
         }
         const common = new URL(req.url, "http://x").searchParams.get("champion") === "common";
-        const base = { kind: "tip", anonymous: false, up: 5, down: 0, myVote: 0, mine: false, comments: 0, updatedAt: null, author: "칼바람장인" };
+        const base = { kind: "tip", clientPatch: "16.21", anonymous: false, up: 5, down: 0, myVote: 0, mine: false, comments: 0, updatedAt: null, author: "칼바람장인" };
         const rows = [{ ...base, id: 1, championId: null, augmentIds: [1, 3], itemIds: [3020], summary: "누구나 쓰기 좋은 공용 조합", usage: "초반 실버에서 먼저 고르세요.\n두 번째 줄 설명", createdAt: "2026-11-10T00:00:00Z" },
-          { ...base, anonymous: true, author: null, up: 2, id: 2, championId: 63, augmentIds: [1, 2, 3, 4], itemIds: [3020, 6655, 3089], summary: "브랜드 도트 피해 조합", usage: "", createdAt: "2026-11-09T00:00:00Z" }  , { ...base, kind: "question", id: 3, championId: null, augmentIds: [], itemIds: [3089, 6655], summary: "운명의 무기 뜨면 AP는 뭐 가요?", usage: "상대에 탱커가 없는데 도미닉이 좋을까요 오만이 좋을까요?", comments: 2, createdAt: "2026-11-08T00:00:00Z" }]
+          { ...base, anonymous: true, author: null, up: 2, id: 2, championId: 63, augmentIds: [1, 2, 3, 4], itemIds: [3020, 6655, 3089], summary: "브랜드 도트 피해 조합", usage: "", createdAt: "2026-11-09T00:00:00Z" }  , { ...base, kind: "question", clientPatch: "16.20", id: 3, championId: null, augmentIds: [], itemIds: [3089, 6655], summary: "운명의 무기 뜨면 AP는 뭐 가요?", usage: "상대에 탱커가 없는데 도미닉이 좋을까요 오만이 좋을까요?", comments: 2, createdAt: "2026-11-08T00:00:00Z" }]
           .filter(row => !common || row.championId === null).filter(row => !new URL(req.url!, "http://x").searchParams.get("kind") || row.kind === new URL(req.url!, "http://x").searchParams.get("kind"));
         res.end(JSON.stringify({ patch: "16.21", offset: 0, signedIn: true, rows, total: rows.length }));
         return;
@@ -281,6 +281,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 증바람 공�
     const card = (summary: string) => page.$$eval('[aria-label="유저 조합 목록"] > li', (nodes, text) => nodes.find(node => node.textContent?.includes(text))?.textContent ?? "", summary);
     expect(await card("공용으로 쓰기 좋은 조합")).toContain("익명(내 글)");
     expect(await card("누구나 쓰기 좋은")).toContain("칼바람장인");
+    expect(await card("누구나 쓰기 좋은")).toContain("작성 패치 26.21");
+    expect(await card("운명의 무기 뜨면 AP는 뭐 가요?")).toContain("작성 패치 26.20");
     // 남의 제보에는 투표하고, 내 제보에는 투표 버튼이 막힌다.
     await page.$$eval('[aria-label="유저 조합 목록"] > li', nodes => (nodes.find(node => node.textContent?.includes("누구나 쓰기 좋은"))!.querySelector('button[aria-label^="추천"]') as HTMLButtonElement).click());
     await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="유저 조합 목록"] > li')].find(node => node.textContent?.includes("누구나 쓰기 좋은"))?.querySelector('button[aria-label="추천 6"][aria-pressed="true"]'));

@@ -5,8 +5,8 @@ import { MAYHEM_TIP_LIMITS, selectMayhemTipItems, type MayhemTip, type MayhemTip
 
 const signal = () => AbortSignal.timeout(10_000);
 const table = "lol_mayhem_combo_tips";
-const columns = "id,user_id,kind,champion_id,augment_ids,item_ids,summary,usage,anonymous,up_count,down_count,comment_count,created_at,updated_at";
-type Row = { id: number; user_id: string; kind: MayhemTipKind; champion_id: number | null; augment_ids: number[]; item_ids: number[]; summary: string; usage: string; anonymous: boolean; up_count: number; down_count: number; comment_count: number; created_at: string; updated_at: string | null };
+const columns = "id,user_id,client_patch,kind,champion_id,augment_ids,item_ids,summary,usage,anonymous,up_count,down_count,comment_count,created_at,updated_at";
+type Row = { id: number; user_id: string; client_patch: string; kind: MayhemTipKind; champion_id: number | null; augment_ids: number[]; item_ids: number[]; summary: string; usage: string; anonymous: boolean; up_count: number; down_count: number; comment_count: number; created_at: string; updated_at: string | null };
 
 async function nicknames(userIds: string[]): Promise<Map<string, string | null>> {
   const ids = [...new Set(userIds)];
@@ -26,7 +26,7 @@ async function toTips(rows: Row[], viewer: string | null): Promise<MayhemTip[]> 
   if (votes.error) throw new Error("mayhem_tips_unavailable");
   const myVotes = new Map((votes.data as { tip_id: number; value: number }[]).map(v => [v.tip_id, v.value]));
   return rows.map(row => ({
-    id: row.id, kind: row.kind, championId: row.champion_id, augmentIds: row.augment_ids, itemIds: row.item_ids, summary: row.summary, usage: row.usage,
+    id: row.id, clientPatch: row.client_patch, kind: row.kind, championId: row.champion_id, augmentIds: row.augment_ids, itemIds: row.item_ids, summary: row.summary, usage: row.usage,
     anonymous: row.anonymous, author: row.anonymous ? null : names.get(row.user_id) ?? null, up: row.up_count, down: row.down_count,
     myVote: (myVotes.get(row.id) ?? 0) as -1 | 0 | 1, mine: row.user_id === viewer, comments: row.comment_count, createdAt: row.created_at, updatedAt: row.updated_at,
   }));
@@ -38,8 +38,9 @@ export const getMayhemTipItems = unstable_cache(async (version: string): Promise
   return selectMayhemTipItems(await response.json());
 }, ["lol-mayhem-tip-items-v2"], { revalidate: 21600 });
 
-export async function listMayhemTips(patch: string, champion: number | "common" | null, kind: MayhemTipKind | null, sort: MayhemTipSort, offset: number, viewer: string | null): Promise<{ rows: MayhemTip[]; total: number }> {
-  let query = createServiceRoleSupabase().from(table).select(columns, { count: "exact" }).eq("status", "published").eq("client_patch", patch);
+export async function listMayhemTips(patch: string | null, champion: number | "common" | null, kind: MayhemTipKind | null, sort: MayhemTipSort, offset: number, viewer: string | null): Promise<{ rows: MayhemTip[]; total: number }> {
+  let query = createServiceRoleSupabase().from(table).select(columns, { count: "exact" }).eq("status", "published");
+  if (patch) query = query.eq("client_patch", patch);
   if (kind) query = query.eq("kind", kind);
   if (champion === "common") query = query.is("champion_id", null);
   else if (champion !== null) query = query.eq("champion_id", champion);
@@ -51,11 +52,10 @@ export async function listMayhemTips(patch: string, champion: number | "common" 
 }
 
 // 공개 상세 화면은 패치와 관계없이 게시 중인 글만 보여준다.
-export async function getMayhemTip(id: number): Promise<{ tip: MayhemTip; patch: string } | null> {
-  const { data, error } = await createServiceRoleSupabase().from(table).select(`${columns},client_patch`).eq("id", id).eq("status", "published").abortSignal(signal()).maybeSingle();
+export async function getMayhemTip(id: number): Promise<MayhemTip | null> {
+  const { data, error } = await createServiceRoleSupabase().from(table).select(columns).eq("id", id).eq("status", "published").abortSignal(signal()).maybeSingle();
   if (error) throw new Error("mayhem_tips_unavailable");
-  if (!data) return null;
-  return { tip: (await toTips([data as Row], null))[0], patch: (data as { client_patch: string }).client_patch };
+  return data ? (await toTips([data as Row], null))[0] : null;
 }
 
 // 질문은 답변이 달린 것만 사이트맵에 싣는다.

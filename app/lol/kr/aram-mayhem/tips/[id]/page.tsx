@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { requireLolPublicPage } from "@/lib/lol/publicAccess.server";
 import { allLolMayhemAugments } from "@/lib/lol/augments/catalog";
 import { getCachedLolAugmentCatalog } from "@/lib/lol/augments/catalog.server";
+import { toDisplayPatch } from "@/lib/lol/augments/patchMap";
 import { getLolChampions } from "@/lib/lol/champions.server";
 import { getMayhemTip, getMayhemTipItems, listMayhemTipComments } from "@/lib/lol/mayhemTips.server";
 import { MAYHEM_PATH, mayhemChampionPath, mayhemMetadata, mayhemTipPath } from "@/lib/lol/mayhemSeo";
@@ -16,9 +17,9 @@ type Props = { params: Promise<{ id: string }> };
 // 메타데이터와 본문이 같은 글을 한 번만 읽는다.
 const loadTip = cache(async (rawId: string) => {
   if (process.env.LOL_MAYHEM_TIPS_ENABLED !== "true" || !/^[1-9][0-9]{0,15}$/.test(rawId) || !Number.isSafeInteger(Number(rawId))) return null;
-  const [found, champions] = await Promise.all([getMayhemTip(Number(rawId)), getLolChampions().catch(() => null)]);
-  if (!found) return null;
-  return { ...found, champion: champions?.champions.find(c => c.id === found.tip.championId) ?? null, version: champions?.version ?? null };
+  const [tip, champions] = await Promise.all([getMayhemTip(Number(rawId)), getLolChampions().catch(() => null)]);
+  if (!tip) return null;
+  return { tip, champion: champions?.champions.find(c => c.id === tip.championId) ?? null, version: champions?.version ?? null };
 });
 
 const excerpt = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, 140);
@@ -38,10 +39,10 @@ export default async function LolMayhemTipPage({ params }: Props) {
   requireLolPublicPage();
   const found = await loadTip((await params).id);
   if (!found) notFound();
-  const { tip, patch, champion, version } = found, question = tip.kind === "question";
+  const { tip, champion, version } = found, question = tip.kind === "question";
   // 글이 올라온 패치 도감을 먼저 쓰고, 없으면 현재 도감에서 이름을 찾는다.
   const [catalog, comments, items] = await Promise.all([
-    getCachedLolAugmentCatalog(patch).then(found => found ?? getCachedLolAugmentCatalog(null)).catch(() => null),
+    getCachedLolAugmentCatalog(tip.clientPatch).then(found => found ?? getCachedLolAugmentCatalog(null)).catch(() => null),
     listMayhemTipComments(tip.id, null).catch(() => null),
     version && tip.itemIds.length ? getMayhemTipItems(version).catch(() => []) : [],
   ]);
@@ -69,7 +70,7 @@ export default async function LolMayhemTipPage({ params }: Props) {
         {champion ? <ChampionPortrait champion={champion} version={version} size={48} /> : <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-lg bg-zinc-800 text-xs font-bold text-zinc-300">공용</span>}
         <div className="min-w-0">
           <h1 className="break-words text-lg font-bold">{question && <span className="mr-1.5 rounded bg-sky-400/15 px-1.5 align-[2px] text-xs font-bold text-sky-300">질문</span>}{tip.summary}</h1>
-          <p className="text-xs text-zinc-400">{champion?.name ?? "공용 조합"} · {author} · {date(tip.createdAt)}{tip.updatedAt && " · 수정됨"} · 추천 {tip.up}</p>
+          <p className="text-xs text-zinc-400">{champion?.name ?? "공용 조합"} · {author} · {date(tip.createdAt)}{tip.updatedAt && " · 수정됨"} · 작성 패치 {toDisplayPatch(tip.clientPatch) ?? tip.clientPatch} · 추천 {tip.up}</p>
         </div>
       </header>
       {tip.augmentIds.length > 0 && <ol aria-label="증강" className="mt-4 flex flex-wrap gap-1.5">{tip.augmentIds.map(id => { const a = augments.get(id); return <li key={id} className="flex items-center gap-2 rounded-lg bg-zinc-950/60 py-1 pl-1 pr-2.5 text-[13px]">
