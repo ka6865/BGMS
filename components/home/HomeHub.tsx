@@ -4,6 +4,7 @@ import { getLatestMayhemPublication } from "@/lib/lol/mayhemDatasetStore.server"
 import { lolRiotDataPublic } from "@/lib/lol/previewAccess";
 import { LOL_LEGAL_ENGLISH } from "@/components/lol/LolLegalNotice";
 import HomeStatsSearch from "./HomeStatsSearch";
+import { postBasePath } from "@/lib/gta6/guides";
 
 type NewsItem = { href: string; label: string; title: string; at: string };
 
@@ -36,14 +37,14 @@ async function getNews(): Promise<NewsItem[]> {
   const [notices, latest, mayhem] = await Promise.allSettled([recentPosts(true), recentPosts(false), getLatestMayhemPublication()]);
   const items: NewsItem[] = [];
   if (notices.status === "fulfilled" && !notices.value.error) {
-    for (const post of notices.value.data ?? []) items.push({ href: `/board/${post.id}`, label: "공지", title: post.title, at: post.created_at });
+    for (const post of notices.value.data ?? []) items.push({ href: `${postBasePath(post.category)}/${post.id}`, label: "공지", title: post.title, at: post.created_at });
   }
   if (mayhem.status === "fulfilled" && mayhem.value) {
     items.push({ href: "/lol/kr/aram-mayhem", label: "LoL", title: `증바람 ${mayhem.value.patch.replace(/^16\./, "26.")} 조합·증강 자료 갱신`, at: mayhem.value.publishedAt });
   }
   if (latest.status === "fulfilled" && !latest.value.error) {
     for (const post of (latest.value.data ?? []).slice(0, NEWS_LIMIT - items.length)) {
-      items.push({ href: `/board/${post.id}`, label: post.category || "새 글", title: post.title, at: post.created_at });
+      items.push({ href: `${postBasePath(post.category)}/${post.id}`, label: post.category || "새 글", title: post.title, at: post.created_at });
     }
   }
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));

@@ -18,6 +18,7 @@ const {
   mockConsumeBoardWriteQuota,
   mockPostsInsertSingle,
   mockCreatePublishedPostComment,
+  mockPostsNeq,
 } = vi.hoisted(() => {
   const mockExtractClientIp = vi.fn(() => "127.0.0.1");
   const mockCheckIpBlacklist = vi.fn().mockResolvedValue(false);
@@ -37,6 +38,7 @@ const {
   const mockPostsOr = vi.fn();
   const mockPostsInsertSingle = vi.fn();
   const mockCreatePublishedPostComment = vi.fn();
+  const mockPostsNeq = vi.fn();
   const mockPostsInsert = vi.fn(() => ({
     select: vi.fn(() => ({ single: mockPostsInsertSingle })),
   }));
@@ -44,6 +46,7 @@ const {
   const postsChain: any = {
     select: mockPostsSelect,
     eq: vi.fn(() => postsChain),
+    neq: mockPostsNeq,
     order: mockPostsOrder,
     limit: mockPostsLimit,
     lt: vi.fn(() => postsChain),
@@ -85,6 +88,7 @@ const {
     error: null,
   });
   mockPostsOr.mockReturnValue(postsChain);
+  mockPostsNeq.mockReturnValue(postsChain);
 
   const commentsSelectChain: any = {
     eq: mockCommentsEq,
@@ -162,6 +166,7 @@ const {
     mockConsumeBoardWriteQuota,
     mockPostsInsertSingle,
     mockCreatePublishedPostComment,
+    mockPostsNeq,
   };
 });
 
@@ -521,6 +526,7 @@ describe("mobile board API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mockPostsNeq).toHaveBeenCalledWith("category", "GTA6 공략");
     expect(body.hasMore).toBe(true);
     expect(
       JSON.parse(Buffer.from(body.nextCursor, "base64url").toString("utf8")),
