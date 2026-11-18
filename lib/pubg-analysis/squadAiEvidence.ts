@@ -160,15 +160,21 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
       output.coaching = advice[gap.id] ?? "";
     }
   }
+  // 개인 기록을 가진 roleProfiles면 못한 점과 조언은 모델 문장 대신 서버가 고정 기준으로 쓴 문장으로 확정한다.
+  // 모델이 없는 기준을 만들거나 비꼬는 말투를 지우는 일을 막고, 후보가 없는 팀원은 빈 칸으로 둔다.
+  const recordsAware = roleProfiles.length > 0 && roleProfiles.every(profile => profile.records !== undefined);
+  const fixedFeedback = recordsAware ? squadMemberFaultFeedback(roleProfiles, coachingStyle === "spicy" ? "spicy" : "mild") : null;
   const opinionCandidates = scopedPunchlines.filter(item => item.id !== "damage_spread");
-  // 모델이 쓴 요약·강점에 이미 나온 사실은 총평에서 다시 말하지 않는다. 서버가 채운 약점은 총평 재료로 남긴다.
-  const statedElsewhere = ["summary", "strength"].map(field => typeof output[field] === "string" ? (output[field] as string).replace(/\s+/gu, "") : "").join("|");
+  // 요약·강점·약점에 이미 나온 사실은 총평에서 다시 말하지 않는다. 서버가 채운 약점도 같은 화면에 보이므로 포함한다.
+  const statedElsewhere = ["summary", "strength", "weakness"].map(field => typeof output[field] === "string" ? (output[field] as string).replace(/\s+/gu, "") : "").join("|");
   const factCore = (fact: string) => fact.replace(/^상세 분석 가능한 \d+경기 기준\s*/u, "")
     .replace(/(?:느립니다|빠릅니다|높습니다|낮습니다|많습니다|적습니다|입니다|했습니다)\.$/u, "").replace(/\s+/gu, "");
   const opinionFacts = opinionCandidates.filter(item => !statedElsewhere.includes(factCore(item.fact))).slice(0, 2);
   if (typeof output.overallOpinion === "string" && opinionCandidates.length > 0) {
+    // 팀원 못한 점이 있으면 팀 재료가 칭찬뿐이어도 "칭찬만 했다"는 마무리를 쓰지 않는다.
+    const memberFault = [...(fixedFeedback?.values() ?? [])].some(item => item.fault);
     const closer = coachingStyle === "spicy"
-      ? squadSpicyCloser(opinionCandidates, roleProfiles.map(profile => profile.name).sort().join(","))
+      ? squadSpicyCloser(memberFault ? [...opinionCandidates, { kind: "roast" as const }] : opinionCandidates, roleProfiles.map(profile => profile.name).sort().join(","))
       : "다음 경기에서도 이 기록을 바탕으로 함께 점검해 보세요.";
     // 새 사실이 없으면 마무리 한마디만 남기고, 마무리도 없을 때만 반복을 감수하고 대표 사실 하나를 쓴다.
     const facts = opinionFacts.length || closer ? opinionFacts : opinionCandidates.slice(0, 1);
@@ -188,10 +194,6 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
       }
       return cleaned;
     };
-    // 개인 기록을 가진 roleProfiles면 못한 점과 조언은 모델 문장 대신 서버가 고정 기준으로 쓴 문장으로 확정한다.
-    // 모델이 없는 기준을 만들거나 비꼬는 말투를 지우는 일을 막고, 후보가 없는 팀원은 빈 칸으로 둔다.
-    const recordsAware = roleProfiles.length > 0 && roleProfiles.every(profile => profile.records !== undefined);
-    const fixedFeedback = recordsAware ? squadMemberFaultFeedback(roleProfiles, coachingStyle === "spicy" ? "spicy" : "mild") : null;
     // 낮은 비중도 중립 기록으로 확정해 모델의 과찬과 잘못된 수치를 남기지 않는다.
     const memberPunchlines = new Map(selectSquadMemberPunchlines({ roleProfiles }).map(item => [item.name, item]));
     output.memberFeedbacks = data.memberFeedbacks.map((member) => {

@@ -167,7 +167,7 @@ function teamCandidates(input: SquadPunchlineInput): Candidate[] {
     && tradeableTrades <= tradeableKnocks && benchmarkTradeRate !== null && benchmarkTradeRate > 0) {
     const rate = (tradeableTrades / tradeableKnocks) * 100;
     const gap = rate - benchmarkTradeRate;
-    const text = `100m 안에서 적에게 눕은 아군 기절 ${tradeableKnocks}회 중 ${tradeableTrades}회를 30초 안에 갚아 복수 성공률 ${formatRate(rate)}, 전체 팀 평균 ${formatRate(benchmarkTradeRate)}`;
+    const text = `100m 안에서 적에게 누운 아군 기절 ${tradeableKnocks}회 중 ${tradeableTrades}회를 30초 안에 갚아 복수 성공률 ${formatRate(rate)}, 전체 팀 평균 ${formatRate(benchmarkTradeRate)}`;
     if (rate * RATIO_THRESHOLD <= benchmarkTradeRate && -gap >= MIN_TRADE_RATE_GAP) {
       candidates.push({
         id: "trade_rate_low", kind: "roast", metric: "tradeableTradeRate",

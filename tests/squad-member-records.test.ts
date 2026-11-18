@@ -232,6 +232,17 @@ describe("서버가 쓰는 개인 못한 점과 조언", () => {
     expect(applySquadEvidencePolicy(once, stats, "B", undefined, roleProfiles, { coachingStyle: "spicy" })).toEqual(once);
   });
 
+  it("팀 재료가 칭찬뿐이어도 팀원 못한 점이 있으면 칭찬만 했다는 마무리를 쓰지 않는다", () => {
+    const options = { coachingStyle: "spicy", matchesSummary: [{ winPlace: 1 }, { winPlace: 1 }, { winPlace: 4 }] };
+    const praiseOnly = [roleProfiles[1], { ...roleProfiles[1], name: "C" }];
+    const without: any = applySquadEvidencePolicy(modelResult, {}, "B", undefined, praiseOnly, options);
+    expect(without.overallOpinion).toMatch(/트집 잡을 데가 없어|칭찬만 하다 끝나는/u);
+    const once: any = applySquadEvidencePolicy(modelResult, {}, "B", undefined, roleProfiles, options);
+    expect(once.memberFeedbacks[0].fault).not.toBe("");
+    expect(once.overallOpinion).not.toMatch(/트집 잡을 데가 없어|칭찬만 하다 끝나는/u);
+    expect(once.overallOpinion).toMatch(/기록부가 할 말이 많은|매운맛이 할 일이 많았던/u);
+  });
+
   it("조언은 맨 앞 후보 종류에 맞는 문장 하나다", () => {
     const onlyFirstDeath = [{ name: "A", shares: roleProfiles[0].shares, records: { ...records, farFromTeam: null, initiative: null } }, roleProfiles[1]];
     expect(squadMemberFaultFeedback(onlyFirstDeath, "mild").get("A")!.advice).toBe("다음 교전에서는 아군이 함께 사격할 수 있는지 확인한 뒤 들어가 보세요.");

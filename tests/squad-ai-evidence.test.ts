@@ -58,6 +58,15 @@ describe("스쿼드 서버 응답 품질", () => {
     expect(applySquadEvidencePolicy(once, stats, null, undefined, [], options)).toEqual(once);
   });
 
+  it("서버가 채운 약점 사실은 총평에서 반복하지 않는다", () => {
+    const options = { coachingStyle: "spicy", benchmarkStats };
+    const once = applySquadEvidencePolicy(source, gapStats, null, undefined, [], options);
+    expect(once.weakness).toContain("복수 성공률 10%");
+    expect(once.overallOpinion).not.toContain("복수 성공률 10%");
+    expect(once.overallOpinion).not.toBe("");
+    expect(applySquadEvidencePolicy(once, gapStats, null, undefined, [], options)).toEqual(once);
+  });
+
   it("우승 0회 약점은 선택기의 최소 5경기 기준을 그대로 따른다", () => {
     for (const count of [4, 5]) {
       const options = { coachingStyle: "spicy", matchesSummary: Array.from({ length: count }, () => ({ winPlace: 4 })) };
@@ -126,7 +135,8 @@ describe("스쿼드 서버 응답 품질", () => {
     for (const [avgTradeLatency, connector] of [[5000, "했고"], [15000, "지만"]] as const) {
       const stats = { avgTradeLatency, totalTradeKills: 5 };
       const options = { coachingStyle, benchmarkStats: { avgTradeLatency: 10000 }, matchesSummary: [{ winPlace: 1 }, { winPlace: 3 }, { winPlace: 5 }] };
-      const once = applySquadEvidencePolicy({ ...source, overallOpinion: "백업이 높은 반면 우승 1회를 기록했네." }, stats, null, undefined, [], options);
+      // 약점 칸이 비면 매운맛은 서버가 백업 사실로 채우고 총평에서 뺀다. 여기서는 총평 연결만 보려고 약점을 채워 둔다.
+      const once = applySquadEvidencePolicy({ ...source, weakness: "약점", overallOpinion: "백업이 높은 반면 우승 1회를 기록했네." }, stats, null, undefined, [], options);
       expect(once.overallOpinion).toContain(connector);
       expect(once.overallOpinion).not.toContain("반면");
       expect(once.overallOpinion).toContain("백업 속도 평균");
