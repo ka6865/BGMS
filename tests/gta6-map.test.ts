@@ -25,6 +25,15 @@ describe("GTA6 지도 데이터", () => {
     expect(places.find(p => p.name === "인명 구조 타워")).toBeDefined();
   });
 
+  it("추가된 장소를 한글과 영문으로 찾고 이름이 갱신된 장소는 기존 ID로 연다", () => {
+    const places = parseLandmarks(raw);
+    expect(filterLandmarks(places, "퍼밋 키스", "all").map(place => place.id)).toContain("L3439");
+    expect(filterLandmarks(places, "Permit Keys", "all").map(place => place.id)).toContain("L3439");
+    expect(places.find(place => place.id === "L907")).toMatchObject({
+      name: "바이스 시티청", originalName: "Vice City Hall",
+    });
+  });
+
   it("잘못된 JSON·좌표·태그를 거부하고 좌표가 없는 행은 제외한다", () => {
     for (const data of [null, [], { L1: [] }, { L1: ["이름", [NaN, 0], [], "", [], [], []] },
       { L1: ["이름", [0, 0], [], "", [], [], [42]] }]) {

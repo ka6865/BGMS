@@ -61,6 +61,10 @@ export const KOREAN_NAMES_BY_TEXT: Record<string, string> = {
   "Cell Tower": "통신탑", "Lifeguard Tower": "인명 구조 타워", "Parking Lot": "주차장",
   "Parking Garage": "주차 빌딩", "Lake": "호수", "River": "강", "Canal": "운하", "Park": "공원",
   "Church": "교회", "Hospital": "병원", "Prison Building": "교도소 건물", "Train Tunnel": "철도 터널",
+  "Wild Hog Point": "와일드 호그 포인트", "Permit Keys": "퍼밋 키스", "Gambit Bay": "갬빗 베이",
+  "Shoeless Keys": "슈리스 키스", "Wetman Bay": "웨트먼 베이",
+  "Gellhorn Drive-In Theatre": "겔혼 자동차 극장", "Mile Zero Air Station": "마일 제로 항공 기지",
+  "Vice City Hall": "바이스 시티청",
 };
 
 // 라벨 표시용 근사 중심일 뿐, 경계나 장소 좌표가 아니다. worldToMap 변환 전 원본 [x, y] 좌표.

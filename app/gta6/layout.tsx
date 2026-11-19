@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import { GTA6_OG_IMAGE } from "@/lib/gta6/guides";
+import manifest from "@/public/gta6/manifest.json";
 
 export const metadata: Metadata = {
   title: { absolute: "GTA6 지도 · 장소 검색 | BGMS" },
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/gta6" },
   openGraph: {
     title: "GTA6 지도 · 레오니다 한국어 장소 검색 | BGMS",
-    description: "바이스 시티와 레오니다 주 3,340곳을 한국어로 검색하는 GTA6 커뮤니티 지도와 공략 게시판.",
+    description: `바이스 시티와 레오니다 주 ${manifest.locatedCount.toLocaleString("ko-KR")}곳을 한국어로 검색하는 GTA6 커뮤니티 지도와 공략 게시판.`,
     url: "/gta6", type: "website", images: [GTA6_OG_IMAGE],
   },
   twitter: { card: "summary_large_image", title: "GTA6 지도 · 레오니다 한국어 장소 검색 | BGMS", images: [GTA6_OG_IMAGE.url] },
