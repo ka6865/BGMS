@@ -9,11 +9,19 @@
 .controls button + button { border-top: 1px solid #3f3f46; }
 .controls button:hover { background: #3f3f46; }
 .controls button:focus-visible { outline: 2px solid #fcd34d; outline-offset: -3px; }
+.layerButton { min-height: 44px; padding-inline: 10px; border-radius: 6px; color: #e4e4e7; font-size: 12px; font-weight: 600; }
+.layerButton:hover { background: #27272a; }
+.layerButton[aria-pressed="true"] { background: #fcd34d; color: #18181b; }
+.layerButton:focus-visible { outline: 2px solid #fcd34d; outline-offset: 1px; }
 .panel { scrollbar-width: thin; scrollbar-color: #52525b #18181b; }
-@media (max-height: 560px) and (min-width: 480px) {
-  .explorer { flex-direction: row; }
-  .explorer .mapPanel { min-width: 0; min-height: 0; }
-  .explorer .listPanel { order: -1; width: min(42vw, 360px); height: auto; min-height: 0; border-top: 0; border-right: 1px solid rgb(255 255 255 / 10%); }
+@media (width < 64rem) {
+  .listPanel[data-expanded="false"] .panelContent { display: none; }
+  .listPanel[data-expanded="true"] { height: min(max(46dvh, 260px), calc(100% - 200px)); }
+}
+@media (max-height: 560px) and (480px <= width < 64rem) {
+  .explorer:has(.listPanel[data-expanded="true"]) { flex-direction: row; }
+  .explorer:has(.listPanel[data-expanded="true"]) .mapPanel { min-width: 0; min-height: 0; }
+  .explorer .listPanel[data-expanded="true"] { order: -1; width: min(42vw, 360px); height: auto; border-top: 0; border-right: 1px solid rgb(255 255 255 / 10%); }
 }
 .regionLabel { pointer-events: none; color: #fff; font-size: 12px; font-weight: 700; line-height: 24px; text-align: center; white-space: nowrap; text-shadow: 0 1px 3px #10283d, 0 0 5px #10283d, 0 0 8px #10283d; }
 @media (prefers-reduced-motion: no-preference) { .panel button { transition: background-color 120ms ease-out, color 120ms ease-out; } }
