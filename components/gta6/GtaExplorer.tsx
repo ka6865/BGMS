@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowUpRight, Check, CheckCheck, ChevronRight, MapPin, Search, Share2, Star, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, CheckCheck, ChevronDown, ChevronRight, MapPin, Search, Share2, Star, X } from "lucide-react";
 import { CATEGORIES, MAP_REGIONS, filterLandmarks, parseLandmarks, parseProgress, STORAGE_KEY, type Category, type Landmark, type Progress } from "@/lib/gta6/map";
 import manifest from "@/public/gta6/manifest.json";
 import styles from "./gta6.module.css";
@@ -22,6 +22,7 @@ export default function GtaExplorer() {
   const [category, setCategory] = useState<Category>("all");
   const [savedFilter, setSavedFilter] = useState<SavedFilter>("all");
   const [limit, setLimit] = useState(60);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [progress, setProgress] = useState<Progress>({ version: 1, favorites: [], visited: [] });
@@ -131,8 +132,16 @@ export default function GtaExplorer() {
       <section aria-label="레오니다 지도" className={`relative min-h-[200px] flex-1 lg:order-2 ${styles.mapPanel}`}>
         <GtaMap places={filtered} selected={selected} visited={visited} onSelect={select} />
       </section>
-      <aside aria-label="장소 탐색" className={`flex h-[46dvh] min-h-[260px] shrink-0 flex-col border-t border-white/10 bg-zinc-950 lg:order-1 lg:h-auto lg:min-h-0 lg:w-[360px] lg:border-r lg:border-t-0 ${styles.panel} ${styles.listPanel}`}>
-        {!selected && <div className="shrink-0 px-4 pb-3 pt-4">
+      <aside aria-label="장소 탐색" data-expanded={panelOpen} className={`flex shrink-0 flex-col border-t border-white/10 bg-zinc-950 lg:order-1 lg:w-[360px] lg:border-r lg:border-t-0 ${styles.panel} ${styles.listPanel}`}>
+        <button type="button" aria-expanded={panelOpen} aria-controls={selected ? "gta6-results" : "gta6-filters gta6-results"}
+          aria-label={selected ? `${selected.name} 상세 정보` : undefined}
+          onClick={() => setPanelOpen(open => !open)}
+          className="flex min-h-11 w-full shrink-0 items-center gap-2 px-4 text-left text-sm font-semibold text-zinc-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-amber-300 lg:hidden">
+          <MapPin size={16} aria-hidden className="shrink-0 text-amber-300" />
+          <span className="min-w-0 flex-1 truncate">{selected?.name ?? "필터·장소 목록"}</span>
+          <ChevronDown size={17} aria-hidden className={`shrink-0 text-zinc-400 ${panelOpen ? "" : "rotate-180"}`} />
+        </button>
+        {!selected && <div id="gta6-filters" className={`shrink-0 px-4 pb-3 pt-4 ${styles.panelContent}`}>
           <div className="mb-3 flex items-baseline justify-between gap-3">
             <h1 className="text-lg font-bold tracking-tight">GTA6 지도</h1>
             <span className="text-xs tabular-nums text-zinc-400">{places ? `${places.length.toLocaleString("ko-KR")}개 장소` : "장소 불러오는 중"}</span>
@@ -167,7 +176,7 @@ export default function GtaExplorer() {
           </div>
         </div>}
 
-        <div ref={panel} className={`min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-white/10 ${styles.panel}`} aria-busy={!places && !loadError}>
+        <div id="gta6-results" ref={panel} className={`min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-white/10 ${styles.panel} ${styles.panelContent}`} aria-busy={!places && !loadError}>
           {storageError && <p role="status" className="px-4 pt-3 text-xs leading-relaxed text-amber-200">브라우저 저장소를 사용할 수 없습니다. 지금 체크한 내용은 이 화면을 닫으면 사라질 수 있습니다.</p>}
           {notice && <p role="status" className="break-words px-4 pt-3 text-xs leading-relaxed text-amber-200">{notice}</p>}
           {selectedId && places && !selected && <p role="status" className="px-4 pt-3 text-sm text-amber-200">공유한 장소가 없거나 지도 좌표가 아직 없습니다.</p>}
@@ -230,12 +239,16 @@ export default function GtaExplorer() {
         </div>
       </aside>
     </div>
-    <footer className="shrink-0 border-t border-white/10 bg-zinc-950 px-4 py-2 text-[10px] leading-relaxed text-zinc-400">
-      <span className="text-zinc-300">커뮤니티 추정 지도 · 공식 지도 아님</span><span className="mx-2">·</span>
-      <a href={manifest.source} target="_blank" rel="noreferrer" className="underline underline-offset-2">gtadb.org and all contributors</a>{" · "}
-      <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" className="underline underline-offset-2">CC BY 4.0</a>
-      <span className="ml-2">자료 {manifest.importedAt} · 한국어 비공식 표기·영문 검색 지원</span>
-      <span> · Rockstar Games 및 Take-Two Interactive와 관련 없는 팬 서비스입니다.</span>
+    <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-white/10 bg-zinc-950 px-4 text-[10px] leading-relaxed text-zinc-400">
+      <p className="min-w-0 py-2">
+        <span className="text-zinc-300">비공식 팬 지도 · 장소는 커뮤니티 추정</span>{" · "}
+        <a href={manifest.source} target="_blank" rel="noreferrer" className="underline underline-offset-2">장소 데이터 GTADB 및 기여자</a>{" · "}
+        <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" className="underline underline-offset-2">{manifest.license}</a>
+        {" · "}자료 {manifest.importedAt}
+      </p>
+      <Link href="/gta6/sources" className="inline-flex min-h-11 shrink-0 items-center rounded px-1 text-xs font-semibold text-amber-300 underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-amber-300">
+        출처 및 권리 문의
+      </Link>
     </footer>
   </>;
 }

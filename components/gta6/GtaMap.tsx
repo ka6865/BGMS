@@ -8,6 +8,7 @@ import "leaflet/dist/leaflet.css";
 import { CATEGORIES, MAP_BOUNDS, MAP_REGIONS, tileCropRight, worldToMap, type Landmark } from "@/lib/gta6/map";
 import styles from "./gta6.module.css";
 
+const dayPreviewTileUrl = "https://raw.githubusercontent.com/rolux/gtadb.org/d406fea099e1df2bce42fd6b87eed04bce646629/maps/tiles/6/day/{z}/{z},{y},{x}.jpg";
 const overviewBounds: [[number, number], [number, number]] = [worldToMap([-11000, -9000]), worldToMap([3500, 10000])];
 const regionLabels = MAP_REGIONS.map(region => ({ ...region,
   position: worldToMap(region.coordinates),
@@ -28,7 +29,7 @@ function MapControls({ selected }: { selected: Landmark | null }) {
     if (selected) map.setView(worldToMap(selected.coordinates), Math.max(map.getZoom(), -1), { animate: false });
   }, [map, selected]);
   useEffect(() => {
-    const observer = new ResizeObserver(() => map.invalidateSize({ pan: false }));
+    const observer = new ResizeObserver(() => map.invalidateSize());
     observer.observe(map.getContainer());
     return () => observer.disconnect();
   }, [map]);
@@ -80,24 +81,60 @@ function PlaceMarkers({ places, selected, visited, onSelect }: {
 export default function GtaMap({ places, selected, visited, onSelect }: {
   places: Landmark[]; selected: Landmark | null; visited: Set<string>; onSelect: (id: string) => void;
 }) {
+  // 출시판 타일은 출처와 재배포 권리를 확인하기 전까지 개발 환경에서만 미리 본다.
+  const canPreviewDay = process.env.NODE_ENV === "development";
+  const [dayPreview, setDayPreview] = useState(() => canPreviewDay
+    && new URLSearchParams(window.location.search).get("tiles") === "day");
   const [tileError, setTileError] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  return <div className={`${styles.map} relative h-full w-full`} data-testid="gta6-map">
+  useEffect(() => {
+    if (!canPreviewDay) return;
+    function syncLayer() {
+      const next = new URLSearchParams(window.location.search).get("tiles") === "day";
+      if (next !== dayPreview) {
+        setDayPreview(next);
+        setTileError(false);
+      }
+    }
+    window.addEventListener("popstate", syncLayer);
+    return () => window.removeEventListener("popstate", syncLayer);
+  }, [canPreviewDay, dayPreview]);
+
+  function changeLayer(next: boolean) {
+    if (next === dayPreview) return;
+    const url = new URL(window.location.href);
+    if (next) url.searchParams.set("tiles", "day");
+    else url.searchParams.delete("tiles");
+    window.history.replaceState(null, "", url);
+    setDayPreview(next);
+    setTileError(false);
+  }
+
+  return <div className={`${styles.map} relative h-full w-full`} style={{ background: dayPreview ? "#2f90b0" : "#2c66a5" }} data-testid="gta6-map">
     <MapContainer center={worldToMap([-4000, 2000])} zoom={-4} minZoom={-7} maxZoom={2}
       zoomSnap={0} zoomAnimation={false} wheelDebounceTime={16} wheelPxPerZoomLevel={20}
       crs={CRS.Simple} maxBounds={MAP_BOUNDS} maxBoundsViscosity={0.8} preferCanvas zoomControl={false}
-      style={{ height: "100%", width: "100%", background: "#2c66a5" }}>
-      <TileLayer key={attempt} url="/gta6/tiles/yanis-18/{z}/{z},{y},{x}.jpg" bounds={MAP_BOUNDS}
-        minZoom={-7} maxZoom={2} minNativeZoom={-5} maxNativeZoom={0} zoomOffset={5} noWrap
-        attribution='<a href="https://github.com/rolux/gtadb.org" target="_blank" rel="noreferrer">gtadb.org and all contributors</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>'
+      style={{ height: "100%", width: "100%", background: "transparent" }}>
+      <TileLayer key={`${dayPreview}-${attempt}`} url={dayPreview ? dayPreviewTileUrl : "/gta6/tiles/yanis-18/{z}/{z},{y},{x}.jpg"} bounds={MAP_BOUNDS}
+        minZoom={-7} maxZoom={2} minNativeZoom={-5} maxNativeZoom={dayPreview ? 1 : 0} zoomOffset={5} noWrap
+        attribution={dayPreview
+          ? '게임 지도 © Rockstar Games / Take-Two · <a href="https://github.com/rolux/gtadb.org/tree/d406fea099e1df2bce42fd6b87eed04bce646629/maps/tiles/6/day" target="_blank" rel="noreferrer">GTADB Day 타일</a>'
+          : '<a href="https://github.com/rolux/gtadb.org" target="_blank" rel="noreferrer">gtadb.org and all contributors</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC BY 4.0</a>'}
         eventHandlers={{
-          tileloadstart: ({ tile, coords }) => { tile.style.clipPath = `inset(0 ${tileCropRight(coords.x, coords.z)}px 0 0)`; },
+          tileloadstart: ({ tile, coords }) => { if (!dayPreview) tile.style.clipPath = `inset(0 ${tileCropRight(coords.x, coords.z)}px 0 0)`; },
           tileerror: () => setTileError(true),
         }} />
       <PlaceMarkers places={places} selected={selected} visited={visited} onSelect={onSelect} />
       <MapControls selected={selected} />
     </MapContainer>
-    <p className="pointer-events-none absolute left-3 top-3 z-[500] rounded-md bg-zinc-950/90 px-3 py-2 text-xs font-medium text-zinc-100">YANIS v18 <span className="ml-2 text-zinc-300">커뮤니티 추정 지도</span></p>
+    {canPreviewDay ? <div role="group" aria-label="지도 배경" className="absolute left-3 top-3 z-[500] flex gap-1 rounded-lg bg-zinc-950 p-1 shadow-lg">
+      <button type="button" aria-pressed={!dayPreview} title="커뮤니티 추정 지도"
+        className={styles.layerButton} onClick={() => changeLayer(false)}>YANIS v18</button>
+      <button type="button" aria-pressed={dayPreview} title="출시판 지도 미리보기"
+        className={styles.layerButton} onClick={() => changeLayer(true)}>Day 미리보기</button>
+    </div> : <p className="pointer-events-none absolute left-3 top-3 z-[500] rounded-md bg-zinc-950/90 px-3 py-2 text-xs font-medium text-zinc-100">
+      YANIS v18 <span className="ml-2 text-zinc-300">커뮤니티 추정 지도</span>
+    </p>}
     {tileError && <div role="alert" className="absolute bottom-8 left-3 right-16 z-[500] rounded-lg bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-100">
       일부 지도를 불러오지 못했습니다.
       <button type="button" className="ml-2 min-h-11 px-2 font-semibold text-amber-300 underline" onClick={() => { setTileError(false); setAttempt(a => a + 1); }}>다시 불러오기</button>
