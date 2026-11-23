@@ -33,7 +33,7 @@ export const TELEMETRY_VERSION = 63.0; // [V63.0] 리플레이 위치·탑승 �
 export const AI_CACHE_VERSION = "2026-10-28.first-reply-evidence-v6"; // 적격 반격 소요 시간의 표현·근거 정책
 // 단일 경기 코칭만의 프롬프트 버전. 문장별 장면 ID(briefFeedbackSceneIds, actionItems[].sceneId)를 출력에 더했으므로 단일 경기 캐시만 새로 만든다(스쿼드는 유지).
 // 이전 값 nearest-teammate-v1은 가장 가까운 아군 거리 표기 변경이었다.
-export const AI_MATCH_PROMPT_VERSION = `${AI_CACHE_VERSION}.scene-flow-pct-action-v4`; // 행동 후보 선택 계약·피해 기준 구분·치킨 마무리 중복 방지
+export const AI_MATCH_PROMPT_VERSION = `${AI_CACHE_VERSION}.scene-flow-pct-action-title-v5`; // 칭호 키워드 근거 검증·입력 숫자 반올림·매운맛 결론 반말·영어 문장 정리
 export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v20`; // 적격 팀 약점·방향별 총평·실측 개인 칭찬을 서버에서 확정
 export const AI_SUMMARY_CACHE_VERSION = "2026-11-24.summary-debate-v38"; // 차이 크기 판정·놀림 강도·반박/재반박 대사 칸·고립 지수 방향
 // Evidence marker for canonical rows written after the human BR population
