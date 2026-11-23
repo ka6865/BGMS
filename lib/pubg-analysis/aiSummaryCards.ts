@@ -1161,9 +1161,9 @@ function strongestMetric(cards: readonly SummaryCard[]): SummaryEvidence | null 
 }
 
 /** 프롬프트에 넘기는 카드별 토론 계획. 승자와 강도는 서버가 정하고 모델은 말투만 맞춘다. */
-export function summaryCardDebatePlan(card: SummaryCard): { winner: SummaryCard["winner"]; roastIntensity: SummaryIntensity | null; praiseIntensity: SummaryIntensity | null } {
+export function summaryCardDebatePlan(card: SummaryCard): { serverWinner: SummaryCard["winner"]; roastIntensity: SummaryIntensity | null; praiseIntensity: SummaryIntensity | null } {
   const intensity = summaryCardIntensity(card);
-  return { winner: card.dataStatus === "comparable" ? serverWinner(card) : null, roastIntensity: intensity.roast, praiseIntensity: intensity.praise };
+  return { serverWinner: card.dataStatus === "comparable" ? serverWinner(card) : null, roastIntensity: intensity.roast, praiseIntensity: intensity.praise };
 }
 
 // 유리·불리 지표가 섞이면 차이 크기의 합으로 승자를 정하고, 합이 drawMax 이내로 비등할 때만 무승부다.
