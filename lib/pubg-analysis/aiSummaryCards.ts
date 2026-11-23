@@ -1,7 +1,7 @@
-import { summaryCardSpicyJab, toSummarySpicyBanmal } from "./spicyPunchlines";
+import { summaryCardSpicyJab, SUMMARY_STRONG_JAB_PATTERN, toSummarySpicyBanmal } from "./spicyPunchlines";
 import { AI_SUMMARY_HIGHER_IS_BETTER, summaryComparisonHoldReason, isSummaryComparisonSimilar } from "./aiSummaryDebate";
 import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText, summaryAdviceRuleId, summaryInferenceRuleId } from "./aiSummaryJudgment";
-import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
+import { COACHING_JUDGMENT_WITHHELD, findDisallowedLatinWords, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
 import { COMBAT_ATTRIBUTION_CALCULATION_VERSION, POSITION_FRESHNESS_CALCULATION_VERSION } from "./constants";
 
 /**
@@ -80,6 +80,8 @@ export interface SummaryCard {
   analysisReason?: string;
   kindOpinion: string;
   spicyOpinion: string;
+  /** 매운맛 반박에 대한 다정 코치의 재반박·인정. 판정이 없는 카드와 이전 캐시에는 없다. */
+  counterOpinion?: string;
   reason: string;
   evaluation: string;
   winner: "kind" | "spicy" | "draw" | null;
@@ -607,6 +609,9 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
     if (topic !== expectedTopic || question !== topicQuestion(topicId, derivedDataStatus)) return null;
     const analysisReason = card.analysisReason === undefined ? undefined : nonEmptyString(card.analysisReason);
     if (card.analysisReason !== undefined && !analysisReason) return null;
+    const counterOpinion = card.counterOpinion === undefined ? undefined : nonEmptyString(card.counterOpinion);
+    if (card.counterOpinion !== undefined && (!counterOpinion || winner === null
+      || hasUnsupportedSummaryInference(counterOpinion) || hasUnsupportedSummaryAdvice(counterOpinion))) return null;
     return {
       topicId,
       topic,
@@ -619,6 +624,7 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
       ...(analysisReason ? { analysisReason } : {}),
       kindOpinion,
       spicyOpinion,
+      ...(counterOpinion ? { counterOpinion } : {}),
       reason,
       evaluation,
       winner,
@@ -1196,6 +1202,77 @@ function groundedVerdict(cards: SummaryCard[]): string {
 // 모델이 작성하는 두 코치 의견만 오류 검증 대상으로 삼는다.
 const PROSE_FIELD_CODES = ["kind", "spicy"] as const;
 
+/** 토론 대사 칸별 채택 기록. 모델 대사가 검증을 통과해 실제로 쓰였는지 운영 로그로 확인한다. */
+export interface SummaryDialogueAdoption {
+  rebuttal: { adopted: number; total: number };
+  counter: { adopted: number; total: number };
+  dropped: string[];
+}
+
+const DIALOGUE_CELL_MAX_LENGTH = 90;
+const KIND_ENDING = /(?:니다|세요|어요|아요|해요|예요|이에요|네요|군요|죠|게요)[.!?]?$/u;
+const SPICY_FORMAL_ENDING = /(?:니다|세요|십시오)[.!?]?$/u;
+const SPICY_CONCEDES = /인정/u;
+const COUNTER_CONCEDES = /인정|맞(?:아요|습니다|는\s*말)|아쉬(?:운|웠|워)|보완|받아들/u;
+const COUNTER_GIVES_UP = /졌(?:어요|습니다|네요)|제가\s*틀렸|매운맛\s*(?:말|코치)(?:이|가)?\s*맞/u;
+
+// 재반박이 없거나 검증에 걸린 칸을 채우는 문장. 승자를 따라 굳히기·인정·한 점씩 인정으로 나뉜다.
+const COUNTER_TEMPLATES: Readonly<Record<"kind" | "spicy" | "draw", readonly string[]>> = {
+  kind: ["그래도 이번 기록에서는 강점 쪽이 더 분명하게 보입니다.", "지적은 새겨듣겠지만 이번 관측에서는 잘한 부분이 더 큽니다.", "아쉬운 점보다 앞선 기록이 더 크게 남았습니다."],
+  spicy: ["그 부분은 인정합니다. 다음 경기에서 함께 확인해 보세요.", "이번에는 아쉬운 기록이 더 컸네요. 다음 경기에서 다시 확인해 보세요.", "맞는 지적입니다. 다음 경기에서는 이 부분부터 챙겨 보세요."],
+  draw: ["서로 한 가지씩은 맞는 말이네요. 다음 경기에서 둘 다 확인해 보세요.", "잘한 점과 아쉬운 점이 비슷하게 남았습니다. 다음 경기에서 함께 확인해 보세요.", "이번 주제는 무승부로 두겠습니다. 다음 경기 기록으로 다시 견줘 보세요."],
+};
+
+function pickBySeed<T>(items: readonly T[], seed: string): T {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < seed.length; index += 1) hash = Math.imul((hash ^ seed.charCodeAt(index)) >>> 0, 0x01000193) >>> 0;
+  return items[hash % items.length];
+}
+
+/**
+ * 모델 대사 한 칸의 문제 사유. 통과하면 null.
+ * 숫자·비교 문구는 서버 사실 문장이 맡으므로 대사에는 쓰지 않는다.
+ */
+function dialogueCellIssue(text: string, rules: {
+  speaker: "kind" | "spicy";
+  card: SummaryCard;
+  roast: SummaryIntensity | null;
+  mustConcede?: boolean;
+  forbidGivingUp?: boolean;
+}): string | null {
+  const trimmed = text.trim();
+  if (!trimmed || isNeutralText(trimmed)) return "empty";
+  if (trimmed.length > DIALOGUE_CELL_MAX_LENGTH) return "length";
+  if (/\d/u.test(trimmed.replace(/1:1|3초/gu, ""))) return "number";
+  if (/평균|비교/u.test(trimmed)) return "comparison";
+  if (findDisallowedLatinWords(trimmed).length) return "latin";
+  if (rules.speaker === "kind" ? !KIND_ENDING.test(trimmed) : SPICY_FORMAL_ENDING.test(trimmed)) return "tone";
+  if (hasUnsupportedSummaryInference(trimmed) || hasUnsupportedSummaryAdvice(trimmed) || cardConclusionRuleId(trimmed, rules.card)) return "judgment";
+  if (rules.speaker === "spicy" && rules.roast === "weak" && SUMMARY_STRONG_JAB_PATTERN.test(trimmed)) return "intensity";
+  if (rules.mustConcede && !(rules.speaker === "spicy" ? SPICY_CONCEDES : COUNTER_CONCEDES).test(trimmed)) return "direction";
+  if (rules.forbidGivingUp && COUNTER_GIVES_UP.test(trimmed)) return "direction";
+  return null;
+}
+
+const DIALOGUE_CELL_MAX_SENTENCES = 2;
+
+/**
+ * 대사 칸 후보. 서버가 붙이는 비교 문장(앞)과 점검 문장은 빼고 남은 덩어리 전체를 검증한다.
+ * 캐시된 결과를 다시 정규화해도 같은 칸이 나오게 문장을 골라내지 않는다.
+ */
+function pickDialogueCell(text: string | null, rules: Parameters<typeof dialogueCellIssue>[1], serverSentences: readonly string[] = []): { value: string | null; issue: string | null } {
+  if (!text) return { value: null, issue: "missing" };
+  let rest = text.trim();
+  for (const prefix of serverSentences) if (prefix && rest.startsWith(prefix)) rest = rest.slice(prefix.length).trim();
+  const sentences = rest.split(/(?<=[.!?。！？])\s+|\n+/u).map(sentence => sentence.trim())
+    .filter(sentence => sentence && !serverSentences.some(server => server.includes(sentence)));
+  if (!sentences.length) return { value: null, issue: "empty" };
+  if (sentences.length > DIALOGUE_CELL_MAX_SENTENCES) return { value: null, issue: "length" };
+  const block = sentences.join(" ");
+  const issue = dialogueCellIssue(block, rules);
+  return issue ? { value: null, issue } : { value: block, issue: null };
+}
+
 export function normalizeSummaryCardFinal(input: unknown, cards: readonly SummaryCard[], options: {
   sanitizeText: (value: string) => string;
   sanitizeCardText?: (value: string, card: SummaryCard) => string;
@@ -1208,6 +1285,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   rejectReasons: string[];
   // 수용·거부와 무관하게 빠진 행동 제안의 사유 id(action_items:...). 기록용이며 rejectReasons에는 넣지 않는다.
   actionDropReasons: string[];
+  dialogueAdoption: SummaryDialogueAdoption;
 } | null {
   const malformed = (reason: string) => {
     options?.onSchemaError?.(reason);
@@ -1267,6 +1345,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   }
 
   let neutralCards = 0;
+  const dialogueAdoption: SummaryDialogueAdoption = { rebuttal: { adopted: 0, total: 0 }, counter: { adopted: 0, total: 0 }, dropped: [] };
   const normalizedCards = serverCards.map((serverCard) => {
     const issue = providerByTopic.get(serverCard.topicId);
     if (!issue) return serverCard;
@@ -1376,11 +1455,39 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       `${serverCard.context.contextId}:${serverCard.topicId}`,
       hasUnfavorable ? intensity.roast : intensity.praise,
     );
+    const winner = serverCard.dataStatus === "comparable" ? serverWinner(serverCard) : null;
+    // 반박 칸: 판정이 있는 카드에서만 모델 대사를 쓴다. 모두 유리하면 인정하는 대사만 받는다.
+    let rebuttal: string | null = null;
+    if (winner !== null) {
+      dialogueAdoption.rebuttal.total += 1;
+      const cell = sanitized[1].changed ? { value: null, issue: "sanitized" }
+        : pickDialogueCell(sanitized[1].value, { speaker: "spicy", card: serverCard, roast: intensity.roast, mustConcede: !hasUnfavorable },
+          [spicyComparison, kindComparison].filter(Boolean).map(toSummarySpicyBanmal).concat(conditionalCheckText(sanitizedTexts[1], true) || []));
+      if (cell.value) {
+        rebuttal = cell.value;
+        dialogueAdoption.rebuttal.adopted += 1;
+      } else dialogueAdoption.dropped.push(`${serverCard.topicId}:rebuttal:${cell.issue}`);
+    }
     sanitizedTexts[1] = hasUnfavorable
-      ? toSummarySpicyBanmal([spicyComparison, spicyJab, conditionalCheckText(sanitizedTexts[1], true) || metricCheck(serverCard)].filter(Boolean).join(" "))
-      : hasFavorable ? `${toSummarySpicyBanmal(kindComparison)} ${spicyJab}`
+      ? toSummarySpicyBanmal([spicyComparison, rebuttal ?? spicyJab, conditionalCheckText(sanitizedTexts[1], true) || metricCheck(serverCard)].filter(Boolean).join(" "))
+      : hasFavorable ? `${toSummarySpicyBanmal(kindComparison)} ${rebuttal ?? spicyJab}`
         : toSummarySpicyBanmal(serverCard.topicId === "positioning" && !hold
           ? conditionalCheckText(sanitizedTexts[1], true) || cardCheck(serverCard.topicId) : neutralOpinion);
+    // 재반박 칸: 승자를 따른다. 매운맛 승이면 인정, 다정 승이면 물러서지 않고, 무승부면 방향을 강제하지 않는다.
+    let counterOpinion: string | undefined;
+    if (winner !== null) {
+      dialogueAdoption.counter.total += 1;
+      // 새 응답은 kindCounter, 캐시된 결과를 다시 정규화할 때는 counterOpinion에 있다.
+      const rawCounter = nonEmptyString(issue.kindCounter) ?? nonEmptyString(issue.counterOpinion);
+      const sanitizedCounter = rawCounter ? sanitizeRequiredText(rawCounter,
+        (value) => options.sanitizeCardText ? options.sanitizeCardText(value, serverCard) : options.sanitizeText(value)) : null;
+      const cell = !sanitizedCounter ? { value: null, issue: "missing" }
+        : sanitizedCounter.changed ? { value: null, issue: "sanitized" }
+          : pickDialogueCell(sanitizedCounter.value, { speaker: "kind", card: serverCard, roast: intensity.roast, mustConcede: winner === "spicy", forbidGivingUp: winner === "kind" });
+      if (cell.value) dialogueAdoption.counter.adopted += 1;
+      else dialogueAdoption.dropped.push(`${serverCard.topicId}:counter:${cell.issue}`);
+      counterOpinion = cell.value ?? pickBySeed(COUNTER_TEMPLATES[winner], `${serverCard.context.contextId}:${serverCard.topicId}:counter`);
+    }
     const reason = buildSummaryCardFactText(serverCard);
     const evaluation = cardEvaluation(serverCard);
     const readyCard: SummaryCard = {
@@ -1388,10 +1495,11 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       analysisStatus: "ready",
       kindOpinion: sanitizedTexts[0],
       spicyOpinion: sanitizedTexts[1],
+      ...(counterOpinion ? { counterOpinion } : {}),
       reason,
       evaluation,
-      // 승패는 모델 선택이 아니라 비교 지표의 방향으로 정한다.
-      winner: serverCard.dataStatus === "comparable" ? serverWinner(serverCard) : null,
+      // 승패는 모델 선택이 아니라 비교 지표의 차이로 정한다.
+      winner,
     };
     return readyCard;
   });
@@ -1491,7 +1599,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     debateIssues: legacyIssues,
     actionItems: normalizedActionItems,
   } as Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" };
-  return { final, cacheable, usable, rejectReasons, actionDropReasons };
+  return { final, cacheable, usable, rejectReasons, actionDropReasons, dialogueAdoption };
 }
 
 export function parseSummaryCards(input: unknown): SummaryCard[] | null {
