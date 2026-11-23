@@ -36,7 +36,7 @@ export const AI_CACHE_VERSION = "2026-10-28.first-reply-evidence-v6"; // 적격 
 export const AI_MATCH_PROMPT_VERSION = `${AI_CACHE_VERSION}.scene-flow-pct-action-title-v5`; // 칭호 키워드 근거 검증·입력 숫자 반올림·매운맛 결론 반말·영어 문장 정리
 // 이전 값 v20은 적격 팀 약점·방향별 총평·실측 개인 칭찬을 서버에서 확정한 버전이다.
 export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v21`; // 딜 비중 비난 제거·절대 피해량 못한 점·영어 문장 제거·칸 간 반복 제거
-export const AI_SUMMARY_CACHE_VERSION = "2026-11-24.summary-debate-v38"; // 차이 크기 판정·놀림 강도·반박/재반박 대사 칸·고립 지수 방향
+export const AI_SUMMARY_CACHE_VERSION = "2026-11-24.summary-tier-family-v39"; // 지표 표본이 부족하면 티어 계열로 비교(v38: 차이 크기 판정·놀림 강도·반박/재반박)
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
 // versions so old v73/R2 rows can fail closed without a broad cache bump.

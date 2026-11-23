@@ -1429,7 +1429,8 @@ export async function POST(request: Request) {
       const benchmarkContext = {
         gameMode: benchmarkGameMode,
         matchType: dominantMatchType,
-        tier: userTier,
+        // 표본이 부족해 티어 계열(A+/A/A-)로 넓힌 비교면 기본 티어로 표기한다.
+        tier: rawTierStats && typeof rawTierStats.tier === "string" ? rawTierStats.tier : userTier,
       };
       const benchmarkProvenance = formatBenchmarkProvenance(bench?.sampleCount, benchmarkContext);
       const metricBenchmarkProvenance = (metric: keyof NonNullable<ObservedBenchmark["metricSampleCounts"]>) => (

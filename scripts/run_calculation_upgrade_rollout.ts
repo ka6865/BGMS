@@ -19,7 +19,11 @@ const {values}=parseArgs({options:{
   apply:{type:'boolean',default:false},'canonical-only':{type:'boolean',default:false},'acquire-raw':{type:'boolean',default:false},
   'max-matches':{type:'string',default:'25'},'max-source-mib':{type:'string',default:'32'},'max-download-mib':{type:'string',default:'512'},
   'max-runtime-minutes':{type:'string',default:'10'},
+  // 공식 원본은 경기 후 약 14일만 받을 수 있다. 그 안에 생성된 비교 행만 목록에 넣어 404 요청과 목록 상한 초과를 피한다.
+  'created-since':{type:'string'},
 }});
+const createdSince=values['created-since'];
+if(createdSince!==undefined&&(!/^\d{4}-\d{2}-\d{2}T/.test(createdSince)||!Number.isFinite(Date.parse(createdSince))))throw new Error('invalid_created_since');
 const positive=(s:string|undefined,max:number)=>{const n=Number(s);if(!Number.isSafeInteger(n)||n<1||n>max)throw new Error('invalid_rollout_limit');return n;};
 const maxMatches=positive(values['max-matches'],20000),maxBytes=positive(values['max-download-mib'],256000)*1024*1024;
 const sourceLimit=positive(values['max-source-mib'],128)*1024*1024;
@@ -78,7 +82,7 @@ try{
       const page=await readDb(db.from('global_benchmarks').select('id,match_id,platform,player_id,created_at')
         .in('platform',['steam','kakao']).eq('filter_version',8).eq('population_evidence_version',1)
         .in('match_type',['official','competitive']).in('game_mode',['solo','solo-fpp','duo','duo-fpp','squad','squad-fpp'])
-        .or(`calculation_version.is.null,calculation_version.lt.${ANALYSIS_CALCULATION_VERSION}`).gt('id',cursor).lte('id',highWater).order('id',{ascending:true}).limit(500));
+        .or(`calculation_version.is.null,calculation_version.lt.${ANALYSIS_CALCULATION_VERSION}`).gte('created_at',createdSince??'1970-01-01T00:00:00Z').gt('id',cursor).lte('id',highWater).order('id',{ascending:true}).limit(500));
       rows.push(...page);if(rows.length>20000)throw new Error('inventory_row_cap');
       if(page.length<500)break;cursor=page.at(-1).id;
     }
@@ -96,10 +100,10 @@ try{
         if(offset>20000)throw new Error('canonical_inventory_cap');if(page.length<250)break;
       }
     }
-    snapshot={version:1,project,calculationVersion:ANALYSIS_CALCULATION_VERSION,canonicalOnly,createdAt:new Date().toISOString(),highWater,rows,hash:stableHash(rows)};
+    snapshot={version:1,project,calculationVersion:ANALYSIS_CALCULATION_VERSION,canonicalOnly,...(createdSince?{createdSince}:{}),createdAt:new Date().toISOString(),highWater,rows,hash:stableHash(rows)};
     assertRolloutSnapshot(snapshot,project);await save(snapshotPath,snapshot);
   }
-  assertRolloutSnapshot(snapshot,project);if(Boolean(snapshot.canonicalOnly)!==canonicalOnly)throw new Error('rollout_mode_mismatch');const groups=groupRolloutRows(snapshot.rows);
+  assertRolloutSnapshot(snapshot,project);if(Boolean(snapshot.canonicalOnly)!==canonicalOnly)throw new Error('rollout_mode_mismatch');if((snapshot as any).createdSince!==createdSince)throw new Error('rollout_created_since_mismatch');const groups=groupRolloutRows(snapshot.rows);
   state=await exists(statePath)?await json(statePath):{version:1,project,inventoryHash:snapshot.hash,nextIndex:0,totalMatches:groups.length,totalRows:snapshot.rows.length,upstreamRequests:0,downloadedBytes:0,results:[],phase:'prepared'};
   assertRolloutProgress(state,snapshot.hash,project,groups.length);
   if(!values.apply){await save(statePath,state);console.log(JSON.stringify({dryRun:true,rows:snapshot.rows.length,matches:groups.length,nextIndex:state.nextIndex,snapshot:snapshotPath}));}

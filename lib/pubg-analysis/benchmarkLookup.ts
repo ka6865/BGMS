@@ -13,6 +13,11 @@ import { getBaseTier } from "./benchmarkScore";
  * `sample_count` retained for older callers/fixtures).
  */
 export const MIN_BENCHMARK_SAMPLE_COUNT = 5;
+/**
+ * 사용자에게 비교 평균으로 보여 줄 최소 지표 표본 수. 노출 최소값(5)으로는 평균이 크게 흔들려
+ * AI 해석과 요약 비교에는 이 값을 쓴다.
+ */
+export const MIN_COMPARISON_SAMPLE_COUNT = 30;
 export const BENCHMARK_FILTER_VERSION = 8;
 export const BENCHMARK_POPULATION_EVIDENCE_VERSION = 1;
 
@@ -399,7 +404,9 @@ export async function fetchTierBenchmarkStats(
   // 버전별 행을 표본 수로 합친다. 의미가 바뀐 지표는 같은 정의의 계산 버전끼리만 쓴다. 저장된 점수는 바꾸지 않는다.
   const exact = exactRows.length === 1 && exactRows[0].calculation_version === ANALYSIS_CALCULATION_VERSION
     ? exactRows[0] : combineCalculationBenchmarkRows(exactRows, exactTier);
-  if (exact && getMatchCount(exact) >= MIN_BENCHMARK_SAMPLE_COUNT) return { ...exact, tier: exactTier };
+  const exactUsable = exact && getMatchCount(exact) >= MIN_BENCHMARK_SAMPLE_COUNT;
+  // 같은 티어로 모든 지표를 비교할 수 있으면 계열을 조회하지 않는다.
+  if (exactUsable && comparableMetricCount(exact) === comparableMetricFields(exact).length) return { ...exact, tier: exactTier };
 
   const family = new Set(getBenchmarkTierFamily(exactTier));
   const trustedGrouped: any[] = [];
@@ -416,5 +423,18 @@ export async function fetchTierBenchmarkStats(
     )));
   }
   const aggregated = combineCalculationBenchmarkRows(trustedGrouped, exactTier);
-  return aggregated && getMatchCount(aggregated) >= MIN_BENCHMARK_SAMPLE_COUNT ? aggregated : null;
+  const familyUsable = aggregated && getMatchCount(aggregated) >= MIN_BENCHMARK_SAMPLE_COUNT;
+  // 같은 티어 표본이 지표별로 부족하면(예: 듀오 경쟁전 A-의 계산 5 이상 교전 지표 27경기) 계열(A+/A/A-)이
+  // 비교 가능한 지표가 더 많을 때만 계열을 쓴다. 계열 결과의 tier는 기본 티어("A")라 화면 표기도 계열로 바뀐다.
+  if (exactUsable && (!familyUsable || comparableMetricCount(aggregated) <= comparableMetricCount(exact))) return { ...exact, tier: exactTier };
+  return familyUsable ? aggregated : null;
+}
+
+/** 비교에 쓸 수 있는 지표(표본 MIN_COMPARISON_SAMPLE_COUNT 이상) 목록. */
+function comparableMetricFields(row: any): (typeof AVERAGE_FIELDS)[number][] {
+  return AVERAGE_FIELDS.filter((field) => row?.[field] !== null && row?.[field] !== undefined);
+}
+
+function comparableMetricCount(row: any): number {
+  return comparableMetricFields(row).filter((field) => (getMetricSampleCount(row, field) ?? 0) >= MIN_COMPARISON_SAMPLE_COUNT).length;
 }
