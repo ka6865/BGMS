@@ -240,7 +240,7 @@ describe("서버가 쓰는 개인 못한 점과 조언", () => {
     const once: any = applySquadEvidencePolicy(modelResult, {}, "B", undefined, roleProfiles, options);
     expect(once.memberFeedbacks[0].fault).not.toBe("");
     expect(once.overallOpinion).not.toMatch(/트집 잡을 데가 없어|칭찬만 하다 끝나는/u);
-    expect(once.overallOpinion).toMatch(/기록부가 할 말이 많은|매운맛이 할 일이 많았던/u);
+    expect(once.overallOpinion).toMatch(/잘한 기록도 놀릴 기록도|칭찬할 건 칭찬했고/u);
   });
 
   it("조언은 맨 앞 후보 종류에 맞는 문장 하나다", () => {

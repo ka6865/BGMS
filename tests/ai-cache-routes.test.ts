@@ -6986,7 +6986,7 @@ describe("AI cache route stabilization", () => {
 
       const resultJson = {
         squadGrade: "A",
-        summary: "model B squad summary",
+        summary: "모델 B 스쿼드 요약",
         strength: "model B strength",
         weakness: "model B weakness",
         coaching: "model B coaching",
@@ -7038,7 +7038,7 @@ describe("AI cache route stabilization", () => {
       expect(secondAttemptSignal?.aborted).toBe(false);
       expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
       expect(response.status).toBe(200);
-      expect(json).toMatchObject({ squadGrade: "A", summary: "model B squad summary" });
+      expect(json).toMatchObject({ squadGrade: "A", summary: "모델 B 스쿼드 요약" });
       expect(squadCache.upsert).toHaveBeenCalledTimes(1);
       expect(vi.getTimerCount()).toBe(0);
     } finally {

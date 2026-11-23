@@ -9,7 +9,7 @@ function queryChain(result:any){
   const chain:any={};for(const method of ["select","eq","order","limit","in"])chain[method]=vi.fn().mockReturnValue(chain);
   chain.then=(resolve:any,reject:any)=>Promise.resolve(result).then(resolve,reject);return chain;
 }
-function configureSquadClient(processed:any,teamBenchmarkRow:any=null){
+function configureSquadClient(processed:any,teamBenchmarkRow:any=null,damageRows:any[]=[]){
   const benchmarkChains:any[]=[];
   // 팀 관측 집계(pubg_team_benchmarks)만 허용하고 개인 benchmark 조회는 계속 막는다.
   // 계산 버전별 집계 행을 in()으로 한 번에 읽고 합산한다.
@@ -18,8 +18,10 @@ function configureSquadClient(processed:any,teamBenchmarkRow:any=null){
   // 전적 기록(pubg_player_matches)은 같은 조합의 경기 수와 순위만 읽는다. 이 테스트들에서는 기록이 없는 것으로 둔다.
   const recordedChain:any={};for(const method of ["select","eq","in","gte","order","limit"])recordedChain[method]=vi.fn().mockReturnValue(recordedChain);
   recordedChain.then=(resolve:any,reject:any)=>Promise.resolve({data:[],error:null}).then(resolve,reject);
-  const from=vi.fn((table:string)=>{if(table==='processed_match_telemetry')return processed;if(table==='pubg_team_benchmarks')return teamChain;if(table==='pubg_player_matches')return recordedChain;benchmarkChains.push(table);throw new Error('Personal benchmark must not be queried for a squad');});
-  mockCreateClient.mockReturnValue({from});return {from,benchmarkChains,teamChain};
+  // 팀원 경기당 피해량 비교 평균은 모드 전체 집계 뷰만 읽는다. 개인 benchmark 행은 읽지 않는다.
+  const damageChain=queryChain({data:damageRows,error:null});
+  const from=vi.fn((table:string)=>{if(table==='processed_match_telemetry')return processed;if(table==='pubg_team_benchmarks')return teamChain;if(table==='pubg_player_matches')return recordedChain;if(table==='benchmark_stats_by_tier_v2')return damageChain;benchmarkChains.push(table);throw new Error('Personal benchmark must not be queried for a squad');});
+  mockCreateClient.mockReturnValue({from});return {from,benchmarkChains,teamChain,damageChain};
 }
 const observation=(extra:Partial<SquadObservation>={}):SquadObservation=>({version:1,scope:'squad',teamAccountIds:['a','b'],status:'observed',issues:[],knocks:3,revives:1,smokeRescues:0,tradeKills:1,tradeLatencyTotalMs:6000,...extra});
 function canonicalRow(index: number, overrides: Record<string, any> = {}) {
@@ -124,7 +126,28 @@ describe("strict squad analysis population and scope",()=>{
     expect(a.stats).toEqual({avgIsolation:null,avgTradeLatency:null,totalSmokeRescues:null,totalRevives:null,avgCoverRate:null,totalTeamWipes:null,totalTeammateKnocks:null,totalTradeKills:null,observedMatchCount:null,totalTradeableKnocks:null,totalTradeableTradeKills:null});
     expect(Object.values(a.scores)).toEqual([null,null,null,null,null]);expect(a.squadGrade).toBeNull();
     expect(Object.values(a.benchmarkStats).every(v=>v===null)).toBe(true);
-    expect(from.mock.calls.map(([table]:[string])=>table).filter(table=>table!=='pubg_team_benchmarks'&&table!=='pubg_player_matches')).toEqual(['processed_match_telemetry']);expect(a.roleProfiles).toHaveLength(2);
+    expect(from.mock.calls.map(([table]:[string])=>table).filter(table=>table!=='pubg_team_benchmarks'&&table!=='pubg_player_matches'&&table!=='benchmark_stats_by_tier_v2')).toEqual(['processed_match_telemetry']);expect(a.roleProfiles).toHaveLength(2);
+  });
+  it('compares each member\'s survived-match damage with the trusted mode-wide damage average',async()=>{
+    const rows=Array.from({length:6},(_,index)=>canonicalRow(index+1,{team:[
+      {name:'Player_A',playerId:'a',damageDealt:400,kills:2,assists:0,DBNOs:1,timeSurvived:1500},
+      {name:'Teammate_B',playerId:'b',damageDealt:80,kills:0,assists:1,DBNOs:0,timeSurvived:index===0?120:1400},
+    ]}));
+    const trusted={game_mode:'squad-fpp',match_type:'official',calculation_version:ANALYSIS_CALCULATION_VERSION,filter_version:8,population_evidence_version:1};
+    const {damageChain}=configureSquadClient(queryChain({data:rows,error:null}),null,[
+      {...trusted,avg_damage:300,avg_damage_count:150},
+      {...trusted,avg_damage:200,avg_damage_count:150},
+      // 모집단 근거가 없는 행은 평균에 넣지 않는다.
+      {...trusted,population_evidence_version:null,avg_damage:5000,avg_damage_count:1000},
+    ]);
+    const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
+    const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
+    expect(damageChain.in).toHaveBeenCalledWith('game_mode',['squad-fpp']);
+    expect(damageChain.in).toHaveBeenCalledWith('match_type',['official']);
+    const byName=Object.fromEntries(a.roleProfiles.map((profile:any)=>[profile.name,profile.records.damage]));
+    // 5분 미만 생존 경기(첫 경기)는 Teammate_B의 피해량에서 뺀다.
+    expect(byName.Teammate_B).toEqual({avg:80,matches:5,baseline:250});
+    expect(byName.Player_A).toEqual({avg:400,matches:6,baseline:250});
   });
   it('weights team trade events and uses the same team recovery denominator',async()=>{
     const rows=[canonicalRow(1,{squadObservation:observation({tradeLatencyTotalMs:2000})}),canonicalRow(2,{squadObservation:observation({knocks:5,revives:2,tradeKills:2,tradeLatencyTotalMs:12000})})];

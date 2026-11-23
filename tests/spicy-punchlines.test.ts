@@ -138,9 +138,11 @@ describe("스쿼드 총평 보정", () => {
 });
 
 describe("스쿼드 매운맛 마무리", () => {
-  it("놀림 재료가 있으면 비꼬고, 칭찬 재료만 있으면 머쓱해한다", async () => {
+  it("놀림만 있으면 비꼬고, 칭찬만 있으면 머쓱해하고, 섞이면 양쪽을 인정한다", async () => {
     const { squadSpicyCloser } = await import("@/lib/pubg-analysis/squadPunchlines");
-    expect(squadSpicyCloser([{ kind: "hype" }, { kind: "roast" }], "a,b")).toMatch(/^(?:기록부가 할 말이 많은|매운맛이 할 일이 많았던)/u);
+    expect(squadSpicyCloser([{ kind: "roast" }], "a,b")).toMatch(/^(?:기록부가 할 말이 많은|매운맛이 할 일이 많았던)/u);
+    // "평균보다 적어" 같은 칭찬 사실 뒤에 "매운맛이 할 일이 많았던"이 붙던 모순을 막는다.
+    expect(squadSpicyCloser([{ kind: "hype" }, { kind: "roast" }], "a,b")).toMatch(/^(?:잘한 기록도 놀릴 기록도|칭찬할 건 칭찬했고)/u);
     expect(squadSpicyCloser([{ kind: "hype" }], "a,b")).toMatch(/^(?:트집 잡을 데가 없어|칭찬만 하다 끝나는)/u);
     expect(squadSpicyCloser([], "a,b")).toBeNull();
   });

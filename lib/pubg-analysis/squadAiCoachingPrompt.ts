@@ -98,7 +98,7 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
   const benchmarkTradeableRate = finiteNonNegative(benchmarkStats?.avgTradeableTradeRate);
   const tradeRateLine = tradeableKnocks !== null && tradeableKnocks >= 10 && tradeableTrades !== null
     && tradeableTrades <= tradeableKnocks && benchmarkTradeableRate !== null
-    ? `${formatPercent(benchmarkTradeableRate)} (Our Squad: ${Math.round((tradeableTrades / tradeableKnocks) * 1000) / 10}%, 100m 안에서 적에게 누운 아군 기절 ${tradeableKnocks}회 중 ${tradeableTrades}회를 30초 안에 갚음)`
+    ? `${formatPercent(benchmarkTradeableRate)} (우리 팀: ${Math.round((tradeableTrades / tradeableKnocks) * 1000) / 10}%, 100m 안에서 적에게 누운 아군 기절 ${tradeableKnocks}회 중 ${tradeableTrades}회를 30초 안에 갚음)`
     : "표본 부족으로 비교하지 않음";
   const coverRateValue = finiteNonNegative(stats?.avgCoverRate);
   const coverRatePercent = coverRateValue === null || coverRateValue > 1
@@ -110,25 +110,25 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
   const gradeOutput = displaySquadGrade === "등급 보류" ? "null" : JSON.stringify(displaySquadGrade);
 
   const membersReport = roleProfiles.map((p: any) => {
-    return `- Nickname: ${typeof p?.name === "string" && p.name.trim() ? p.name : "측정 불가"}
-  * Tactical Role: ${typeof p?.role === "string" && p.role.trim() ? p.role : "측정 불가"} (${typeof p?.roleDesc === "string" && p.roleDesc.trim() ? p.roleDesc : "측정 불가"})
-  * Avg Match Stats: ${formatObserved(p?.avgDamage)} Damage / ${formatObserved(p?.avgKills)} Kills / ${formatObserved(p?.avgAssists)} Assists / ${formatObserved(p?.avgDbnos)} Knockouts
-  * Team Contribution Shares: Damage ${formatPercent(p?.shares?.damage)}, Kills ${formatPercent(p?.shares?.kill)}, Assists ${formatPercent(p?.shares?.assist)}, Knockouts ${formatPercent(p?.shares?.dbno)}
+    return `- 닉네임: ${typeof p?.name === "string" && p.name.trim() ? p.name : "측정 불가"}
+  * 전술 역할: ${typeof p?.role === "string" && p.role.trim() ? p.role : "측정 불가"} (${typeof p?.roleDesc === "string" && p.roleDesc.trim() ? p.roleDesc : "측정 불가"})
+  * 경기당 기록: 피해량 ${formatObserved(p?.avgDamage)} / 킬 ${formatObserved(p?.avgKills)} / 어시스트 ${formatObserved(p?.avgAssists)} / 기절시킨 적 ${formatObserved(p?.avgDbnos)}
+  * 팀 내 비중: 딜 ${formatPercent(p?.shares?.damage)}, 킬 ${formatPercent(p?.shares?.kill)}, 어시스트 ${formatPercent(p?.shares?.assist)}, 녹다운 ${formatPercent(p?.shares?.dbno)}
       `.trim();
   }).join("\n\n");
 
   const benchmarkContext = benchmarkStats ? `
-[Global Benchmark Context (${benchmarkStats.scope === "team_population" && Number.isFinite(benchmarkStats.sampleCount) ? `전체 ${teamMode === "duo" ? "듀오" : "스쿼드"} 팀 ${benchmarkStats.sampleCount}경기 평균. 티어 구분 없음` : `Tier: ${typeof benchmarkStats.tier === "string" && benchmarkStats.tier.trim() ? benchmarkStats.tier : "측정 불가"}`})]
-- Global Avg Isolation Index (대열 이탈 고립도): ${formatObserved(benchmarkStats.avgIsolation)} (Our Squad Avg: ${formatObserved(isolationValue)})
+[전체 팀 평균 비교 (${benchmarkStats.scope === "team_population" && Number.isFinite(benchmarkStats.sampleCount) ? `전체 ${teamMode === "duo" ? "듀오" : "스쿼드"} 팀 ${benchmarkStats.sampleCount}경기 평균. 티어 구분 없음` : `티어: ${typeof benchmarkStats.tier === "string" && benchmarkStats.tier.trim() ? benchmarkStats.tier : "측정 불가"}`})]
+- 전체 팀 평균 대열 이탈 고립도: ${formatObserved(benchmarkStats.avgIsolation)} (우리 팀 평균: ${formatObserved(isolationValue)})
 ${tradeEvaluable
-  ? `- Global Avg Backup Speed (백업 반응 속도): ${benchmarkTradeLatencySec} (Our Squad Avg: ${myTradeLatencySec})`
-  : "- Global Avg Backup Speed (백업 반응 속도): 표본 부족으로 비교하지 않음"}
-- Global Avg Trade Success Rate (복수 성공률, 100m 밖·자기장·낙하 기절 제외): ${tradeRateLine}
+  ? `- 전체 팀 평균 백업 속도: ${benchmarkTradeLatencySec} (우리 팀 평균: ${myTradeLatencySec})`
+  : "- 전체 팀 평균 백업 속도: 표본 부족으로 비교하지 않음"}
+- 전체 팀 평균 복수 성공률 (100m 밖·자기장·낙하 기절 제외): ${tradeRateLine}
 ${reviveEvaluable
-  ? `- Global Avg Revive Success Rate (부활 성공률): ${formatPercent(benchmarkStats.avgReviveRate)} (Our Squad Revive Rate: ${teamReviveRateText}, 아군 기절 ${knockCount}회 중 ${reviveCount}회 부활)`
-  : `- Global Avg Revive Success Rate (부활 성공률): 표본 부족으로 비교하지 않음 (아군 기절 ${knockCount === null ? "측정 불가" : `${knockCount}회`}, ${SQUAD_MIN_KNOCKS}회 이상 필요)`}
-- Global Avg Smoke Rescue Rate (연막탄 구출 성공률): 팀 연막 구출률은 산출하지 않으므로 비교하지 않음 (연막 구출 횟수만 측정)
-- Global Avg Squad Team Wipes (경기당 적 전멸 기여): ${formatObserved(benchmarkStats.avgTeamWipes, "회")} (Our Squad Avg: ${formatAverageObserved(stats?.totalTeamWipes, matchCount, "회")})
+  ? `- 전체 팀 평균 부활 성공률: ${formatPercent(benchmarkStats.avgReviveRate)} (우리 팀 부활 성공률: ${teamReviveRateText}, 아군 기절 ${knockCount}회 중 ${reviveCount}회 부활)`
+  : `- 전체 팀 평균 부활 성공률: 표본 부족으로 비교하지 않음 (아군 기절 ${knockCount === null ? "측정 불가" : `${knockCount}회`}, ${SQUAD_MIN_KNOCKS}회 이상 필요)`}
+- 전체 팀 평균 연막 구출 성공률: 팀 연막 구출률은 산출하지 않으므로 비교하지 않음 (연막 구출 횟수만 측정)
+- 전체 팀 평균 경기당 적 전멸 기여: ${formatObserved(benchmarkStats.avgTeamWipes, "회")} (우리 팀 평균: ${formatAverageObserved(stats?.totalTeamWipes, matchCount, "회")})
 
 [Assigned Fixed Squad Grade]
 - Given Grade: ${displaySquadGrade} (Output ${gradeOutput} in the "squadGrade" JSON field. Do NOT recalculate.)
@@ -148,21 +148,21 @@ ${reviveEvaluable
 [Individual Member Role & Stats]
 ${membersReport}
 
-[Squad Collaboration Performance Average]
-- Average Isolation Index (대열 이탈 고립도): ${formatObserved(isolationValue)} (낮을수록 좋음. 1.0은 대열 유지 우수, 3.5 이상은 높은 고립 데스 위험)
-- Backup Speed (아군 기절 후 백업 속도): ${myTradeLatencySec} (팀 전체에서 아군을 기절시킨 동일 적을 다른 아군이 30초 미만에 처치한 기록의 시간 합계 / 처치 수)
-- Smoke Rescues (연막 구출 세이브 성공 수): ${formatObserved(stats?.totalSmokeRescues, "회")} (단순히 연막탄을 던진 횟수가 아니라, 기절 후 15초 안에 팀원이 100m 이내에서 연막을 투척하고 같은 아군 소생이 30초 안에 확인된 '연막 세이브' 횟수. 실제 연막 착탄/엄폐 효과/안전 여부는 측정하지 않음)
-- Ally Revives (아군 부활 성공 수): ${formatObserved(stats?.totalRevives, "회")}
-- Average Cover Rate (평균 아군 집중사격 커버율): ${coverRatePercent} (동시 교전 참여 지표)
-- Enemy Squad Team Wipes (적 스쿼드 전멸 유발 수): ${formatObserved(stats?.totalTeamWipes, "회")}
+[우리 팀 협동 기록]
+- 대열 이탈 고립도: ${formatObserved(isolationValue)} (낮을수록 좋음. 1.0은 대열 유지 우수, 3.5 이상은 높은 고립 데스 위험)
+- 아군 기절 후 백업 속도: ${myTradeLatencySec} (팀 전체에서 아군을 기절시킨 동일 적을 다른 아군이 30초 미만에 처치한 기록의 시간 합계 / 처치 수)
+- 연막 구출 성공 수: ${formatObserved(stats?.totalSmokeRescues, "회")} (단순히 연막탄을 던진 횟수가 아니라, 기절 후 15초 안에 팀원이 100m 이내에서 연막을 투척하고 같은 아군 소생이 30초 안에 확인된 '연막 세이브' 횟수. 실제 연막 착탄/엄폐 효과/안전 여부는 측정하지 않음)
+- 아군 부활 성공 수: ${formatObserved(stats?.totalRevives, "회")}
+- 평균 아군 집중사격 커버율: ${coverRatePercent} (동시 교전 참여 지표)
+- 적 팀 전멸 유발 수: ${formatObserved(stats?.totalTeamWipes, "회")}
 ${benchmarkContext}
 
-[Synergy Balance Scores (Scale 0 - 100)]
-- Revive Score (소생 점수, points out of 100, NOT a percent): ${formatScore(scores?.survivalCare)}
-- Backup Trade Speed (백업 속도): ${tradeEvaluable ? formatScore(scores?.backupSpeed) : "표본 부족으로 평가하지 않음"}
-- Smoke Rescue (연막 구출): ${formatScore(scores?.smokeRescue)}
-- Damage Balance (딜 균형): ${formatScore(scores?.damageBalance)}
-- Placement (순위 성과): ${formatScore(scores?.placement)}
+[협동 점수 (0~100점)]
+- 소생 점수 (points out of 100, NOT a percent): ${formatScore(scores?.survivalCare)}
+- 백업 속도 점수: ${tradeEvaluable ? formatScore(scores?.backupSpeed) : "표본 부족으로 평가하지 않음"}
+- 연막 구출 점수: ${formatScore(scores?.smokeRescue)}
+- 딜 균형 점수: ${formatScore(scores?.damageBalance)}
+- 순위 성과 점수: ${formatScore(scores?.placement)}
 (These are points converted from fixed targets, not percentages and not a ranking against other teams. Write a score as "N점", never as "N%". Cite the revive percentage only from the measured revive figures above.)
     `.trim();
 
@@ -203,10 +203,10 @@ Analyze the provided squad synergy report and write a report.
 - Focus on positive collaboration indices first.
 - Do not invent situational context or motives.
 - For memberFeedbacks: include EVERY member listed in roleProfiles. Always output an empty string ("") for praise. The server writes praise from the canonical measured shares for every member. Always output an empty string ("") for both fault and advice. The server writes a member's fault and advice from measured records, so anything you write there is discarded. Never turn a damage, kill, assist or knockout share, rank or team-lowest value, or any individual record, into blame or a cause anywhere in the report. Never write filler such as "keep it up" or "no data".
-- Place each fact in the field it belongs to: positive facts in summary or strength, lopsided or low facts in weakness or coaching. Never put a positive fact in weakness, and do not repeat the same fact in several fields.
+- Place each fact in the field it belongs to: positive facts in summary or strength, roast facts in weakness or coaching. A damage, kill, assist or knockout share is never a weakness. Never put a positive fact in weakness, and do not repeat the same fact in several fields.
 - For overallOpinion: Deliver a warm, encouraging, yet tactical message addressed to the entire team together, joining two facts into one sentence. Use a contrast (예: "~했지만 ~입니다") only when one fact is good and the other is a gap; when both facts point the same way, connect them with "~했고". Never paste two finished sentences together with 와/과, and never copy a sentence already written in summary or strength.
 - Output MUST be structured in JSON matching the exact schema.
-- Language: Output fields MUST be written in Korean.
+- Language: Write every output sentence in Korean only. Do NOT copy English words from the input labels or these instructions (for example global, average, benchmark, squad, score); write them in Korean such as "전체 팀 평균", "스쿼드", "점수". Only nicknames and weapon names stay in their original Latin spelling. Any sentence with another English word is removed from the report.
 - Preserve nicknames exactly as provided. Do NOT translate, localize, or Korean-transliterate nicknames such as "KangHeeSung_".
 - Current Average Isolation Index is ${formatObserved(isolationValue)}. ${hasLowIsolation ? "It is below 2.0, so treat formation as good in summary, weakness, coaching, memberFeedbacks, and overallOpinion." : "If you mention spacing, use measured spacing facts only; if unavailable, say it is unavailable."} Do NOT say any member has "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", or "혼자 정글북" for this squad.
 - Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Describe the observed damage share only. Do not replace blame with an unsupported "화력 분담 보완" judgment. Separate conditional practice advice from observed facts.
@@ -222,18 +222,16 @@ Write every Korean sentence in 반말, like a friend teasing the squad over a re
 [Rules for roasting & tone]:
 1. NEVER use explicit vulgar swear words (e.g. "병신", "개새끼", "시발") directly, to prevent safety filters from blocking the response.
 2. Maximize sarcasm with PUBG community terms, but tie every jab to a measured metric condition. Never mock a skill, ability, or intent that is not measured:
-   - If a member's measured damage share is low (below 20%) while their kill or assist share is high, you may call them "킬로그 배달부" (Killfeed delivery) and cite only those measured shares.
-   - You may tease a measured number itself (e.g. a damage share of X%) as a joke about the number, without adding any cause or motive.
+   - Never tease or blame a member for a low damage, kill, assist or knockout share. A share drops whenever a teammate deals more, so it says nothing about that member's play.
    - "대열 이탈이 커서 합류 타이밍이 흔들림" (Roast only if isolation index is high, e.g. > 3.0)
 3. Highlight metrics aggressively using clear, human-readable units (e.g. "X.X초", "X회", "X%"):
    - NEVER output raw millisecond values in the response. Always divide by 1000 and round to convert them to seconds like "23.0초" or "12.0초".
-   - If trade latency is slow: "복수 기록이 평균보다 늦게 남았네. 다음 기록은 좀 덜 기다리게 해 봐."
    - If isolation rate is high: Say "대열 이탈이 커서 동시 교전 합이 흔들려." Do NOT use "1인 솔로 4개", "오합지졸", or "혼자 정글북".
 4. Deliver extremely sharp, critical, yet constructive, fact-based overall opinion and feedback.
 5. For memberFeedbacks: include EVERY member listed in roleProfiles. Always output an empty string ("") for praise. The server writes praise from the canonical measured shares for every member. Always output an empty string ("") for both fault and advice. The server writes a member's fault and advice from measured records, so anything you write there is discarded. Never turn a damage, kill, assist or knockout share, rank or team-lowest value, or any individual record, into blame or a cause anywhere in the report. Never write filler such as 'keep it up', 'no data' or a pass line in these fields. Use only their measured damage, kill, assist and knockout stats/shares. Differences in shares do not prove motives or unrecorded actions.
 6. For overallOpinion: Deliver a sharp, critical, yet highly constructive message addressed to the entire team together.
 7. Output MUST be structured in JSON matching the exact schema.
-8. Language: Output fields MUST be written in Korean.
+8. Language: Write every output sentence in Korean only. Do NOT copy English words from the input labels or these instructions (for example global, average, benchmark, squad, score); write them in Korean such as "전체 팀 평균", "스쿼드", "점수". Only nicknames and weapon names stay in their original Latin spelling. Any sentence with another English word is removed from the report.
 9. Preserve nicknames exactly as provided. Do NOT translate, localize, or Korean-transliterate nicknames such as "KangHeeSung_".
 10. Current Average Isolation Index is ${formatObserved(isolationValue)}. ${hasLowIsolation ? "It is below 2.0, so treat formation as good in summary, weakness, coaching, memberFeedbacks, and overallOpinion." : "If you mention spacing, use measured spacing facts only; if unavailable, say it is unavailable."} Do NOT say any member has "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", or "혼자 정글북" for this squad.
 11. Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Describe the observed damage share only. Do not replace blame with an unsupported "화력 분담 보완" judgment. Separate conditional practice advice from observed facts.
@@ -241,12 +239,11 @@ Write every Korean sentence in 반말, like a friend teasing the squad over a re
 13. Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 뇌", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
 14. CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
 15. [PUNCHLINE FACTS] are the only material for jokes, exaggeration, metaphors and nicknames. Copy every number from the facts exactly. Do NOT round, convert, subtract, average, or derive any new number, even one that looks obvious (for example, a difference between two figures). Name each share with its exact label (딜 비중 = damage, 킬 비중 = kill, 어시스트 비중 = assist, 녹다운 비중 = knockouts) and never swap or rename them.
-16. Give the report some bite. Use short, punchy sentences and PUBG community slang such as 킬로그, 캐리, 치킨. Use a slang word only where it fits the sentence; never use it as filler. Place each fact in the field it belongs to: positive (hype) facts in summary or strength; negative or lopsided facts (roast, or a team-level gap from [MEASURED OBSERVATIONS]) in weakness or coaching. Never put a positive fact in weakness, and never fill a field just to avoid leaving it empty. summary is one line about the record. overallOpinion is a short closing remark to the whole team that joins two facts into one natural sentence, not a bare fact. Use a contrast (예: "~했지만 ~야") only between a hype fact and a roast fact; when both point the same way, connect them with "~했고". Never paste two finished sentences together with 와/과, never copy a sentence already written in summary or strength, and do not repeat the same fact in several fields.
+16. Give the report some bite. Use short, punchy sentences and PUBG community slang such as 킬로그, 캐리, 치킨. Use a slang word only where it fits the sentence; never use it as filler. Place each fact in the field it belongs to: positive (hype) facts in summary or strength; negative (roast) facts in weakness or coaching. A damage, kill, assist or knockout share is never a weakness. Never put a positive fact in weakness, and never fill a field just to avoid leaving it empty. summary is one line about the record. overallOpinion is a short closing remark to the whole team that joins two facts into one natural sentence, not a bare fact. Use a contrast (예: "~했지만 ~야") only between a hype fact and a roast fact; when both point the same way, connect them with "~했고". Never paste two finished sentences together with 와/과, never copy a sentence already written in summary or strength, and do not repeat the same fact in several fields.
 17. Style examples with placeholders (X, Y, N are measured values from the facts, never invented):
     - hype: a damage share of X% becomes "화력의 X%를 혼자 떠안은 캐리" (over-the-top praise of the number only).
     - roast: N matches with 0 wins becomes "N경기 동안 우승 0회, 트로피 진열장이 아직 텅 비어 있네." (a sarcastic remark about the record only).
     Do NOT tease aim, brain, fingers, focus, judgment, mentality or any ability, and do NOT attribute intent or unrecorded actions.
-    Use the term 킬로그 배달부 only for a member whose fact id is member_kill_log, because that fact is the only measured condition for it.
 18. When a point has no measured fact or its metric is unavailable, output an empty string ("") for that field. The screen hides empty fields. Do NOT write a dry verdict such as "판단을 보류합니다", an in-character pass line, or any padding in weakness, coaching, fault or advice.
 19. Each [PUNCHLINE FACTS] line may end with "→ 한마디:". Whenever you use such a fact in summary, strength, weakness, coaching or overallOpinion, write it together with its 한마디 in the same sentence, keeping the 한마디 wording and its bite (you may shorten it, never soften it, and never replace it with a plain verdict). A field built from a fact that has a 한마디 must contain that 한마디. overallOpinion must carry a 한마디 that is not already used in another field; when every 한마디 is already used, write a short closing call to the team instead of repeating one. Never copy the label "→ 한마디:" itself. Pair a 한마디 only with its own fact and connect them in the same direction (a hype 한마디 after a hype fact, a roast 한마디 after a roast fact); never glue a hype 한마디 onto a fact you contrast with using 하지만. Member praise is written by the server; always leave praise empty.
       `.trim();
@@ -273,7 +270,7 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 - Only discuss measured metrics. If no supported weakness is evident, output an empty string for that field instead of inventing a fault.
 ${tradeEvaluable ? "" : `- Backup speed is NOT evaluable for this squad (fewer than ${SQUAD_MIN_TRADE_KILLS} measured trade kills). Do NOT state any backup speed value or backup timing, do NOT compare it with the global average, and do NOT praise, blame or advise on backup timing.`}
 ${reviveEvaluable ? "" : `- Revive rate is NOT evaluable for this squad (fewer than ${SQUAD_MIN_KNOCKS} measured knocks). Do NOT state any revive rate, and do NOT compare revive counts with the global revive rate.`}
-- [MEASURED OBSERVATIONS] lists each member's recorded shares and individual records. Shares sum to 100% across the team, so someone is always the lowest, and they reflect role differences rather than mistakes. Use shares for praise only (a team-highest value or a role description) and for team-level spread lines, and never present a spread as a coordination, focus-fire or efficiency problem. Individual records are neutral facts: never use them as blame, never link them to a team result such as "화력이 발휘되지 못한다", and never explain why a member died or why a strike failed. Copy numbers exactly and never copy a bracket tag.
+- [MEASURED OBSERVATIONS] lists each member's recorded shares and individual records. Shares sum to 100% across the team, so someone is always the lowest, and they reflect role differences rather than mistakes. Use shares for praise only (a team-highest value or a role description) and for the team's top-share line, and never present a spread as a coordination, focus-fire or efficiency problem. Individual records are neutral facts: never use them as blame, never link them to a team result such as "화력이 발휘되지 못한다", and never explain why a member died or why a strike failed. Copy numbers exactly and never copy a bracket tag.
 - [ANALYSIS SCOPE] Wins and placements cover every match played together (Matches Played Together). Every other number (shares, knocks, revives, smoke rescues, rates) covers only Matches Used For Stats, which may be fewer than the latest matches when older matches are past the 14-day detail window. When Matches Used For Stats is smaller than Matches Played Together, name that scope once in Korean (for example "상세 분석 가능한 8경기 기준") when you cite such a stat, and write 최근 N경기 only for wins and placements. Never put 상세 분석 가능한 N경기 in a sentence about wins or placements, and never combine the two scopes in one clause. When both counts are equal, no scope phrase is needed.
 - Do not infer player intent, communication, safety, or actions from absent evidence.
 - A team damage, kill or assist share spread describes distribution only. Never present it as a coordination, focus-fire or efficiency problem, and never tell the team to even it out.

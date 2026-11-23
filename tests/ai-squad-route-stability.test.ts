@@ -220,7 +220,9 @@ describe("AI squad route stability", () => {
       expect(response.status).toBe(200);
       const fresh = await response.json();
       expect(freshCache.upsert.mock.calls[0][0].ai_result).toEqual(fresh);
-      expect(fresh.memberFeedbacks[0].praise).toBe(coachingStyle === "spicy" ? "팀 딜 10%와 킬 13%를 기록했네." : "팀 딜 10%와 킬 13%를 기록했습니다.");
+      // 낮은 비중은 칭찬할 재료가 아니라 칭찬 칸을 비운다.
+      expect(fresh.memberFeedbacks[0].praise).toBe("");
+      expect(fresh.memberFeedbacks[2].praise).toBe(coachingStyle === "spicy" ? "팀 딜 23%와 킬 20%를 기록했네." : "팀 딜 23%와 킬 20%를 기록했습니다.");
       expect(fresh.memberFeedbacks[1].praise).toMatch(/47%.*화력/);
       if (scenario === "gap" && coachingStyle === "spicy") {
         expect(fresh.weakness).toContain("복수 성공률 10%");

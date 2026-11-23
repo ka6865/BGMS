@@ -82,7 +82,7 @@ describe("squad prompt backup gate", () => {
       expect(text).not.toContain("10.4초");
     }
     expect(prompt).toContain("표본 부족으로 백업 속도는 평가하지 않음 (복수 1건, 3건 이상 필요)");
-    expect(prompt).toContain("- Global Avg Backup Speed (백업 반응 속도): 표본 부족으로 비교하지 않음");
+    expect(prompt).toContain("- 전체 팀 평균 백업 속도: 표본 부족으로 비교하지 않음");
     expect(systemInstruction).toContain("Backup speed is NOT evaluable for this squad (fewer than 3 measured trade kills).");
   });
 
@@ -90,7 +90,7 @@ describe("squad prompt backup gate", () => {
     const { prompt, systemInstruction } = promptFor(style, { totalTradeKills: 3 });
     expect(prompt).toContain("15.34초");
     expect(prompt).toContain("10.40초");
-    expect(prompt).toContain("- Global Avg Backup Speed (백업 반응 속도): 10.40초 (Our Squad Avg: 15.34초)");
+    expect(prompt).toContain("- 전체 팀 평균 백업 속도: 10.40초 (우리 팀 평균: 15.34초)");
     expect(systemInstruction).not.toContain("NOT evaluable for this squad (fewer than 3 measured trade kills)");
   });
 
@@ -111,7 +111,7 @@ describe("squad prompt backup gate", () => {
       scores: { formation: 70, backupSpeed: 75, survivalCare: 80, focusFire: 76, teamWipe: 65 },
       roleProfiles, nickname: "KangHeeSung_", coachingStyle: "spicy", benchmarkStats: benchmark, matchCount: 5, teamMode: "duo",
     });
-    expect(prompt).toContain("- Backup Trade Speed (백업 속도): 표본 부족으로 평가하지 않음");
+    expect(prompt).toContain("- 백업 속도 점수: 표본 부족으로 평가하지 않음");
   });
 });
 
@@ -119,13 +119,13 @@ describe("squad prompt revive and smoke gate", () => {
   it("hides the global revive rate when the knock sample is short", () => {
     const { prompt, systemInstruction } = promptFor("spicy", { totalTeammateKnocks: 4, totalRevives: 2 });
     expect(prompt).not.toContain("34.6%");
-    expect(prompt).toContain("- Global Avg Revive Success Rate (부활 성공률): 표본 부족으로 비교하지 않음 (아군 기절 4회, 5회 이상 필요)");
+    expect(prompt).toContain("- 전체 팀 평균 부활 성공률: 표본 부족으로 비교하지 않음 (아군 기절 4회, 5회 이상 필요)");
     expect(systemInstruction).toContain("Revive rate is NOT evaluable for this squad (fewer than 5 measured knocks).");
   });
 
   it("shows the team revive rate next to the global rate when the knock sample is enough", () => {
     const { prompt, systemInstruction } = promptFor("mild", { totalTeammateKnocks: 10, totalRevives: 4 });
-    expect(prompt).toContain("- Global Avg Revive Success Rate (부활 성공률): 34.6% (Our Squad Revive Rate: 40%, 아군 기절 10회 중 4회 부활)");
+    expect(prompt).toContain("- 전체 팀 평균 부활 성공률: 34.6% (우리 팀 부활 성공률: 40%, 아군 기절 10회 중 4회 부활)");
     expect(systemInstruction).not.toContain("Revive rate is NOT evaluable");
   });
 

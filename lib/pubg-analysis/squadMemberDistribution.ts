@@ -1,6 +1,7 @@
 // 스쿼드 AI 평가에 줄 측정 분포 사실을 만든다. 순수 함수만 둔다.
-// 개인 딜·킬·어시스트·기절 비중의 팀 내 순위와 최고·최저만 다룬다. 실력, 의도, 위치는 말하지 않는다.
-// 비중은 합이 100%인 분배라 누군가는 반드시 최저가 되고 역할 차이도 반영한다. 그래서 개인 "못한 점"과 "개인 피드백"의 근거가 아니라 칭찬과 팀 분포 설명에만 쓴다.
+// 개인 딜·킬·어시스트·기절 비중의 팀 내 순위와 최고만 다룬다. 실력, 의도, 위치는 말하지 않는다.
+// 비중은 합이 100%인 분배라 누군가는 반드시 최저가 되고, 한 팀원이 많이 넣으면 나머지는 실력과 무관하게 낮아진다.
+// 그래서 개인 "못한 점"과 "개인 피드백"의 근거가 아니라 칭찬과 팀 분포 설명에만 쓰고, 최저 팀원 이름은 팀 줄에 넣지 않는다.
 // 개인 못한 점과 조언은 모델이 아니라 squadMemberRecords가 고정 기준으로 정해 서버가 문장까지 쓴다(squadAiEvidence).
 
 import { TEAMMATE_FAR_DISTANCE_M } from "./deathContext";
@@ -28,7 +29,7 @@ const METRICS = [
 
 // 최고·최저로 지목하려면 다음 순위와 이 값(%p) 이상 벌어져야 한다. 작은 차이는 분포 설명에 쓰지 않는다.
 const MIN_EXTREME_GAP = 5;
-// 팀 단위 최고·최저 줄은 최고와 최저의 차이가 이 값(%p) 이상일 때만 만든다.
+// 팀 단위 최고 줄은 최고와 최저의 차이가 이 값(%p) 이상일 때만 만든다.
 const MIN_TEAM_SPREAD = 10;
 // 최고·최저 지목은 3명 이상일 때만 한다. 2명이면 한 쪽이 최저이자 상대의 보수라 정보가 없다.
 const MIN_MEMBERS_FOR_EXTREME = 3;
@@ -84,7 +85,7 @@ export function buildSquadObservationBlock(input: SquadObservationInput): string
     const second = ranked[1];
     const bottom = ranked[ranked.length - 1];
     if (top.value - bottom.value >= MIN_TEAM_SPREAD) {
-      teamLines.push(`- 팀 ${label} 비중은 최고 ${top.value}%(${top.name}), 최저 ${bottom.value}%(${bottom.name})로 갈렸습니다.`);
+      teamLines.push(`- 팀 ${label} 비중이 가장 높은 팀원은 ${top.name}(${top.value}%)입니다.`);
     }
     if (!extremesAllowed) continue;
     if (top.value - second.value >= MIN_EXTREME_GAP) memberHighs.get(top.name)?.push(`${label} ${top.value}%`);
