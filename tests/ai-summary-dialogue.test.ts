@@ -80,3 +80,35 @@ describe("최근 요약 토론 대사 칸", () => {
     expect(run(100, {}).card.counterOpinion).toBeUndefined();
   });
 });
+
+describe("최근 요약 토론 장면 근거", () => {
+  const fight = (openedBy: "us" | "them", outcome: string, enemyDowns: number, teamDowns: number, startMs: number) =>
+    ({ startMs, endMs: startMs + 5000, opponentTeamIds: [], opponents: [], dealt: 100, taken: 100, enemyDowns, teamDowns, openedBy, outcome });
+  const matches = [
+    { matchId: "m1", mapName: "에란겔", matchReport: { fights: [fight("them", "lost", 0, 2, 600000), fight("us", "won", 3, 0, 900000)] }, timeline: [{ type: "DIED", ts: 1200000 }] },
+    { matchId: "m2", mapName: "미라마", matchReport: { fights: [fight("them", "lost", 0, 3, 300000)] }, timeline: [{ type: "DIED", ts: 480000 }] },
+  ];
+
+  it("판정 방향과 맞는 가장 뚜렷한 장면을 고른다", async () => {
+    const { pickSummaryCardScene } = await import("@/lib/pubg-analysis/aiSummaryScenes");
+    expect(pickSummaryCardScene("initiative", "spicy", matches)).toEqual({ matchId: "m2", clock: "5:00", text: "미라마 경기 5:00 교전: 상대가 먼저 쏴서 우리 팀만 3명 쓰러졌습니다." });
+    expect(pickSummaryCardScene("initiative", "kind", matches)?.text).toBe("에란겔 경기 15:00 교전: 우리가 먼저 쏴서 적 3명을 쓰러뜨렸습니다.");
+    expect(pickSummaryCardScene("survival", "spicy", matches)?.text).toBe("미라마 경기 8:00에 쓰러져 경기가 끝났습니다.");
+    // 무승부, 지원하지 않는 주제, 맞는 장면이 없으면 붙이지 않는다.
+    expect(pickSummaryCardScene("initiative", "draw", matches)).toBeNull();
+    expect(pickSummaryCardScene("firepower", "spicy", matches)).toBeNull();
+    expect(pickSummaryCardScene("survival", "kind", matches)).toBeNull();
+    expect(pickSummaryCardScene("initiative", "spicy", [{ matchId: "m3", matchReport: { fights: [] } }])).toBeNull();
+  });
+
+  it("정규화가 장면을 판정 난 카드에만 붙이고 다시 읽어도 유지한다", () => {
+    const cards = buildSummaryCards({ topics: ["화력", "교전 주도권", "포지셔닝"], context, evidence: [metric("damage_average", "평균 화력", 50, 100)] });
+    const provider = { signature: "화력", debateIssues: cards.map(card => ({ topicId: card.topicId, evidenceIds: card.evidenceIds, kindOpinion: "기록을 확인했습니다.", spicyOpinion: "다음 교전 후 기록을 확인해 봐." })), actionItems: [] };
+    const scene = { matchId: "m1", clock: "1:00", text: "에란겔 경기 1:00 교전" };
+    const result = normalizeSummaryCardFinal(provider, cards, { ...options, sceneFor: (topicId) => topicId === "firepower" ? scene : null })!;
+    const firepower = result.final.cards.find(card => card.topicId === "firepower")!;
+    expect(firepower.scene).toEqual(scene);
+    expect(result.final.cards.filter(card => card.scene)).toHaveLength(1);
+    expect(parseSummaryCards(result.final)?.find(card => card.topicId === "firepower")?.scene).toEqual(scene);
+  });
+});

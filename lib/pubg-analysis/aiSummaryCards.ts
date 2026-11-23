@@ -3,6 +3,7 @@ import { AI_SUMMARY_HIGHER_IS_BETTER, summaryComparisonHoldReason, isSummaryComp
 import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText, summaryAdviceRuleId, summaryInferenceRuleId } from "./aiSummaryJudgment";
 import { COACHING_JUDGMENT_WITHHELD, findDisallowedLatinWords, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
 import { COMBAT_ATTRIBUTION_CALCULATION_VERSION, POSITION_FRESHNESS_CALCULATION_VERSION } from "./constants";
+import type { SummaryCardScene } from "./aiSummaryScenes";
 
 /**
  * Server-owned card composition for the v2 AI summary contract.
@@ -82,6 +83,8 @@ export interface SummaryCard {
   spicyOpinion: string;
   /** 매운맛 반박에 대한 다정 코치의 재반박·인정. 판정이 없는 카드와 이전 캐시에는 없다. */
   counterOpinion?: string;
+  /** 판정 방향과 맞는 경기 장면 근거. 서버가 기록에서 고르며 맞는 장면이 없으면 없다. */
+  scene?: SummaryCardScene;
   reason: string;
   evaluation: string;
   winner: "kind" | "spicy" | "draw" | null;
@@ -609,6 +612,11 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
     if (topic !== expectedTopic || question !== topicQuestion(topicId, derivedDataStatus)) return null;
     const analysisReason = card.analysisReason === undefined ? undefined : nonEmptyString(card.analysisReason);
     if (card.analysisReason !== undefined && !analysisReason) return null;
+    const rawScene = card.scene as unknown;
+    const scene = rawScene === undefined ? undefined
+      : isRecord(rawScene) && nonEmptyString(rawScene.matchId) && nonEmptyString(rawScene.clock) && nonEmptyString(rawScene.text)
+        ? { matchId: rawScene.matchId as string, clock: rawScene.clock as string, text: rawScene.text as string } : null;
+    if (scene === null || (scene && winner === null)) return null;
     const counterOpinion = card.counterOpinion === undefined ? undefined : nonEmptyString(card.counterOpinion);
     if (card.counterOpinion !== undefined && (!counterOpinion || winner === null
       || hasUnsupportedSummaryInference(counterOpinion) || hasUnsupportedSummaryAdvice(counterOpinion))) return null;
@@ -625,6 +633,7 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
       kindOpinion,
       spicyOpinion,
       ...(counterOpinion ? { counterOpinion } : {}),
+      ...(scene ? { scene } : {}),
       reason,
       evaluation,
       winner,
@@ -1284,6 +1293,8 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   sanitizeCardText?: (value: string, card: SummaryCard) => string;
   hasUnsupportedMode: (value: unknown) => boolean;
   onSchemaError?: (reason: string) => void;
+  /** 판정이 난 카드에 붙일 경기 장면. 경기 기록을 가진 호출부가 넘긴다. */
+  sceneFor?: (topicId: SummaryTopicId, winner: SummaryCard["winner"]) => SummaryCardScene | null;
 }): {
   final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" };
   cacheable: boolean;
@@ -1496,12 +1507,20 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     }
     const reason = buildSummaryCardFactText(serverCard);
     const evaluation = cardEvaluation(serverCard);
+    let scene: SummaryCardScene | null = null;
+    try {
+      scene = winner !== null && options.sceneFor ? options.sceneFor(serverCard.topicId, winner) : null;
+    } catch {
+      // 장면은 보조 근거다. 고르지 못해도 지표 판정은 그대로 쓴다.
+      scene = null;
+    }
     const readyCard: SummaryCard = {
       ...serverCard,
       analysisStatus: "ready",
       kindOpinion: sanitizedTexts[0],
       spicyOpinion: sanitizedTexts[1],
       ...(counterOpinion ? { counterOpinion } : {}),
+      ...(scene ? { scene } : {}),
       reason,
       evaluation,
       // 승패는 모델 선택이 아니라 비교 지표의 차이로 정한다.

@@ -1548,6 +1548,23 @@ export const RecentAISummary = ({
               </div>
             </div>
 
+            {interpretationReady && card.scene && (
+              <p className="mt-4 flex flex-wrap items-center gap-2 text-xs text-gray-400">
+                <span className="shrink-0 rounded-full border border-indigo-400/30 bg-indigo-500/10 px-2 py-0.5 font-black text-indigo-300">장면 근거</span>
+                <span className="min-w-0 break-words">{card.scene.text}</span>
+              </p>
+            )}
+
+            {interpretationReady && card.counterOpinion && (
+              <div className="mt-4 p-4 rounded-2xl border border-green-500/20 bg-green-500/5 md:ml-8">
+                <div className="flex items-center gap-2 mb-2">
+                  <BgmsIcon name="shield" size={16} className="text-green-400" />
+                  <span className="text-xs font-black text-green-400">착한맛 코치의 재반박</span>
+                </div>
+                <p className="text-sm text-gray-300 leading-relaxed font-medium">&quot;{card.counterOpinion}&quot;</p>
+              </div>
+            )}
+
             {(interpretationStatus === "unavailable" && card.analysisReason) && (
               <p className="mt-3 text-xs text-gray-500 text-center md:text-left">{card.analysisReason}</p>
             )}

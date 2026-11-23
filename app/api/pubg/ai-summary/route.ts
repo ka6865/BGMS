@@ -43,6 +43,7 @@ import {
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
 import crypto from "crypto";
+import { pickSummaryCardScene } from "@/lib/pubg-analysis/aiSummaryScenes";
 import {
   applyCalculationVersionGuard,
   buildSummaryCardComparisonText,
@@ -1698,6 +1699,7 @@ export async function POST(request: Request) {
       try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { onInvalid?.("parse", "json_syntax"); return null; }
       return normalizeSummaryCardFinal(parsed, serverCards, {
         onSchemaError: (reason) => onInvalid?.("schema", reason),
+        sceneFor: (topicId, winner) => pickSummaryCardScene(topicId, winner, cardMatches),
         sanitizeText: (value) => sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), idCanonicalEvidence, { allowedMode: mainModeName, observedUserMetricKeys: serverCards.flatMap(card => card.evidence.filter(row => row.userValue !== null).map(row => row.metricId)) }),
         sanitizeCardText: (value, card) => {
           const cardEvidence = Object.fromEntries(card.evidence
