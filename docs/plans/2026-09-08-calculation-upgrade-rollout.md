@@ -60,3 +60,17 @@ npx tsx scripts/run_calculation_upgrade_rollout.ts --canonical-only \
 두 작업의 원본 준비가 겹쳐도 로컬 공통 project 잠금으로 RPC 요청은 하나씩 수행한다. 프로세스가 비정상 종료된 잠금은 실행 여부를 확인한 뒤 운영자가 복구하며 자동 삭제하지 않는다. 동일 checkpoint 재실행 시 이미 목표 결과와 같으면 RPC를 생략한다. CLI는 이번 실행의 RPC 시도와 누적 시도를 구별한다.
 
 새 runner를 실행한 작업은 output-dir에 `PAUSE` 파일을 만들면 현재 경기를 마친 뒤 멈춘다. 해당 파일을 제거하고 동일 명령으로 재개한다. 이미 이전 스크립트 버전으로 시작한 프로세스에는 새 pause 기능이 소급 적용되지 않는다.
+
+## 최근 행만 갱신 (`--created-since`, 2026-11-24)
+
+공식 match·telemetry는 경기 후 약 14일만 받을 수 있고 R2 공유 원본도 같은 기한에 정리된다. 그보다 오래된 구 계산 행(2026-11-24 기준 계산 2~4 약 15,700행)은 원본이 없어 이 runner로 갱신할 수 없다. 전체 inventory는 구 계산 행이 2만 행을 넘어 `inventory_row_cap`으로 멈추므로, 원본이 남아 있는 기간의 행만 고정한다.
+
+```bash
+npx tsx scripts/run_calculation_upgrade_rollout.ts --created-since 2026-11-10T00:00:00Z \
+  --output-dir tmp/calculation-upgrade-recent
+npx tsx scripts/run_calculation_upgrade_rollout.ts --created-since 2026-11-10T00:00:00Z \
+  --output-dir tmp/calculation-upgrade-recent --apply --acquire-raw --max-matches 328 \
+  --max-source-mib 128 --max-download-mib 40000 --max-runtime-minutes 180
+```
+
+기준 시각은 inventory에 저장되며 다른 값으로 재개하면 `rollout_created_since_mismatch`로 거부한다. `created_at`은 비교 행 저장 시각이라 경기 시각보다 늦을 수 있으므로, 기준일 근처 경기는 공식 원본 404로 기록될 수 있다.
