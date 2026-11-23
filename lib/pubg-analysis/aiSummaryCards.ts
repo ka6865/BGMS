@@ -1367,10 +1367,14 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     const kindUsable = hasFavorable && providerKind && !isNeutralText(providerKind) && !sanitized[0].changed
       && !/\d|평균|비교/u.test(providerKind) && !(hasUnfavorable && STRONG_PRAISE.test(providerKind)) && !hasUnsupportedSummaryInference(kindOpinion) && !hasUnsupportedSummaryAdvice(kindOpinion);
     sanitizedTexts[0] = [kindComparison, kindUsable ? providerKind : ""].filter(Boolean).join(" ") || (weak ? `${weak.label} 지표는 이번 관측에서 비교 평균에 못 미쳤습니다.` : neutralOpinion);
+    const intensity = summaryCardIntensity(serverCard);
+    // 가장 크게 밀린 지표부터 놀린다. 강도는 그 차이 크기로 정한다.
     const spicyJab = summaryCardSpicyJab(
-      serverCard.evidence.filter(row => isUnfavorable(row) === true).map(row => row.metricId),
+      serverCard.evidence.filter(row => isUnfavorable(row) === true)
+        .sort((a, b) => (favorableGap(a) ?? 0) - (favorableGap(b) ?? 0)).map(row => row.metricId),
       hasFavorable && !hasUnfavorable,
       `${serverCard.context.contextId}:${serverCard.topicId}`,
+      hasUnfavorable ? intensity.roast : intensity.praise,
     );
     sanitizedTexts[1] = hasUnfavorable
       ? toSummarySpicyBanmal([spicyComparison, spicyJab, conditionalCheckText(sanitizedTexts[1], true) || metricCheck(serverCard)].filter(Boolean).join(" "))

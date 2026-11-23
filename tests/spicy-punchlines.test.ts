@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyMatchSpicyJab, matchSpicyJab, summaryCardSpicyJab, toSummarySpicyBanmal } from "@/lib/pubg-analysis/spicyPunchlines";
+import { applyMatchSpicyJab, matchSpicyJab, summaryCardSpicyJab, SUMMARY_STRONG_JAB_PATTERN, toSummarySpicyBanmal } from "@/lib/pubg-analysis/spicyPunchlines";
 import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
 import { findAiCoachingQualityFindings, sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
 import { hasUnsupportedSummaryAdvice, hasUnsupportedSummaryInference } from "@/lib/pubg-analysis/aiSummaryJudgment";
@@ -57,10 +57,18 @@ describe("spicy punchlines", () => {
   it("요약 한마디는 못 미친 지표를 비꼬고, 모두 평균 이상이면 인정하며, 비교 불가면 붙이지 않는다", () => {
     const ids = ["damage_average", "initiative_rate", "pressure_index", "counter_failure_rate", "reaction_latency", "duel_win_rate", "solo_kill_share", "death_phase", "isolation_average", "trade_success_rate", "backup_latency", "smoke_opportunity_rate"];
     for (const id of ids) {
-      const jab = summaryCardSpicyJab([id], false, "ctx")!;
-      expect(jab).toBeTruthy();
-      expect(hasUnsupportedSummaryInference(jab) || hasUnsupportedSummaryAdvice(jab)).toBe(false);
-      expect(findAiCoachingQualityFindings(jab, { blockingOnly: true })).toEqual([]);
+      for (const intensity of ["weak", "mid", "strong"] as const) {
+        for (const seed of ["a", "b", "c", "d", "e", "f"]) {
+          const jab = summaryCardSpicyJab([id], false, seed, intensity)!;
+          expect(jab).toBeTruthy();
+          // 지표 이름의 "1:1"·"3초"만 허용하고 측정값 숫자는 쓰지 않는다.
+          expect(jab.replace(/1:1|3초/gu, "")).not.toMatch(/\d/u);
+          expect(hasUnsupportedSummaryInference(jab) || hasUnsupportedSummaryAdvice(jab)).toBe(false);
+          expect(findAiCoachingQualityFindings(jab, { blockingOnly: true })).toEqual([]);
+          // 약한 차이에는 센 놀림을 쓰지 않는다.
+          if (intensity === "weak") expect(jab).not.toMatch(SUMMARY_STRONG_JAB_PATTERN);
+        }
+      }
     }
     expect(summaryCardSpicyJab([], true, "ctx")).toMatch(/인정|머쓱/);
     expect(summaryCardSpicyJab([], false, "ctx")).toBeNull();
