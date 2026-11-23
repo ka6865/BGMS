@@ -133,12 +133,12 @@ describe('최근 요약 v37 응답 판정', () => {
     expect(final?.signatureSub).toContain('평균 화력');
   });
 
-  it('고립 지수는 비교 수치를 보존해도 판정 방향과 승자를 만들지 않는다', () => {
+  it('고립 지수는 낮을수록 유리하게 판정하지만 대표 강점으로 쓰지 않는다', () => {
     const rows = buildSummaryCardEvidence({ mLen: 3, avgIsolationStr: '0.28', metricMatchCounts: { isolation_average: 3 } }, benchmark);
     const cards = buildSummaryCards({ topics: ['화력', '교전 주도권', '포지셔닝'], context, evidence: rows });
     const provider = { signature: '경기 탐험가', debateIssues: cards.map(card => ({ topicId: card.topicId, evidenceIds: card.evidenceIds, kindOpinion: '관측한 기록을 확인했습니다.', spicyOpinion: '다음 교전 전에 팀원 위치를 확인해 보세요.' })), actionItems: [] };
     const result = normalizeSummaryCardFinal(provider, cards, options)!;
-    expect(result.final.cards[2].winner).toBeNull();
+    expect(result.final.cards[2].winner).toBe('kind');
     expect(result.final.cards[2].reason).toContain('0.28');
     expect(result.final.cards[2].reason).toContain('비교 평균 1.00');
     expect(result.final.finalVerdict).not.toContain('강점으로');

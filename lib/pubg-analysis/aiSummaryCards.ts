@@ -1007,12 +1007,44 @@ function cardCheck(topicId: SummaryTopicId): string {
 
 // 비교 가능한 지표 중 비교 평균보다 불리한 방향이면 true, 유리하면 false, 판단할 수 없으면 null.
 function isUnfavorable(row: SummaryEvidence): boolean | null {
-  const higherIsBetter = AI_SUMMARY_HIGHER_IS_BETTER[row.metricId];
+  const isolation = row.metricId === "isolation_average";
+  // 고립 지수는 낮을수록 팀과 붙어 다닌 것이다. 프롬프트와 다른 검증 규칙은 방향이 없는 지표로 다루므로 카드 판정에서만 쓴다.
+  const higherIsBetter = isolation ? false : AI_SUMMARY_HIGHER_IS_BETTER[row.metricId];
   if (row.status !== "comparable" || higherIsBetter === undefined || summaryComparisonHoldReason(row.metricId, row.unit, row.userMatchCount, row.denominator)) return null;
   const user = evidenceNumericValue(row, "user");
   const benchmark = evidenceNumericValue(row, "benchmark");
   if (user === null || benchmark === null || isSummaryComparisonSimilar(user, benchmark, row.unit) || isDisplayedEqual(row)) return null;
+  // 2.0 미만은 평균보다 높아도 양호한 대열로 해석한다(LOW ISOLATION LOGIC).
+  if (isolation && user > benchmark && user < ISOLATION_GOOD_FORMATION_MAX) return null;
   return higherIsBetter ? user < benchmark : user > benchmark;
+}
+
+const ISOLATION_GOOD_FORMATION_MAX = 2;
+
+// 판정·강도용 차이 척도. 비율 지표는 %p의 2배, 그 밖은 비교 평균 대비 상대 차이(%)를 쓴다.
+// 2026-11-24 운영 요약 78건의 차이 분포(하위 25% 15, 중앙 26, 상위 25% 42)로 정했다.
+export const SUMMARY_GAP_POLICY = { drawMax: 10, weakBelow: 15, strongAbove: 40 } as const;
+export type SummaryIntensity = "weak" | "mid" | "strong";
+
+/** 유리하면 양수, 불리하면 음수인 차이 크기. 판정할 수 없는 지표는 null. */
+function favorableGap(row: SummaryEvidence): number | null {
+  const unfavorable = isUnfavorable(row);
+  if (unfavorable === null) return null;
+  const user = evidenceNumericValue(row, "user")!, benchmark = evidenceNumericValue(row, "benchmark")!;
+  const size = row.unit === "%" ? Math.abs(user - benchmark) * 2 : Math.abs(user - benchmark) / Math.max(Math.abs(benchmark), 1e-9) * 100;
+  return unfavorable ? -size : size;
+}
+
+function intensityFor(size: number): SummaryIntensity {
+  return size < SUMMARY_GAP_POLICY.weakBelow ? "weak" : size > SUMMARY_GAP_POLICY.strongAbove ? "strong" : "mid";
+}
+
+/** 카드의 가장 큰 불리 차이와 가장 큰 유리 차이로 놀림·칭찬 강도를 정한다. */
+export function summaryCardIntensity(card: Pick<SummaryCard, "evidence">): { roast: SummaryIntensity | null; praise: SummaryIntensity | null } {
+  const gaps = card.evidence.map(favorableGap).filter((gap): gap is number => gap !== null);
+  const worst = Math.max(0, ...gaps.filter(gap => gap < 0).map(gap => -gap));
+  const best = Math.max(0, ...gaps.filter(gap => gap > 0));
+  return { roast: worst > 0 ? intensityFor(worst) : null, praise: best > 0 ? intensityFor(best) : null };
 }
 
 /** 사용자 값과 비교 평균이 화면 표시 기준으로 같은지. 표시값을 해석할 수 없으면 false. */
@@ -1102,8 +1134,9 @@ const WEAKNESS_PREMISE = /보완|개선|부족|약점|향상|강화|끌어올|�
 const MAINTENANCE_CHECK = "다음 경기에서도 같은 기록이 이어지는지 확인해 보세요.";
 
 // 비교 평균보다 유리한 지표 중 차이가 가장 큰 지표(비율은 %p, 그 밖은 상대 차이).
+// 고립 지수는 평균이 작아 상대 차이가 크게 나오므로 대표 강점(칭호·결론)에서는 뺀다.
 function strongestMetric(cards: readonly SummaryCard[]): SummaryEvidence | null {
-  const strong = cards.flatMap(card => card.evidence.filter(row => isUnfavorable(row) === false));
+  const strong = cards.flatMap(card => card.evidence.filter(row => isUnfavorable(row) === false && row.metricId !== "isolation_average"));
   if (!strong.length) return null;
   const gap = (row: SummaryEvidence) => {
     const user = evidenceNumericValue(row, "user") ?? 0, benchmark = evidenceNumericValue(row, "benchmark") ?? 0;
@@ -1112,12 +1145,14 @@ function strongestMetric(cards: readonly SummaryCard[]): SummaryEvidence | null 
   return strong.reduce((a, b) => gap(b) > gap(a) ? b : a);
 }
 
+// 유리·불리 지표가 섞이면 차이 크기의 합으로 승자를 정하고, 합이 drawMax 이내로 비등할 때만 무승부다.
 function serverWinner(card: SummaryCard): SummaryCard["winner"] {
-  const directions = card.evidence.map(isUnfavorable).filter((value): value is boolean => value !== null);
-  if (!directions.length) return null;
-  if (directions.every(value => !value)) return "kind";
-  if (directions.every(value => value)) return "spicy";
-  return "draw";
+  const gaps = card.evidence.map(favorableGap).filter((gap): gap is number => gap !== null);
+  if (!gaps.length) return null;
+  if (gaps.every(gap => gap > 0)) return "kind";
+  if (gaps.every(gap => gap < 0)) return "spicy";
+  const total = gaps.reduce((sum, gap) => sum + gap, 0);
+  return Math.abs(total) <= SUMMARY_GAP_POLICY.drawMax ? "draw" : total > 0 ? "kind" : "spicy";
 }
 
 // 대표 강점 지표별 칭호. 측정한 지표의 이름에서만 나오며 성향·능력을 단정하지 않는다.
