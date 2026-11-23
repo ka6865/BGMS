@@ -137,13 +137,10 @@ const KNOWN_TYPOS: ReadonlyArray<readonly [RegExp, string]> = [
 ];
 
 // 영어 프롬프트 표현이 출력에 옮겨진 사례(스쿼드 "global average 12.20초"). 뜻이 같은 한국어로 바꾼다.
+// 모드 이름(solo·duo·squad)은 "solo kill" 같은 지표 문구를 보호하는 기존 모드 검사가 맡으므로 여기서 바꾸지 않는다.
 const ENGLISH_TERMS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bglobal\s+(?:revive\s+rate|average)\b/giu, "전체 팀 평균"],
-  [/\b(?:benchmark|average)\b/giu, "비교 평균"],
-  [/\bsquad\b/giu, "스쿼드"],
-  [/\bduo\b/giu, "듀오"],
-  [/\bsolo\b/giu, "솔로"],
-  [/\bN\/A\b/gu, "자료 없음"],
+  [/\bbenchmark\s+average\b/giu, "비교 평균"],
 ];
 
 // 사용자 문장에 나와도 되는 라틴 문자: 무기·차량 이름, 단위, 등급, 서비스 이름.
