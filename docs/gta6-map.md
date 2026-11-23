@@ -5,11 +5,11 @@
 ## 데이터와 출처
 
 - 원본: https://github.com/rolux/gtadb.org
-- commit: `70e23613562614c0145fac4b0513ce092b2568df`
+- commit: `d406fea099e1df2bce42fd6b87eed04bce646629`
 - 타일: `maps/tiles/6/yanis,18` → `public/gta6/tiles/yanis-18`, 8,830개, 44,792,383바이트
-- 장소: `map/data/6/landmarks.json` → `public/gta6/landmarks.json`, 3,749개 중 좌표가 있는 3,658개 표시
+- 장소: `map/data/6/landmarks.json` → `public/gta6/landmarks.json`, 3,754개 중 좌표가 있는 3,663개 표시
 - 출처·해시·수량: `public/gta6/manifest.json`
-- 이전 장소 데이터(`8b1dc4f`)와 비교해 318개를 추가했다. 신규 장소 중 21개에 이름이 있다. 기존 ID는 모두 유지됐으며 기존 장소 37개의 좌표가 갱신됐다. YANIS v18 타일은 같은 버전을 사용한다.
+- 이전 장소 데이터(`70e2361`)와 비교해 5개를 추가했다. 신규 장소 중 4개에 이름이 있다. 기존 ID는 모두 유지됐으며 기존 장소 이름 9개와 좌표 4개가 갱신됐다. YANIS v18 타일은 동일하다. Leith River와 Moreau River의 기존 ID(`L1310`, `L1920`)는 각각 Canal과 River로 남고, 강 이름은 다른 좌표의 새 ID(`L3751`, `L3752`)에 붙었다.
 - 원본 타일과 JSON은 내용 변경 없이 보관한다. 한국어 이름·주소 사전과 표시용 지역 좌표는 `lib/gta6/ko.ts`, 검색·분류·원본/표시 필드 구성은 `lib/gta6/map.ts`에서 관리한다.
 - 데이터/타일: 원본 저장소는 CC BY 4.0으로 제공한다. `gtadb.org and all contributors`, YANIS v18 및 커뮤니티 출처를 표시한다. 라이선스 안내: `public/gta6/LICENSE.txt`, 가져온 commit의 원문 고지: `public/gta6/LICENSE-DATA`.
 
@@ -23,7 +23,7 @@
 
 원본 world 좌표 `(x, y)`를 Leaflet `CRS.Simple`의 `(lat, lng) = (y - 16384, x + 16384)`로 바꾼다. Leaflet 줌 0에서 원본 줌 5의 32768px 평면에 대응한다. `zoomOffset=5`, `minNativeZoom=-5`, `maxNativeZoom=0`을 사용한다. 파일 경로는 `{z}/{z},{y},{x}.jpg`이며 z=5 범위는 행 21~99, 열 21~103이다. 줌 0보다 확대하면 기존 타일을 확대하며, -5보다 축소하면 원본 줌 0을 축소한다. Leaflet 줌 -4 미만에서는 이름이 있는 장소를 우선 표시해 마커 겹침을 줄이고, 확대하면 이름 미확인 장소까지 표시한다. 선택한 장소는 항상 표시한다.
 
-오른쪽 설명판은 표시 영역을 world X=3500(원본 픽셀 X=19884)에서 잘라 제외한다. 경계 타일에도 줌별 CSS 클리핑을 적용해 이동·축소 중 설명판이 다시 나타나지 않게 한다. 현재 좌표가 있는 장소 3,658개는 모두 표시 영역 안에 있다. 원본 갱신 시 설명판 경계와 동쪽 끝 장소를 함께 재검증한다.
+오른쪽 설명판은 표시 영역을 world X=3500(원본 픽셀 X=19884)에서 잘라 제외한다. 경계 타일에도 줌별 CSS 클리핑을 적용해 이동·축소 중 설명판이 다시 나타나지 않게 한다. 현재 좌표가 있는 장소 3,663개는 모두 표시 영역 안에 있다. 원본 갱신 시 설명판 경계와 동쪽 끝 장소를 함께 재검증한다.
 
 ## Day 타일 로컬 비교
 
