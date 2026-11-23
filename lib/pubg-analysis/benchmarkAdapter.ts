@@ -1,4 +1,4 @@
-import { MIN_BENCHMARK_SAMPLE_COUNT } from "./benchmarkLookup";
+import { MIN_BENCHMARK_SAMPLE_COUNT, MIN_COMPARISON_SAMPLE_COUNT } from "./benchmarkLookup";
 
 export const BENCHMARK_PROVENANCE_LABEL = "모드·매치 유형·티어 기준 BGMS 표본 평균";
 
@@ -159,11 +159,7 @@ export function hasObservedBenchmarkMetric(
     && (count as number) >= MIN_BENCHMARK_SAMPLE_COUNT;
 }
 
-/**
- * 사용자에게 비교 평균으로 보여 줄 최소 지표 표본 수. 노출 최소값(5)으로는 평균이 크게 흔들려
- * AI 해석과 요약 비교에는 이 값을 쓴다.
- */
-export const MIN_COMPARISON_SAMPLE_COUNT = 30;
+export { MIN_COMPARISON_SAMPLE_COUNT };
 
 export function hasComparableBenchmarkMetric(benchmark: unknown, key: keyof NormalizedBenchmark): boolean {
   if (!hasObservedBenchmarkMetric(benchmark, key)) return false;

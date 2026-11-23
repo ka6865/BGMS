@@ -32,7 +32,8 @@ describe('기존 계산 보존과 신규 계산 공존', () => {
       const query: any = { select: vi.fn().mockReturnThis(), eq: vi.fn((key, value) => {
         if (key === 'calculation_version') calculation = value;
         return query;
-      }), maybeSingle: async () => ({ data: rows.find(row => row.calculation_version === calculation
+      }), in: vi.fn().mockReturnThis(), limit: async () => ({ data: [], error: null }),
+      maybeSingle: async () => ({ data: rows.find(row => row.calculation_version === calculation
         && (includeNew || calculation === 2)) ?? null, error: null }) };
       return query;
     } };
