@@ -192,6 +192,35 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.getByText(new RegExp(detail))).toBeInTheDocument();
     expect(screen.queryByText("서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요.")).not.toBeInTheDocument();
   });
+  it("판정 난 카드는 다정 재반박과 장면 근거를 함께 보여 주고 판정 없는 카드는 숨긴다", async () => {
+    const cards = buildSummaryCards({
+      topics: ["화력", "유틸리티 활용", "포지셔닝"],
+      context: { ...v2Context, gameMode: "squad", tier: "B", userMatchCount: 4, benchmarkSampleCount: 42 },
+      evidence: buildSummaryCardEvidence({ avgDamage: 120, metricMatchCounts: { damage_average: 4 } }, { sampleCount: 42, avgDamage: 200, metricSampleCounts: { avgDamage: 42 } }),
+    }).map((card): SummaryCard => card.topicId === "firepower"
+      ? { ...card, analysisStatus: "ready", winner: "spicy", kindOpinion: "기록을 확인했습니다.", spicyOpinion: "딜은 더 넣었어야지.", counterOpinion: "그 부분은 인정합니다. 다음 경기에서 함께 확인해 보세요.",
+        scene: { matchId: "m1", clock: "5:00", text: "에란겔 경기 5:00 교전: 상대가 먼저 쏴서 우리 팀만 2명 쓰러졌습니다." }, reason: "근거를 확인했습니다.", evaluation: "기록을 바탕으로 평가했습니다." }
+      : { ...card, analysisStatus: card.dataStatus === "unavailable" ? "unavailable" : "ready", winner: null, kindOpinion: "관측 기록을 확인했습니다.", spicyOpinion: "다음 경기에서 확인해 봐.", reason: "근거를 확인했습니다.", evaluation: "기록을 바탕으로 평가했습니다." });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "B", latestMatchCount: 10, bestMatchCount: 5 } },
+      { type: "cards", data: cards },
+      { type: "final", data: JSON.stringify({ schemaVersion: 2, cards, finalVerdict: "화력을 점검하세요." }) },
+      { type: "done", valid: true },
+    ])));
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange: vi.fn() }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /^화력/ }));
+    expect(screen.getByText("착한맛 코치의 재반박")).toBeInTheDocument();
+    expect(screen.getByText(/그 부분은 인정합니다/)).toBeInTheDocument();
+    expect(screen.getByText("장면 근거")).toBeInTheDocument();
+    expect(screen.getByText(/에란겔 경기 5:00 교전/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^화력/ }));
+    fireEvent.click(screen.getByRole("button", { name: /포지셔닝/ }));
+    expect(screen.queryByText("착한맛 코치의 재반박")).not.toBeInTheDocument();
+    expect(screen.queryByText("장면 근거")).not.toBeInTheDocument();
+  });
+
   it("MiaeQ_Q utility observations show the population and separate attempts from successes", async () => {
     const cards = buildSummaryCards({
       topics: ["화력", "유틸리티 활용", "포지셔닝"],
