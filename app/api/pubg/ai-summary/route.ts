@@ -77,6 +77,7 @@ const AI_SUMMARY_FALLBACK_TOTAL_TIMEOUT_MS = 24000;
 const AI_SUMMARY_FALLBACK_FETCH_TIMEOUT_MS = 8000;
 const AI_SUMMARY_FALLBACK_CONCURRENCY = 2;
 const AI_SUMMARY_PROVIDER_ERROR_MESSAGE = "AI summary provider is temporarily unavailable.";
+const AI_SUMMARY_PROVIDER_BUSY_REASON = "AI 서버가 혼잡해 해석을 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.";
 // 부분 완료는 캐시에 저장하지 않고, 같은 선택으로 다시 생성하기 전 대기 시간만 안내한다.
 const AI_SUMMARY_PARTIAL_RETRY_AFTER_SECONDS = 5 * 60;
 const AI_SUMMARY_RETRY_AFTER_SECONDS = 30;
@@ -1677,7 +1678,7 @@ export async function POST(request: Request) {
         debate: summaryCardDebatePlan(card),
       })))}\n### [END_SERVER_CARD_PLAN_V2]\n`;
     }
-    const unavailableCards = () => serverCards.map((card) => ({ ...card, analysisStatus: "unavailable" as const, analysisReason: "AI 해석을 표시할 수 없습니다.", winner: null }));
+    const unavailableCards = (reason = "AI 해석을 표시할 수 없습니다.") => serverCards.map((card) => ({ ...card, analysisStatus: "unavailable" as const, analysisReason: reason, winner: null }));
     // tracked는 사용자 응답과 다른 내부 사유를 실패 기록에 남길 때 쓴다.
     const factsOnlyResponse = (
       errorCode = "PUBG_AI_PROVIDER_ERROR",
@@ -1689,7 +1690,8 @@ export async function POST(request: Request) {
       recordOutcome({ error: tracked.error ?? error, errorCode: tracked.errorCode ?? errorCode, timingOutcome: tracked.timingOutcome });
       const records = [
         { type: "visuals", data: precomputedVisuals },
-        { type: "cards", data: unavailableCards() },
+        // 모델 과부하·시간 초과는 원인을 알려 다시 시도하게 한다.
+        { type: "cards", data: unavailableCards(errorCode === "PUBG_AI_PROVIDER_ERROR" || errorCode === "PUBG_AI_ROUTE_TIMEOUT" ? AI_SUMMARY_PROVIDER_BUSY_REASON : undefined) },
         { type: "error", error, errorCode, retryable, retryAfterSeconds },
         { type: "done", valid: false, error, errorCode, retryable, retryAfterSeconds },
       ];

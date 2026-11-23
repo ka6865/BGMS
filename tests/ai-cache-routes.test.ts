@@ -1035,6 +1035,76 @@ describe("AI cache route stabilization", () => {
     expect(mockTrackAiFailure).not.toHaveBeenCalled();
   });
 
+  it("ai-analyze는 스트림이 응답 도중 끊기면 다음 모델로 다시 만들어 응답한다", async () => {
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: createCanonicalAnalyzeRow("match-stream-break"), error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      match_ai_coaching_cache: matchCache, processed_match_telemetry: telemetry,
+    }) });
+    const iterator = {
+      next: vi.fn()
+        .mockResolvedValueOnce({ done: false, value: { text: () => "{\"briefFeedback\":" } })
+        .mockRejectedValueOnce(new Error("[GoogleGenerativeAI Error]: Failed to parse stream")),
+      return: vi.fn(async () => ({ done: true, value: undefined })),
+      [Symbol.asyncIterator]() { return this; },
+    };
+    mockGenerateContentStream.mockResolvedValue({ stream: iterator, response: Promise.resolve({ usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } }) });
+    const recovered = JSON.stringify({ coach: "다정한 코치", signature: "슬레이어", signatureSub: "기록", briefFeedback: ["첫 문장"], finalVerdict: "총평", actionItems: [] });
+    mockGenerateContent.mockResolvedValue({ response: { text: () => recovered, usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3 } } });
+
+    const response = await aiAnalyzePOST(createRequest({ nickname: "Player_A", platform: "kakao", coachingStyle: "mild", matchData: { matchId: "match-stream-break" } }));
+    const lines = (await response.text()).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+
+    expect(response.status).toBe(200);
+    expect(lines.find((line) => line.type === "chunk")?.data).toContain("첫 문장");
+    expect(lines.at(-1)).toEqual({ type: "done" });
+    // 끊긴 첫 모델 다음 모델로 한 번만 다시 만든다.
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    expect(mockTrackAiFailure).not.toHaveBeenCalled();
+    expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", "gemini-3.1-flash-lite", 2, 3, "analyze", expect.any(Object));
+    expect(matchCache.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("ai-analyze는 스트림이 끊기고 남은 모델도 모두 실패하면 실패로 기록한다", async () => {
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: createCanonicalAnalyzeRow("match-stream-break-all"), error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      match_ai_coaching_cache: matchCache, processed_match_telemetry: telemetry,
+    }) });
+    const iterator = {
+      next: vi.fn().mockRejectedValueOnce(new Error("[GoogleGenerativeAI Error]: Failed to parse stream")),
+      return: vi.fn(async () => ({ done: true, value: undefined })),
+      [Symbol.asyncIterator]() { return this; },
+    };
+    mockGenerateContentStream.mockResolvedValue({ stream: iterator, response: Promise.resolve({}) });
+    mockGenerateContent.mockRejectedValue(new Error("[503 Service Unavailable] high demand"));
+
+    const response = await aiAnalyzePOST(createRequest({ nickname: "Player_A", platform: "kakao", coachingStyle: "mild", matchData: { matchId: "match-stream-break-all" } }));
+    const lines = (await response.text()).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+
+    // 화면이 혼잡 안내를 띄우도록 원인 코드를 담은 오류 기록으로 끝낸다.
+    expect(lines).toContainEqual(expect.objectContaining({ type: "error", errorCode: "PUBG_AI_PROVIDER_ERROR", retryable: true }));
+    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    expect(mockTrackAiFailure).toHaveBeenCalledTimes(1);
+    expect(matchCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-analyze는 모든 모델이 응답을 시작하지 못하면 혼잡 코드와 함께 503을 반환한다", async () => {
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: createCanonicalAnalyzeRow("match-all-busy"), error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      match_ai_coaching_cache: matchCache, processed_match_telemetry: telemetry,
+    }) });
+    mockGenerateContentStream.mockRejectedValue(new Error("[503 Service Unavailable] high demand"));
+    mockGenerateContent.mockRejectedValue(new Error("[503 Service Unavailable] high demand"));
+
+    const response = await aiAnalyzePOST(createRequest({ nickname: "Player_A", platform: "kakao", coachingStyle: "mild", matchData: { matchId: "match-all-busy" } }));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_PROVIDER_ERROR", retryable: true });
+    expect(mockTrackAiFailure).toHaveBeenCalledTimes(1);
+  });
+
   it("ai-analyze는 전체 route deadline에 도달하면 다음 시도를 중단하고 504를 반환한다", async () => {
     vi.useFakeTimers();
 

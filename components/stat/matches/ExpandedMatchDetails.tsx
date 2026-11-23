@@ -193,7 +193,7 @@ function classifyAiAnalysisError(
       : message || (isCanonicalNotReady
         ? "매치 분석 데이터가 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."
         : isRouteTimeout
-          ? "AI 분석 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+          ? "AI 서버가 혼잡해 응답이 늦어지고 있어요. 잠시 뒤 다시 시도해 주세요."
           : "AI 분석 요청에 실패했습니다."),
     { status, errorCode, retryable: isRetryable },
   );
