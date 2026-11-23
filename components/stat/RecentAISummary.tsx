@@ -534,6 +534,12 @@ const getRelativeTime = (dateStr: string) => {
 
 const TIER_TOOLTIP_ID = "recent-ai-summary-tier-tooltip";
 
+// Gemini 과부하(503)·첫 응답 시간 초과로 모든 모델이 실패한 경우. 잠시 뒤 다시 시도하면 대부분 성공한다.
+const AI_PROVIDER_BUSY_DETAIL = "AI 요청이 몰려 해석을 만들지 못했어요. 잠시 뒤 다시 시도하면 대부분 해결돼요.";
+function isAiProviderBusy(errorCode: string | null | undefined): boolean {
+  return errorCode === "PUBG_AI_PROVIDER_ERROR" || errorCode === "PUBG_AI_ROUTE_TIMEOUT";
+}
+
 function neutralBenchmarkLabel(
   label: string,
   scope?: BenchmarkScope,
@@ -1325,6 +1331,7 @@ export const RecentAISummary = ({
   };
 
   if (error && !summaryCards) {
+    const providerBusy = isAiProviderBusy(error.errorCode);
     const calculationUpgradePending = error.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
     const expired = error.errorCode === "PUBG_MATCH_DETAIL_EXPIRED";
     const canonicalPending = error.errorCode === "PUBG_AI_CANONICAL_NOT_READY";
@@ -1332,10 +1339,10 @@ export const RecentAISummary = ({
       <div className="p-6 bg-white/5 border border-white/10 rounded-2xl text-center">
         <BgmsIcon name="info" size={28} className="mx-auto mb-3 text-indigo-300" />
         <p className="text-gray-300 text-sm mb-1">
-          {expired ? "분석할 경기의 상세 제공 기간이 지났습니다." : canonicalPending ? "최근 경기의 분석 데이터가 아직 준비되지 않았습니다." : calculationUpgradePending ? CALCULATION_UPGRADE_MESSAGE : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "AI 해석을 확인할 수 없습니다." : "AI 분석이 잠깐 막혔어요."}
+          {expired ? "분석할 경기의 상세 제공 기간이 지났습니다." : canonicalPending ? "최근 경기의 분석 데이터가 아직 준비되지 않았습니다." : calculationUpgradePending ? CALCULATION_UPGRADE_MESSAGE : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "AI 해석을 확인할 수 없습니다." : providerBusy ? "AI 서버가 혼잡해요." : "AI 분석이 잠깐 막혔어요."}
         </p>
         <p className="text-gray-500 text-xs mb-4">
-          {expired ? "상단의 전적 갱신을 눌러 최근 경기 목록을 확인해 주세요." : canonicalPending ? "최근 경기의 상세 분석을 확인한 뒤 다시 시도해 주세요." : calculationUpgradePending ? CALCULATION_UPGRADE_DETAIL : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 잠시 후 다시 시도할 수 있어요." : "서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요."}
+          {expired ? "상단의 전적 갱신을 눌러 최근 경기 목록을 확인해 주세요." : canonicalPending ? "최근 경기의 상세 분석을 확인한 뒤 다시 시도해 주세요." : calculationUpgradePending ? CALCULATION_UPGRADE_DETAIL : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 잠시 후 다시 시도할 수 있어요." : providerBusy ? AI_PROVIDER_BUSY_DETAIL : "서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요."}
         </p>
         {!calculationUpgradePending && (
           <button
@@ -1619,8 +1626,8 @@ export const RecentAISummary = ({
               </>
             ) : (
               <>
-                <p className="text-gray-300 text-sm mb-1">AI 해석을 표시할 수 없습니다.</p>
-                <p className="text-gray-500 text-xs mb-4">{error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 확인된 기록은 아래에 표시되며 잠시 후 다시 시도할 수 있어요." : "확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요."}</p>
+                <p className="text-gray-300 text-sm mb-1">{isAiProviderBusy(error.errorCode) ? "AI 서버가 혼잡해요." : "AI 해석을 표시할 수 없습니다."}</p>
+                <p className="text-gray-500 text-xs mb-4">{error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 확인된 기록은 아래에 표시되며 잠시 후 다시 시도할 수 있어요." : isAiProviderBusy(error.errorCode) ? `${AI_PROVIDER_BUSY_DETAIL} 확인된 기록은 아래에 그대로 표시돼요.` : "확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요."}</p>
                 <button
                   onClick={retrySummary}
                   disabled={retryDisabled}

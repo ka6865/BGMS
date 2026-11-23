@@ -221,6 +221,25 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.queryByText("장면 근거")).not.toBeInTheDocument();
   });
 
+  it("AI 서버 과부하로 실패하면 혼잡 안내와 다시 시도를 보여 준다", async () => {
+    const cards = buildSummaryCards({
+      topics: ["화력", "유틸리티 활용", "포지셔닝"],
+      context: { ...v2Context, gameMode: "squad", tier: "B", userMatchCount: 4, benchmarkSampleCount: 42 },
+      evidence: buildSummaryCardEvidence({ avgDamage: 120, metricMatchCounts: { damage_average: 4 } }, { sampleCount: 42, avgDamage: 200, metricSampleCounts: { avgDamage: 42 } }),
+    }).map((card): SummaryCard => ({ ...card, analysisStatus: "unavailable", analysisReason: "AI 서버가 혼잡해 해석을 만들지 못했어요.", winner: null,
+      kindOpinion: "AI 해석을 표시할 수 없습니다.", spicyOpinion: "AI 해석을 표시할 수 없습니다.", reason: "AI 해석을 표시할 수 없습니다.", evaluation: "AI 해석을 표시할 수 없습니다." }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "B" } },
+      { type: "cards", data: cards },
+      { type: "error", error: "AI summary provider is temporarily unavailable.", errorCode: "PUBG_AI_PROVIDER_ERROR", retryable: true, retryAfterSeconds: 30 },
+      { type: "done", valid: false, errorCode: "PUBG_AI_PROVIDER_ERROR", retryable: true, retryAfterSeconds: 30 },
+    ])));
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange: vi.fn() }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    expect(await screen.findByText("AI 서버가 혼잡해요.")).toBeInTheDocument();
+    expect(screen.getByText(/잠시 뒤 다시 시도하면 대부분 해결돼요/)).toBeInTheDocument();
+  });
+
   it("MiaeQ_Q utility observations show the population and separate attempts from successes", async () => {
     const cards = buildSummaryCards({
       topics: ["화력", "유틸리티 활용", "포지셔닝"],

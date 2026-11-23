@@ -91,6 +91,9 @@ async function awaitWithAbort<T>(promise: PromiseLike<T>, signal: AbortSignal): 
   }
 }
 
+// Gemini 모델이 모두 과부하·중간 오류로 응답하지 못했을 때 화면이 혼잡 안내를 띄우도록 쓰는 코드와 문구.
+const AI_PROVIDER_BUSY = { error: "AI 서버가 혼잡해 분석을 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.", errorCode: "PUBG_AI_PROVIDER_ERROR", retryable: true } as const;
+
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   const startedAt = Date.now();
@@ -298,7 +301,7 @@ export async function POST(request: Request) {
     ];
 
     let streamResult = null;
-    let fallbackText = null;
+    let fallbackText: string | null = null;
     let selectedModelName = "";
     let nonStreamRes: any = null;
     let modelTimeoutObserved = false;
@@ -376,7 +379,33 @@ export async function POST(request: Request) {
       }, { status: 504 });
     }
     if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
-    if (!streamResult && !fallbackText) throw new Error("모든 AI 모델이 응답에 실패했습니다.");
+    if (!streamResult && !fallbackText) {
+      trackAiFailure(authenticatedUserId, "analyze", "모든 AI 모델이 응답에 실패했습니다.", { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json(AI_PROVIDER_BUSY, { status: 503, headers: { "Cache-Control": "no-store" } });
+    }
+
+    // 스트림이 응답 도중 끊겼을 때 남은 모델로 한 번씩 비스트림 생성을 시도한다(과부하로 중간 오류가 오는 경우).
+    const recoverWithNextModels = async (failedModel: string): Promise<{ modelName: string; text: string; response: any } | null> => {
+      for (const modelName of modelsToTry.slice((modelsToTry as readonly string[]).indexOf(failedModel) + 1)) {
+        if (isRouteAborted() || request.signal.aborted) return null;
+        const attemptTimeout = new AbortController();
+        const timer = setTimeout(() => attemptTimeout.abort(), AI_ANALYZE_MODEL_TIMEOUT_MS);
+        const attemptSignal = composeAbortSignals([routeSignal.signal, attemptTimeout.signal]);
+        try {
+          const model = genAI.getGenerativeModel({ model: modelName, safetySettings, generationConfig: { responseMimeType: "application/json" } });
+          const response = await awaitWithAbort(model.generateContent(fullPrompt, { signal: attemptSignal.signal, timeout: AI_ANALYZE_MODEL_TIMEOUT_MS }), attemptSignal.signal);
+          const text = response?.response?.text?.();
+          if (text) return { modelName, text, response };
+        } catch (err: any) {
+          if (isRouteAborted() || request.signal.aborted) return null;
+          console.warn(`[AI-ANALYZE] Recovery model ${modelName} failed:`, err?.message || err);
+        } finally {
+          clearTimeout(timer);
+          attemptSignal.cleanup();
+        }
+      }
+      return null;
+    };
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -386,16 +415,29 @@ export async function POST(request: Request) {
       async start(controller) {
         try {
           let aiResponseText = "";
+          let streamBroke = false;
           if (streamResult) {
             const iterator = streamResult.stream[Symbol.asyncIterator]();
             try {
-              while (true) {
-                if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
-                const nextPromise = iterator.next();
-                nextPromise.catch(() => undefined);
-                const nextResult = await awaitWithAbort(nextPromise, routeSignal.signal);
-                if (nextResult.done) break;
-                aiResponseText += nextResult.value?.text?.() || "";
+              try {
+                while (true) {
+                  if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
+                  const nextPromise = iterator.next();
+                  nextPromise.catch(() => undefined);
+                  const nextResult = await awaitWithAbort(nextPromise, routeSignal.signal);
+                  if (nextResult.done) break;
+                  aiResponseText += nextResult.value?.text?.() || "";
+                }
+              } catch (streamErr: any) {
+                // 응답은 끝까지 모은 뒤 한 번에 보내므로, 도중에 끊긴 스트림은 사용자에게 아직 아무것도 보내지 않은 상태다.
+                if (isRouteAborted() || isStreamCancelled() || request.signal.aborted) throw streamErr;
+                console.warn(`[AI-ANALYZE] Stream broke for ${selectedModelName}; trying next models:`, streamErr?.message || streamErr);
+                const recovered = await recoverWithNextModels(selectedModelName);
+                if (!recovered) throw streamErr;
+                streamBroke = true;
+                selectedModelName = recovered.modelName;
+                nonStreamRes = recovered.response;
+                fallbackText = recovered.text;
               }
             } finally {
               if (isRouteAborted()) {
@@ -408,6 +450,8 @@ export async function POST(request: Request) {
               }
             }
             if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
+          }
+          if (streamResult && !streamBroke) {
             const sanitizedText = finalizeMatchAiText(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(aiResponseText, backupContext)), canonicalFullResult, coachingStyle, percentiles);
             aiResponseText = sanitizedText;
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: sanitizedText }) + "\n"));
@@ -426,7 +470,7 @@ export async function POST(request: Request) {
               }
             }).catch((err: any) => console.error("[AI-ANALYZE] Usage fetch error:", err));
 
-          } else if (fallbackText) { 
+          } else if (fallbackText) {
             aiResponseText = finalizeMatchAiText(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(fallbackText, backupContext)), canonicalFullResult, coachingStyle, percentiles);
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: aiResponseText }) + "\n"));
             
@@ -478,7 +522,8 @@ export async function POST(request: Request) {
             platform: requestedPlatform,
           });
           if (isRouteAborted()) return;
-          controller.error(e);
+          // 응답을 모으는 중 실패하면 사용자에게는 아직 아무것도 보내지 않았으므로 혼잡 안내 기록으로 끝낸다.
+          controller.enqueue(encoder.encode(JSON.stringify({ type: "error", ...AI_PROVIDER_BUSY }) + "\n"));
         } finally {
           cleanupRoute();
           if (!isStreamCancelled()) {
