@@ -4,6 +4,7 @@ import { hasComparableBenchmarkMetric, type NormalizedBenchmark, type ObservedBe
 import { firstReplyLatencyMs, readFirstReplyEvidence, firstReplyFailureRate } from "@/lib/pubg-analysis/firstReply";
 import { buildMatchAiActionHints, buildMatchAiFlowLines, buildMatchAiSceneCatalog, formatMatchAiSceneLine } from "@/lib/pubg-analysis/matchAiScenes";
 import { formatMatchAiPercentileSection, type MatchAiPercentile } from "@/lib/pubg-analysis/matchAiPercentiles";
+import { formatMatchTitleKeywordSection } from "@/lib/pubg-analysis/matchAiTitlePolicy";
 
 interface MatchAiPromptInput {
   matchData: any;
@@ -44,9 +45,11 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
       ? Number((observedEliteBenchmark as Record<string, unknown>)[key])
       : null
   );
+  // 모델이 받은 값을 그대로 옮겨 쓰므로 프롬프트에 넣기 전에 표시 자릿수로 줄인다(비율·일반 수치 한 자리, 피해량 정수).
+  const round1 = (value: number): number => Number(value.toFixed(1));
   const formatPercent = (value: unknown): string => {
     return typeof value === "number" && Number.isFinite(value)
-      ? `${value}%`
+      ? `${round1(value)}%`
       : "측정 불가";
   };
   const finiteNonNegative = (value: unknown): number | null => {
@@ -57,7 +60,11 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
   };
   const formatNumber = (value: unknown, suffix = ""): string => {
     const numeric = finiteNonNegative(value);
-    return numeric === null ? "측정 불가" : `${numeric}${suffix}`;
+    return numeric === null ? "측정 불가" : `${round1(numeric)}${suffix}`;
+  };
+  const formatDamage = (value: unknown): string => {
+    const numeric = finiteNonNegative(value);
+    return numeric === null ? "측정 불가" : String(Math.round(numeric));
   };
   const boundedRate = (numerator: unknown, denominator: unknown): number | null => {
     const safeNumerator = finiteNonNegative(numerator);
@@ -71,11 +78,11 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
   };
   const formatBenchmarkPercent = (key: keyof NormalizedBenchmark): string => {
     const value = benchmarkMetric(key);
-    return value === null ? "측정 불가" : `${value}%`;
+    return value === null ? "측정 불가" : `${round1(value)}%`;
   };
   const formatBenchmarkNumber = (key: keyof NormalizedBenchmark, suffix = ""): string => {
     const value = benchmarkMetric(key);
-    return value === null ? "측정 불가" : `${value}${suffix}`;
+    return value === null ? "측정 불가" : `${round1(value)}${suffix}`;
   };
   const earlyElimination = isEarlyElimination({
     survivalTime: finiteNonNegative(stats?.timeSurvived), deathPhase: finiteNonNegative(matchData.deathPhase),
@@ -149,12 +156,12 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
   const playerReportSummary = `
 [기본 성적]
 - 매치: ${mapName} (${gameMode}), 순위: #${stats.winPlace}
-- 전투: ${stats.kills}킬 / ${stats.assists}어시 / ${stats.DBNOs}기절 / 공식 피해량 ${formatNumber(stats.damageDealt)} / 유효 딜량 ${formatNumber(stats.processedDamageDealt)}${hasVehicleCombat ? `\n- 특수 전투(차량): 리드샷 기절/킬 ${leadKnocks}/${leadKills}, 라이딩샷 기절/킬 ${ridingKnocks}/${ridingKills}` : ""}
+- 전투: ${stats.kills}킬 / ${stats.assists}어시 / ${stats.DBNOs}기절 / 공식 피해량 ${formatDamage(stats.damageDealt)} / 유효 딜량 ${formatDamage(stats.processedDamageDealt)}${hasVehicleCombat ? `\n- 특수 전투(차량): 리드샷 기절/킬 ${leadKnocks}/${leadKills}, 라이딩샷 기절/킬 ${ridingKnocks}/${ridingKills}` : ""}
 - 킬 기여도: 직접 사살(Solo Kill) ${killContribution.solo}회 / 마무리 사살(Cleanup) ${killContribution.cleanup}회
 - 실력 등급: 엘리트 대비 딜량 ${formatPercent(teamImpact.damageImpact)} / 킬 ${formatPercent(teamImpact.killImpact)}
 - 팀 기여도: 팀 내 딜량 비중 ${formatPercent(teamImpact.teamDamageShare)} / 팀 내 킬 비중 ${formatPercent(teamImpact.teamKillShare)}
 - 획득 배지: ${badges.length > 0 ? badges.map((b: any) => `[${b.name}: ${b.desc}]`).join(", ") : "없음"}
-- 생존: ${Math.floor(stats.timeSurvived / 60)}분 ${stats.timeSurvived % 60}초
+- 생존: ${Math.floor(stats.timeSurvived / 60)}분 ${Math.floor(stats.timeSurvived % 60)}초
 - 전술 안정도: ${benchmark.score ?? "측정 불가"} / 100
 - 매치 임팩트: ${benchmark.impactScore ?? "측정 불가"} (${impactGradeLabel}, 안정도 대비 +${impactBonus})
 - 임팩트 근거: ${impactReasons}
@@ -175,10 +182,10 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
 - 백업 결과 해석: 복수 처치까지의 시간이며, 소생·합류·복구에 걸린 시간은 측정하지 않음
 - 전술 지원: 아군 처치 지원 ${formatCount(tradeStats.suppCount)}회 / 아군 처치 ${formatCount(tradeStats.teammateKills)}회 중 지원 비율 ${formatPercent(tradeStats.suppRate)} (비교 자료 없음)
 - 위기 관리: 내가 한 소생률 ${formatPercent(personalReviveRate)} (아군 기절 ${formatCount(tradeStats.teammateKnocks)}회 중 내 소생 ${formatCount(tradeStats.revCount)}회, 비슷한 성적 경기 평균: ${formatBenchmarkPercent("avgReviveRate")}) / 내 연막 구출률 ${formatPercent(smokeOpportunityRate)} (아군 기절 대비 성공, 비슷한 성적 경기 평균: ${formatBenchmarkPercent("avgSmokeRate")}) / 구출 연막 시도 성공률 ${formatPercent(smokeAttemptSuccessRate)} (시도 ${formatCount(tradeStats.smokeCount)}회, 성공 ${formatCount(tradeStats.smokeRescues)}회)
-- 공간 전술: 고립 지수 ${isolationData?.isolationIndex ?? "데이터 부족"} (비슷한 성적 경기 평균: ${formatBenchmarkNumber("avgIsolationIndex")}) / 가장 가까운 아군까지의 평균 거리: ${formatNumber(isolationData?.minDist, "m")} / 고도차 ${formatNumber(isolationData?.heightDiff, "m")} / 십자포화 노출: ${isCrossfireText}
+- 공간 전술: 고립 지수 ${finiteNonNegative(isolationData?.isolationIndex) === null ? "데이터 부족" : formatNumber(isolationData.isolationIndex)} (비슷한 성적 경기 평균: ${formatBenchmarkNumber("avgIsolationIndex")}) / 가장 가까운 아군까지의 평균 거리: ${formatNumber(isolationData?.minDist, "m")} / 고도차 ${formatNumber(isolationData?.heightDiff, "m")} / 십자포화 노출: ${isCrossfireText}
 - 유틸리티 정밀: 총 투척 ${formatCount(totalThrows)}회 / 피해형 투척 ${formatCount(lethalThrows)}회 / 피해 적중 ${formatCount(utilityHits)}회 / 피해형 투척 적중률 ${formatPercent(utilityAccuracy)} / 피해형 투척당 평균 딜 ${formatNumber(avgDamagePerLethalThrow)}
 - 유틸리티 해석: ${utilityInterpretation}
-- 교전 압박: 압박 지수 ${formatNumber(combatPressure.pressureIndex)} (비슷한 성적 경기 평균: ${formatBenchmarkNumber("avgPressureIndex")}) / 투척물 딜량 ${formatNumber(combatPressure.utilityDamage ?? combatPressure.utilityStats?.totalDamage)}
+- 교전 압박: 압박 지수 ${formatNumber(combatPressure.pressureIndex)} (비슷한 성적 경기 평균: ${formatBenchmarkNumber("avgPressureIndex")}) / 투척물 딜량 ${formatDamage(combatPressure.utilityDamage ?? combatPressure.utilityStats?.totalDamage)}
 - 운영 패턴: 사망 페이즈 ${(() => {
   // 구버전 저장 행은 첫 자기장 전 사망을 경기 종료 시점 페이즈로 기록할 수 있다. 생존 시간과 맞지 않는 값은 쓰지 않는다.
   const phase = finiteNonNegative(matchData.deathPhase), survived = finiteNonNegative(stats?.timeSurvived);
@@ -208,6 +215,8 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
     "- 배지가 없다는 이유로 실속 없음/훈장 사냥꾼/기여 부족을 단정하지 마십시오. 배지는 특정 조건의 보상일 뿐 전체 성과의 평가 기준이 아닙니다.",
     "- 후방/전방/진입 위치는 측정되지 않았습니다. 칭호에도 사용하지 마십시오.",
     "- [배지 우선순위] 유저가 획득한 배지가 있다면 이를 signature(칭호) 결정의 핵심 근거로 사용하십시오.",
+    "- [칭호 근거] signature는 아래 [칭호 키워드]에서 근거가 확인된 키워드만 쓰십시오. 근거 없음으로 표시된 키워드는 꾸밈말로도 쓰지 마십시오.",
+    "- [숫자 표기] 피해량·딜량은 정수로, 비율과 그 밖의 수치는 [분석 데이터]에 적힌 자릿수 그대로 쓰십시오.",
     "- [전부 표현] '모두 맞혔다', '모두 유효하게' 같은 전부 표현은 해당 비율이 100%일 때만 쓰십시오.",
     "- [피해 기준] 공식 피해량은 PUBG 공식 개인 기록이고, 유효 딜량은 무기별 개인 집계로 투척물·차량 폭발 등 제외 항목이 있을 수 있습니다. [경기 흐름]의 '우리 팀이 준 피해'는 해당 교전의 팀 합계입니다. 피해 수치를 인용할 때는 반드시 '공식 피해량', '유효 딜량', '우리 팀이 준 피해' 라벨을 함께 쓰고 세 값을 같은 수치나 개인 기록으로 단정하지 마십시오. 팀 내 딜량 비중은 PUBG 공식 피해량 기준입니다.",
     "- [팀 영향력] 딜량 비중은 실제 화력 분담 비율만 설명하십시오. 비중만으로 교전 주도, 소극적 플레이, 후방 대기, 숨기, 동료 의존을 단정하지 마십시오.",
@@ -266,11 +275,12 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy",
   const flowLines = buildMatchAiFlowLines(matchData);
   const flowSection = `[경기 흐름] (측정된 교전·사망·자기장 기록, 우리 팀 기준)\n${flowLines.length ? flowLines.join("\n") : "없음"}`;
   const percentileSection = formatMatchAiPercentileSection(percentiles);
+  const titleSection = formatMatchTitleKeywordSection(matchData, percentiles);
   const actionHints = buildMatchAiActionHints(matchData);
   const actionSection = actionHints.length ? `\n\n[행동 후보] (후보 ID | 장면 ID | 측정된 상황 → 행동 방향)\nactionItems는 이 중 하나를 고르고 actionCandidateId와 sceneId를 그대로 쓰십시오. 서버가 선택 후보의 관측 상황과 행동을 확정합니다.\n${actionHints.map((hint) => `- ${hint.id} | ${hint.sceneId ?? "null"} | ${hint.text}`).join("\n")}` : "\n\n[행동 후보] 없음. actionCandidateId는 null로 두고 이 경기에서 관측된 수치나 시각을 desc에 그대로 인용한 점검을 제안하십시오. 인용할 수치가 없으면 actionItems를 빈 배열로 두십시오. 임의의 시각이나 장면을 만들지 마십시오.";
 
   return {
-    fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}${percentileSection ? `\n\n${percentileSection}` : ""}\n\n${sceneSection}\n\n${flowSection}${actionSection}`,
+    fullPrompt: `${promptLines.join("\n")}\n\n[분석 데이터]\n${playerReportSummary}${percentileSection ? `\n\n${percentileSection}` : ""}\n\n${titleSection}\n\n${sceneSection}\n\n${flowSection}${actionSection}`,
     playerReportSummary,
     backupContext,
   };
