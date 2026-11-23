@@ -1,4 +1,4 @@
-import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from './aiCoachingQuality';
+import { COACHING_JUDGMENT_WITHHELD, findDisallowedLatinWords, requiresRescueOpportunityEvidence } from './aiCoachingQuality';
 import { isSquadWithheldCopy, squadMetricWithheldCopy, squadWithheldCopy } from './squadAiPolicy';
 import { isSquadReviveRateEvaluable, isSquadTradeLatencyEvaluable } from './squadEvidenceSamples';
 import { squadMemberFaultFeedback, type SquadMemberRecords } from './squadMemberRecords';
@@ -35,6 +35,8 @@ export interface SquadEvidencePolicyOptions {
 // 생존 케어 점수가 없을 때 막는 말: 능력 평가와 근거 없는 구조 비율. 측정된 소생률 문장은 아래에서 따로 살린다.
 const RESCUE_ABILITY_PATTERN = /생존\s*케어|(?:소생|부활|연막|구출|복구).{0,20}(?:능력|우수|부족|잘하|못하|훌륭|평균\s*대비)/i;
 const RESCUE_RATE_PATTERN = /(?:소생|부활|연막|구출|복구).{0,20}(?:성공률|확률|비율|률|퍼센트|%)/i;
+// 복수가 "늦었다"는 시간 판정. 백업 속도가 실제로 느린 재료(backup_slow)가 있을 때만 남긴다. 복수 성공률은 비율이라 시간 표현의 근거가 아니다.
+const LATE_TRADE_PATTERN = /(?:복수|백업).{0,20}(?:늦게|늦었|느리게|느렸)|덜\s*기다리게/u;
 
 function oneDecimal(value: number): string {
   return (Math.round(value * 10) / 10).toFixed(1);
@@ -79,11 +81,18 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   const missing = metrics.filter(({ key }) => !isObserved(stats, key)
     || (key === "avgTradeLatency" && !tradeLatencyEvaluable)
     || (key === "avgCoverRate" && scores !== undefined && !isObserved(scores, "focusFire")));
+  // 새 응답과 캐시에서 같은 canonical 기록으로 재료를 한 번만 고른다.
+  const teamPunchlines = selectSquadPunchlines({ stats, scores, squadGrade: grade, benchmarkStats: options.benchmarkStats, matchesSummary: options.matchesSummary, roleProfiles });
+  const backupSlow = teamPunchlines.some(item => item.id === "backup_slow");
+  // 닉네임은 라틴 문자여도 허용한다. 그 밖의 영어 단어가 남은 문장은 화면에 내보내지 않는다.
+  const memberNames = roleProfiles.map(profile => profile.name);
   const clean = (text: unknown): unknown => {
     if (typeof text !== "string") return text;
     // Split at sentence ends, not decimal points (e.g. 5.36 seconds).
     const sentences = text.split(/(?<=[.!?。])\s+|\n+/);
     return [...new Set(sentences.map((sentence) => {
+      if (findDisallowedLatinWords(sentence, memberNames).length > 0) return "";
+      if (!backupSlow && LATE_TRADE_PATTERN.test(sentence)) return "";
       // 이미 보류 문구인 문장은 다시 판정하지 않아 캐시를 여러 번 읽어도 결과가 같다.
       if (isSquadWithheldCopy(sentence)) return sentence;
       if (requiresRescueOpportunityEvidence(sentence)
@@ -109,7 +118,7 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
         return squadWithheldCopy(coachingStyle, "grade");
       }
       return sentence;
-    }))].join(" ");
+    }).filter(sentence => sentence.trim() !== ""))].join(" ");
   };
   const data = result as Record<string, unknown>;
   const output: Record<string, unknown> = { ...data, squadGrade: grade };
@@ -127,6 +136,18 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   for (const field of ["summary", "strength", "weakness", "coaching", "overallOpinion"]) {
     if (typeof output[field] === "string") output[field] = (output[field] as string).replace(/상세 분석 가능한 \d+경기 기준\s*(?=최근 \d+경기)/gu, "");
   }
+  // 앞 칸에 이미 나온 문장은 뒤 칸에서 뺀다(요약=강점, 약점=코칭 반복). 분석 범위 머리말 차이는 같은 문장으로 본다.
+  const sentenceKey = (sentence: string) => sentence.replace(/^상세 분석 가능한 \d+경기 기준\s*/u, "").replace(/\s+/gu, "");
+  const seenSentences = new Set<string>();
+  for (const field of ["summary", "strength", "weakness", "coaching"]) {
+    if (typeof output[field] !== "string") continue;
+    output[field] = (output[field] as string).split(/(?<=[.!?。！？])\s+/u).filter((sentence) => {
+      const key = sentenceKey(sentence.trim());
+      if (!key || seenSentences.has(key)) return false;
+      seenSentences.add(key);
+      return true;
+    }).join(" ");
+  }
   // 총평이 다른 칸 문장을 그대로 반복하면 그 문장을 빼고, 남는 게 없으면 맛에 맞는 마무리 한마디를 쓴다.
   if (typeof output.overallOpinion === "string" && output.overallOpinion.trim()) {
     const used = new Set(["summary", "strength", "weakness", "coaching"].flatMap(field => typeof output[field] === "string"
@@ -140,17 +161,19 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
       // 매운맛은 아래 마무리 한마디가 채우고, 재료가 없을 때만 짧은 마감 문장을 쓴다.
       : coachingStyle === "spicy" ? "" : "다음 경기에서도 지금의 호흡을 이어가 보세요.";
   }
-  // 새 응답과 캐시에서 같은 canonical 기록으로 재료를 한 번만 고른다.
-  const teamPunchlines = selectSquadPunchlines({ stats, scores, squadGrade: grade, benchmarkStats: options.benchmarkStats, matchesSummary: options.matchesSummary, roleProfiles });
   const scope = options.analyzedMatchCount && (options.matchesSummary?.length ?? 0) > options.analyzedMatchCount
     ? `상세 분석 가능한 ${options.analyzedMatchCount}경기 기준 ` : "";
   const scopedPunchlines = teamPunchlines.map(item => scope && !["wins", "bestRank"].includes(item.metric)
     ? { ...item, fact: `${scope}${item.fact}` } : item);
-  // 분배 편차는 약점이 아니다. 구조율과 연막 구출은 선택기에서 칭찬 재료만 만든다.
-  const gap = scopedPunchlines.find(item => item.kind === "roast" && item.id !== "damage_spread");
-  if (coachingStyle === "spicy" && gap && typeof output.weakness === "string" && !output.weakness.trim()) {
-    output.weakness = toSpicySquadFact(gap.fact);
-    if (typeof output.coaching === "string" && !output.coaching.trim()) {
+  const factCore = (fact: string) => fact.replace(/^상세 분석 가능한 \d+경기 기준\s*/u, "")
+    .replace(/(?:느립니다|빠릅니다|높습니다|낮습니다|많습니다|적습니다|입니다|했습니다)\.$/u, "").replace(/\s+/gu, "");
+  // 구조율과 연막 구출은 선택기에서 칭찬 재료만 만든다. 딜 분배는 재료가 아니다.
+  const gap = scopedPunchlines.find(item => item.kind === "roast");
+  if (coachingStyle === "spicy" && gap && typeof output.weakness === "string") {
+    const weakness = output.weakness.trim() ? output.weakness : toSpicySquadFact(gap.fact);
+    output.weakness = weakness;
+    // 약점이 이 격차를 말할 때만 코칭을 채운다. 코칭이 약점 문장을 반복해 위에서 빠졌어도 같은 기준으로 채운다.
+    if (typeof output.coaching === "string" && !output.coaching.trim() && weakness.replace(/\s+/gu, "").includes(factCore(gap.fact))) {
       const advice: Record<string, string> = {
         trade_rate_low: "다음에도 가까운 거리에서 아군이 눕는다면, 30초 안에 같은 적을 잡을 수 있는 상황인지 점검해 봐.",
         knocks_many: "다음 경기에도 기절이 반복된다면, 쓰러지기 직전의 기록부터 함께 확인해 봐.",
@@ -164,17 +187,16 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   // 모델이 없는 기준을 만들거나 비꼬는 말투를 지우는 일을 막고, 후보가 없는 팀원은 빈 칸으로 둔다.
   const recordsAware = roleProfiles.length > 0 && roleProfiles.every(profile => profile.records !== undefined);
   const fixedFeedback = recordsAware ? squadMemberFaultFeedback(roleProfiles, coachingStyle === "spicy" ? "spicy" : "mild") : null;
-  const opinionCandidates = scopedPunchlines.filter(item => item.id !== "damage_spread");
-  // 요약·강점·약점에 이미 나온 사실은 총평에서 다시 말하지 않는다. 서버가 채운 약점도 같은 화면에 보이므로 포함한다.
-  const statedElsewhere = ["summary", "strength", "weakness"].map(field => typeof output[field] === "string" ? (output[field] as string).replace(/\s+/gu, "") : "").join("|");
-  const factCore = (fact: string) => fact.replace(/^상세 분석 가능한 \d+경기 기준\s*/u, "")
-    .replace(/(?:느립니다|빠릅니다|높습니다|낮습니다|많습니다|적습니다|입니다|했습니다)\.$/u, "").replace(/\s+/gu, "");
+  const opinionCandidates = scopedPunchlines;
+  // 다른 칸에 이미 나온 사실은 총평에서 다시 말하지 않는다. 서버가 채운 약점도 같은 화면에 보이므로 포함한다.
+  const statedElsewhere = ["summary", "strength", "weakness", "coaching"].map(field => typeof output[field] === "string" ? (output[field] as string).replace(/\s+/gu, "") : "").join("|");
   const opinionFacts = opinionCandidates.filter(item => !statedElsewhere.includes(factCore(item.fact))).slice(0, 2);
   if (typeof output.overallOpinion === "string" && opinionCandidates.length > 0) {
-    // 팀원 못한 점이 있으면 팀 재료가 칭찬뿐이어도 "칭찬만 했다"는 마무리를 쓰지 않는다.
-    const memberFault = [...(fixedFeedback?.values() ?? [])].some(item => item.fault);
+    // 약점 칸이나 팀원 못한 점이 있으면 팀 재료가 칭찬뿐이어도 "트집 잡을 데가 없다"는 마무리를 쓰지 않는다.
+    const visibleFault = [...(fixedFeedback?.values() ?? [])].some(item => item.fault)
+      || (typeof output.weakness === "string" && output.weakness.trim() !== "");
     const closer = coachingStyle === "spicy"
-      ? squadSpicyCloser(memberFault ? [...opinionCandidates, { kind: "roast" as const }] : opinionCandidates, roleProfiles.map(profile => profile.name).sort().join(","))
+      ? squadSpicyCloser(visibleFault ? [...opinionCandidates, { kind: "roast" as const }] : opinionCandidates, roleProfiles.map(profile => profile.name).sort().join(","))
       : "다음 경기에서도 이 기록을 바탕으로 함께 점검해 보세요.";
     // 새 사실이 없으면 마무리 한마디만 남기고, 마무리도 없을 때만 반복을 감수하고 대표 사실 하나를 쓴다.
     const facts = opinionFacts.length || closer ? opinionFacts : opinionCandidates.slice(0, 1);

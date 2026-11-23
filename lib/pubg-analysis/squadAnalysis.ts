@@ -1,6 +1,7 @@
 import { buildCalculationPendingMatch } from "./calculationAvailability";
 import { aggregateSquadObservations, SQUAD_OBSERVATION_VERSION } from './squadObservations';
-import { sumTeamBenchmarkRows, toTeamBenchmarkStats, type TeamBenchmarkRow } from "./teamBenchmark";
+import { squadDamageBaseline, sumTeamBenchmarkRows, toTeamBenchmarkStats, type TeamBenchmarkRow } from "./teamBenchmark";
+import { isTrustedBenchmarkAggregate } from "./benchmarkLookup";
 import { aggregateSquadFocusFire } from "./squadFocusFire";
 import { computeSquadGrade, computeSquadScores } from "./squadScore";
 import { readRecordedSquadMatches } from "./squadRecordedMatches";
@@ -271,6 +272,28 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   }
   const squadObservation = aggregateSquadObservations(analysisMatches.map(squadObservationInput));
 
+  // 팀원 경기당 피해량 비교 평균. 조회가 실패하거나 표본이 모자라면 피해량 기록을 만들지 않고 나머지 분석은 그대로 진행한다.
+  const damageCombos = [...new Map(analysisMatches.flatMap((match): Array<[string, { gameMode: string; matchType: string }]> => {
+    const { mode, matchType } = match.__eligibility ?? {};
+    return mode && matchType ? [[`${mode}|${matchType}`, { gameMode: mode, matchType }]] : [];
+  })).values()];
+  let damageBaseline: number | null = null;
+  // 모드·경기 유형을 모르는 경기가 하나라도 있으면 그 경기의 비교 기준을 정할 수 없어 쓰지 않는다.
+  if (damageCombos.length > 0 && analysisMatches.every(match => match.__eligibility?.mode && match.__eligibility?.matchType)) {
+    try {
+      const { data: damageRows, error: damageError } = await supabase
+        .from("benchmark_stats_by_tier_v2")
+        .select("game_mode, match_type, calculation_version, filter_version, population_evidence_version, avg_damage, avg_damage_count")
+        .in("game_mode", [...new Set(damageCombos.map(combo => combo.gameMode))])
+        .in("match_type", [...new Set(damageCombos.map(combo => combo.matchType))])
+        .in("calculation_version", [...SUPPORTED_ANALYSIS_CALCULATION_VERSIONS]);
+      if (damageError) console.warn("[SQUAD-DAMAGE-BASELINE]", damageError.message);
+      else damageBaseline = squadDamageBaseline((damageRows ?? []).filter(isTrustedBenchmarkAggregate), damageCombos);
+    } catch (error) {
+      console.warn("[SQUAD-DAMAGE-BASELINE]", (error as Error)?.message || error);
+    }
+  }
+
   const memberNameByKey = new Map<string, string>();
   const addSquadMember = (name: string) => {
     const displayName = String(name || "").trim();
@@ -356,6 +379,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     memberKeys: squadMemberKeys,
     selfKey: normalizeName(nickname),
     keyOf: normalizeName,
+    damageBaseline,
   });
 
   const roleProfiles = squadMemberKeys.map(key => {

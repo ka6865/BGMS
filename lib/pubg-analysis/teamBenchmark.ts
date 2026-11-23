@@ -100,3 +100,41 @@ export function toTeamBenchmarkStats(row: TeamBenchmarkRow | null | undefined, t
     avgTeamWipes: null,
   };
 }
+
+// 팀원 경기당 피해량 비교 평균. benchmark_stats_by_tier_v2(5분 이상 생존한 사람 일반전·경쟁전 경기)의 모든 티어 구간을 표본 수로 가중 평균한다.
+// 저장된 tier는 경기 점수 구간이라 나누지 않는다. 피해량은 계산 버전과 무관해 지원 버전을 합친다.
+export const SQUAD_DAMAGE_BASELINE_MIN_SAMPLE = 200;
+
+export type DamageBaselineRow = {
+  game_mode?: unknown;
+  match_type?: unknown;
+  avg_damage?: unknown;
+  avg_damage_count?: unknown;
+};
+
+/**
+ * 경기에 나온 모드·경기 유형 조합마다 평균을 내고 가장 낮은 값을 쓴다(낮은 피해량 판정이 보수적이 된다).
+ * 한 조합이라도 표본이 기준 미만이면 null이다. 매일 바뀌는 집계로 캐시가 흔들리지 않게 10 단위로 반올림한다.
+ * 신뢰 조건(filter·모집단 근거·계산 버전)은 호출부가 isTrustedBenchmarkAggregate로 거른 행만 넘긴다.
+ */
+export function squadDamageBaseline(
+  rows: readonly DamageBaselineRow[],
+  combos: readonly { gameMode: string; matchType: string }[],
+): number | null {
+  if (combos.length === 0) return null;
+  const means = combos.map(({ gameMode, matchType }) => {
+    let total = 0;
+    let count = 0;
+    for (const row of rows) {
+      if (row.game_mode !== gameMode || row.match_type !== matchType) continue;
+      const avg = nonNegative(row.avg_damage);
+      const rowCount = nonNegative(row.avg_damage_count);
+      if (avg === null || rowCount === null) continue;
+      total += avg * rowCount;
+      count += rowCount;
+    }
+    return count >= SQUAD_DAMAGE_BASELINE_MIN_SAMPLE ? total / count : null;
+  });
+  if (means.some(mean => mean === null)) return null;
+  return Math.round(Math.min(...(means as number[])) / 10) * 10;
+}

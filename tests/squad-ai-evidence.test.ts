@@ -145,7 +145,7 @@ describe("스쿼드 서버 응답 품질", () => {
     }
   });
 
-  it.each(["spicy", "mild"])("모든 팀원의 칭찬은 실측 비중으로 만들고 낮은 비중은 중립 서술한다: %s", (coachingStyle) => {
+  it.each(["spicy", "mild"])("모든 팀원의 칭찬은 실측 비중으로 만들고 낮은 비중은 칭찬 칸을 비운다: %s", (coachingStyle) => {
     const profiles = [
       { name: "Low", totalKills: 2, shares: { damage: 10, kill: 13 } },
       { name: "High", totalKills: 7, shares: { damage: 47, kill: 47 } },
@@ -153,9 +153,10 @@ describe("스쿼드 서버 응답 품질", () => {
     ];
     const input = { ...source, memberFeedbacks: profiles.map(({ name }) => ({ name, praise: "딜 99%·킬 99%로 화력의 한 축을 맡았네", fault: "", advice: "" })) };
     const once = applySquadEvidencePolicy(input, {}, null, undefined, profiles, { coachingStyle });
-    expect(once.memberFeedbacks[0].praise).toBe(coachingStyle === "spicy" ? "팀 딜 10%와 킬 13%를 기록했네." : "팀 딜 10%와 킬 13%를 기록했습니다.");
+    expect(once.memberFeedbacks[0].praise).toBe("");
     expect(once.memberFeedbacks[1].praise).toMatch(/47%.*화력/);
-    for (const member of once.memberFeedbacks) {
+    expect(once.memberFeedbacks[2].praise).toBe(coachingStyle === "spicy" ? "팀 딜 43%와 킬 40%를 기록했네." : "팀 딜 43%와 킬 40%를 기록했습니다.");
+    for (const member of once.memberFeedbacks.slice(1)) {
       expect(member.praise).not.toContain("99%");
       expect(member.praise).toMatch(/[.!?]$/);
     }

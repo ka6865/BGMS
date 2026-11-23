@@ -52,8 +52,6 @@ const MIN_TRADEABLE_KNOCKS = 10;
 const MIN_TRADE_RATE_GAP = 5;
 // 경기당 기절 수는 관측 경기가 3경기 이상일 때만 평균과 비교한다.
 const MIN_KNOCK_MATCHES = 3;
-// 팀 딜 비중 차이가 40%p 이상이면 편차가 극단적인 것으로 본다(예: 73%와 27%는 46%p).
-const DAMAGE_SPREAD_MIN_GAP = 40;
 // 우승 0회 놀림은 최근 5경기 이상일 때만 쓴다. 최고 순위 띄움은 3위 이내일 때만 쓴다.
 const WINS_ZERO_MIN_MATCHES = 5;
 const BEST_RANK_HYPE_MAX = 3;
@@ -62,7 +60,7 @@ const MIN_TEAM_KILLS_FOR_SHARE = 5;
 // 개인 비중 기준: 최소 40%, 또는 균등 비중(100 / 인원)의 1.4배 중 큰 값을 높은 비중으로 본다.
 const SHARE_HIGH_FLOOR = 40;
 const SHARE_HIGH_FAIR_RATIO = 1.4;
-// 개인 딜 비중이 20% 미만이거나 균등 비중의 절반 미만이면 낮은 비중으로 본다.
+// 개인 딜 비중이 20% 미만이거나 균등 비중의 절반 미만이면 칭찬 재료를 만들지 않는다. 비중은 다른 팀원 몫에 따라 낮아지므로 놀림 재료도 아니다.
 const DAMAGE_LOW_CEILING = 20;
 const DAMAGE_LOW_FAIR_RATIO = 0.5;
 
@@ -205,23 +203,7 @@ function teamCandidates(input: SquadPunchlineInput): Candidate[] {
     }
   }
 
-  // 팀 딜 비중 편차: 개인 비중이 측정된 인원이 둘 이상일 때만 본다.
-  const damageShares = measuredNames(input.roleProfiles)
-    .map(({ profile, name }) => ({ name, damage: shareOf(profile.shares?.damage) }))
-    .filter((entry): entry is { name: string; damage: number } => entry.damage !== null)
-    .sort((a, b) => b.damage - a.damage || a.name.localeCompare(b.name));
-  if (damageShares.length >= 2) {
-    const top = damageShares[0];
-    const bottom = damageShares[damageShares.length - 1];
-    const gap = top.damage - bottom.damage;
-    if (gap >= DAMAGE_SPREAD_MIN_GAP) {
-      candidates.push({
-        id: "damage_spread", kind: "roast", metric: "damageSpread",
-        fact: `팀 딜 비중이 ${top.damage}%(${top.name})와 ${bottom.damage}%(${bottom.name})로 갈렸습니다.`,
-        weight: Math.min(1, gap / 100),
-      });
-    }
-  }
+  // 팀 딜 비중 편차는 재료로 쓰지 않는다. 한 팀원이 많이 넣으면 나머지 비중은 실력과 무관하게 낮아진다.
 
   // 순위: 요약에 포함된 경기 중 순위가 1 이상인 값만 센다.
   const placements = (input.matchesSummary ?? [])
@@ -277,7 +259,8 @@ export function selectSquadPunchlines(input: SquadPunchlineInput): SquadPunchlin
 }
 
 /**
- * 멤버별 펀치라인 재료를 고른다. 멤버마다 최대 1개이며, 개인 딜·킬 비중이 측정된 멤버는 모두 재료를 받는다.
+ * 멤버별 칭찬 재료를 고른다. 멤버마다 최대 1개이며 모두 띄움(hype)이다.
+ * 비중은 다른 팀원 몫에 따라 낮아지므로 낮은 비중은 놀림 재료가 아니고, 칭찬할 재료도 없어 빈다.
  * 킬 비중은 팀 킬 합이 충분할 때만 쓴다. 어시스트 합은 정확한 값으로 노출되지 않아 비중 기준에 쓰지 않는다.
  */
 export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "roleProfiles">): SquadMemberPunchline[] {
@@ -295,10 +278,9 @@ export function selectSquadMemberPunchlines(input: Pick<SquadPunchlineInput, "ro
     const make = (id: string, kind: SquadPunchlineKind, metric: string, fact: string) => ({ name, id, kind, metric, fact });
 
     if (damage !== null && damage < lowCeiling) {
-      if (kill !== null && kill >= highFloor) {
-        return [make("member_kill_log", "roast", "damageShare,killShare", `팀 딜 비중은 ${damage}%인데 팀 킬 비중은 ${kill}%입니다.`)];
-      }
-      return [make("member_low_damage", "roast", "damageShare", `팀 딜 비중은 ${damage}%입니다.`)];
+      return kill !== null && kill >= highFloor
+        ? [make("member_kill_share", "hype", "killShare", `팀 킬 비중이 ${kill}%입니다.`)]
+        : [];
     }
     if (damage !== null && damage >= highFloor) {
       return [make("member_damage_carry", "hype", "damageShare", `팀 딜 비중이 ${damage}%입니다.`)];
@@ -331,7 +313,6 @@ const SQUAD_PUNCHLINE_JABS: Readonly<Record<string, readonly string[]>> = {
   knocks_few: ["좀처럼 안 눕는 스쿼드네. 바닥이 서운해하겠어."],
   revive_high: ["일으켜 세우는 손만큼은 평균을 가볍게 넘겼네."],
   smoke_rescue_high: ["연막 구출 기록이 또렷하게 남았네. 연막 장인 인정."],
-  damage_spread: ["화력 분포가 한쪽으로 쏠린 편향 스코어보드야."],
   wins_zero: ["우승 트로피 진열장은 아직 텅 비어 있어."],
   wins_some: ["치킨 먹은 기록은 부정할 수가 없네."],
   best_rank_top: ["최고 순위만큼은 포디움에 올랐네."],
@@ -345,7 +326,7 @@ const SQUAD_MEMBER_PRAISE: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** 같은 시드면 같은 한마디다(팀원 이름을 시드로 쓰면 같은 재료여도 팀원마다 한마디가 달라진다). */
-function pickVariant(variants: readonly string[] | undefined, seed: string): string | null {
+export function pickVariant(variants: readonly string[] | undefined, seed: string): string | null {
   if (!variants || variants.length === 0) return null;
   let hash = 0x811c9dc5;
   for (let index = 0; index < seed.length; index += 1) {
@@ -359,8 +340,10 @@ function squadPunchlineJab(id: string, seed: string): string | null {
   return pickVariant(SQUAD_PUNCHLINE_JABS[id], seed);
 }
 
-// 매운맛 총평의 마무리 한마디. 놀릴 재료가 있으면 비꼬고, 칭찬 재료만 있으면 머쓱해한다. 숫자·능력·의도는 쓰지 않는다.
-const SQUAD_SPICY_CLOSERS: Readonly<Record<SquadPunchlineKind, readonly string[]>> = {
+// 매운맛 총평의 마무리 한마디. 놀릴 재료만 있으면 비꼬고, 칭찬 재료만 있으면 머쓱해하고, 둘 다 있으면 양쪽을 인정한다.
+// 앞에 붙는 사실 문장과 방향이 어긋나지 않게 고른다. 숫자·능력·의도는 쓰지 않는다.
+type SquadCloserKind = SquadPunchlineKind | "mixed";
+const SQUAD_SPICY_CLOSERS: Readonly<Record<SquadCloserKind, readonly string[]>> = {
   roast: [
     "기록부가 할 말이 많은 스쿼드네. 다음 판엔 핑계 말고 숫자로 반박해 봐.",
     "매운맛이 할 일이 많았던 기록이야. 다음 리포트는 좀 심심해지길 빈다.",
@@ -369,12 +352,18 @@ const SQUAD_SPICY_CLOSERS: Readonly<Record<SquadPunchlineKind, readonly string[]
     "트집 잡을 데가 없어서 매운맛 체면이 구겨졌네. 다음 판에도 이 기록 그대로 들고 와.",
     "칭찬만 하다 끝나는 매운맛은 처음이야. 다음 판엔 꼬투리 하나쯤은 남겨 줘.",
   ],
+  mixed: [
+    "잘한 기록도 놀릴 기록도 골고루 남았네. 다음 판엔 놀릴 쪽을 좀 줄여 와.",
+    "칭찬할 건 칭찬했고 못한 건 기록부에 그대로 남았어. 다음 판엔 못한 쪽 숫자부터 바꿔 와.",
+  ],
 };
 
-/** 매운맛 총평 마무리. 팀 재료에 놀림이 하나라도 있으면 놀림 쪽, 아니면 띄움 쪽 문장을 고른다. 재료가 없으면 null. */
+/** 매운맛 총평 마무리. 놀림과 띄움이 섞이면 양쪽을 인정하는 문장, 한쪽만 있으면 그쪽 문장을 고른다. 재료가 없으면 null. */
 export function squadSpicyCloser(team: readonly Pick<SquadPunchline, "kind">[], seed: string): string | null {
   if (team.length === 0) return null;
-  const kind: SquadPunchlineKind = team.some(punchline => punchline.kind === "roast") ? "roast" : "hype";
+  const roast = team.some(punchline => punchline.kind === "roast");
+  const hype = team.some(punchline => punchline.kind === "hype");
+  const kind: SquadCloserKind = roast && hype ? "mixed" : roast ? "roast" : "hype";
   return pickVariant(SQUAD_SPICY_CLOSERS[kind], seed) ?? SQUAD_SPICY_CLOSERS[kind][0];
 }
 
@@ -386,7 +375,8 @@ export function squadMemberPraise(
 ): string {
   const damage = shareOf(shares?.damage);
   const kill = shareOf(shares?.kill);
-  const measured = [damage === null ? null : `딜 ${damage}%`, kill === null ? null : `킬 ${kill}%`].filter(Boolean);
+  // 0%는 칭찬 문장에 넣지 않는다. "킬 0%를 기록했네"는 칭찬처럼 읽히지 않는다.
+  const measured = [damage ? `딜 ${damage}%` : null, kill ? `킬 ${kill}%` : null].filter(Boolean);
   const spicy = coachingStyle !== "mild";
   const fact = measured.length ? `팀 ${measured.join("와 ")}` : punchline.fact.replace(/입니다\.$/u, "");
   const high = punchline.id === "member_damage_carry" || punchline.id === "member_kill_share";
@@ -395,6 +385,8 @@ export function squadMemberPraise(
     return `${fact}, ${spicy ? praise : praise.replace(/야\.$/u, "입니다.").replace(/(?:네|어)\.$/u, "습니다.")}`;
   }
   if (measured.length) return `${fact}를 ${spicy ? "기록했네." : "기록했습니다."}`;
+  // 실측 비중이 모두 0%면 칭찬할 재료가 없어 칸을 비운다.
+  if (shares) return "";
   const praise = spicy ? pickVariant(SQUAD_MEMBER_PRAISE[punchline.id], punchline.name) : null;
   return praise ? `${fact}, ${praise}` : `${fact}${spicy ? "를 기록했네." : "를 기록했습니다."}`;
 }

@@ -129,18 +129,12 @@ describe("squad punchline team facts", () => {
     expect(toSpicySquadFact("팀 경기당 아군 기절 2.4회, 전체 팀 평균 4.5회로 평균보다 적습니다.")).toBe("팀 경기당 아군 기절 2.4회, 전체 팀 평균 4.5회로 평균보다 적어.");
   });
 
-  it("roasts a damage spread of forty points or more between measured members", () => {
-    const picks = selectSquadPunchlines(teamInput({ roleProfiles: duoProfiles }));
-    expect(picks.find((item) => item.id === "damage_spread")).toEqual({
-      id: "damage_spread",
-      kind: "roast",
-      metric: "damageSpread",
-      fact: "팀 딜 비중이 73%(KangHeeSung_)와 27%(MiaeQ_Q)로 갈렸습니다.",
-    });
-    const even = selectSquadPunchlines(teamInput({
-      roleProfiles: [{ name: "A", shares: { damage: 55 } }, { name: "B", shares: { damage: 45 } }],
+  it("never turns a damage share spread into a team fact, even an extreme one", () => {
+    const picks = selectSquadPunchlines(teamInput({
+      roleProfiles: [{ name: "A", shares: { damage: 95 } }, { name: "B", shares: { damage: 5 } }],
     }));
-    expect(even.map((item) => item.id)).not.toContain("damage_spread");
+    expect(picks.map((item) => item.id)).not.toContain("damage_spread");
+    expect(JSON.stringify(picks)).not.toContain("비중");
   });
 
   it("uses win counts only when there are at least five matches for a zero-win roast", () => {
@@ -204,8 +198,8 @@ describe("squad punchline team facts", () => {
     expect(first.filter((item) => item.kind === "roast").length).toBeLessThanOrEqual(SQUAD_PUNCHLINE_KIND_LIMIT);
     expect(first.filter((item) => item.kind === "hype").length).toBeLessThanOrEqual(SQUAD_PUNCHLINE_KIND_LIMIT);
     expect(first.length).toBeGreaterThanOrEqual(2);
-    // 가중치 순서: 백업(0.47) → 딜 편차(0.46) → 우승 0회(0.4) → 최고 순위(0.3). 낮은 구조율은 놀림 재료가 아니다.
-    expect(first.map((item) => item.id)).toEqual(["backup_slow", "damage_spread", "wins_zero", "best_rank_top"]);
+    // 가중치 순서: 백업(0.47) → 우승 0회(0.4) → 최고 순위(0.3). 낮은 구조율과 딜 편차는 놀림 재료가 아니다.
+    expect(first.map((item) => item.id)).toEqual(["backup_slow", "wins_zero", "best_rank_top"]);
   });
 
   it("does not pad the list when only one fact is measurable", () => {
@@ -224,7 +218,7 @@ describe("squad punchline member facts", () => {
     ]);
   });
 
-  it("calls a low-damage, high-kill member a kill-log delivery using only the two shares", () => {
+  it("gives a low-damage, high-kill member only the kill-share praise and never a roast", () => {
     const members = selectSquadMemberPunchlines({
       roleProfiles: [
         { name: "Solo_A", totalKills: 6, totalDamage: 300, shares: { damage: 5, kill: 60 } },
@@ -234,10 +228,13 @@ describe("squad punchline member facts", () => {
       ],
     });
     expect(members.find((item) => item.name === "Solo_A")).toMatchObject({
-      id: "member_kill_log",
-      kind: "roast",
-      fact: "팀 딜 비중은 5%인데 팀 킬 비중은 60%입니다.",
+      id: "member_kill_share",
+      kind: "hype",
+      fact: "팀 킬 비중이 60%입니다.",
     });
+    // 다른 팀원 몫 때문에 낮아진 비중은 재료가 아니다. 칭찬할 재료가 없으면 비워 둔다.
+    expect(members.find((item) => item.name === "Solo_D")).toBeUndefined();
+    expect(members.every((item) => item.kind === "hype")).toBe(true);
   });
 
   it("does not use kill shares when the team has fewer than five kills", () => {
@@ -247,7 +244,7 @@ describe("squad punchline member facts", () => {
         { name: "B", totalKills: 1, shares: { damage: 95, kill: 0 } },
       ],
     });
-    expect(members.find((item) => item.name === "A")).toMatchObject({ id: "member_low_damage", kind: "roast", fact: "팀 딜 비중은 5%입니다." });
+    expect(members.find((item) => item.name === "A")).toBeUndefined();
   });
 
   it("skips members without measured damage shares and never invents a fact", () => {
@@ -278,9 +275,7 @@ describe("squad prompt punchline block", () => {
     expect(prompt).toContain(style === "spicy"
       ? "backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느려."
       : "backup_slow: 백업 속도 평균 15.3초, 전체 팀 평균 10.4초로 평균보다 느립니다.");
-    expect(prompt).toContain(style === "spicy"
-      ? "damage_spread: 팀 딜 비중이 73%(KangHeeSung_)와 27%(MiaeQ_Q)로 갈렸어."
-      : "damage_spread: 팀 딜 비중이 73%(KangHeeSung_)와 27%(MiaeQ_Q)로 갈렸습니다.");
+    expect(prompt).not.toContain("damage_spread");
     expect(prompt).toContain(`KangHeeSung_ [hype] member_damage_carry: 팀 딜 비중이 73%${style === "spicy" ? "야" : "입니다"}.`);
   });
 

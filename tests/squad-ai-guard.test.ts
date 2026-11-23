@@ -113,8 +113,9 @@ describe("squad prompt rules", () => {
 
   it("ties the remaining spicy jabs to measured conditions", () => {
     const { systemInstruction } = promptFor("spicy");
-    expect(systemInstruction).toContain("킬로그 배달부");
-    expect(systemInstruction).toMatch(/measured damage share is low \(below 20%\)/);
+    expect(systemInstruction).not.toContain("킬로그 배달부");
+    expect(systemInstruction).toContain("Never tease or blame a member for a low damage, kill, assist or knockout share.");
+    expect(systemInstruction).not.toContain("늦게 남았네");
     expect(systemInstruction).toMatch(/isolation index is high, e\.g\. > 3\.0/);
   });
 

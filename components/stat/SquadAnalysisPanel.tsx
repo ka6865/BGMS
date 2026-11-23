@@ -1149,14 +1149,16 @@ export default function SquadAnalysisPanel({
                             </div>
                             
                             <div className="space-y-2.5">
-                              {/* 칭찬할 점 */}
-                              <div className="text-[11px] leading-relaxed">
-                                <div className="font-bold text-green-400 flex items-center gap-1 mb-0.5">
-                                  <InlineIconLabel icon="check" iconSize={12}>칭찬할 점</InlineIconLabel>
+                              {/* 칭찬할 점: 칭찬할 재료가 없으면 칸을 만들지 않는다 */}
+                              {hasSquadFeedbackContent(member.praise) && (
+                                <div className="text-[11px] leading-relaxed">
+                                  <div className="font-bold text-green-400 flex items-center gap-1 mb-0.5">
+                                    <InlineIconLabel icon="check" iconSize={12}>칭찬할 점</InlineIconLabel>
+                                  </div>
+                                  <p className="text-zinc-300 pl-1 font-medium">{member.praise}</p>
                                 </div>
-                                <p className="text-zinc-300 pl-1 font-medium">{member.praise}</p>
-                              </div>
-                              
+                              )}
+
                               {/* 못한 점: 근거가 없어 넘긴 문장뿐이면 칸을 만들지 않는다 */}
                               {hasSquadFeedbackContent(member.fault) && (
                                 <div className="text-[11px] leading-relaxed">
