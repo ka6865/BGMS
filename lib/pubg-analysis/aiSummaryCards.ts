@@ -1,8 +1,9 @@
-import { summaryCardSpicyJab, toSummarySpicyBanmal } from "./spicyPunchlines";
+import { summaryCardSpicyJab, SUMMARY_STRONG_JAB_PATTERN, toSummarySpicyBanmal } from "./spicyPunchlines";
 import { AI_SUMMARY_HIGHER_IS_BETTER, summaryComparisonHoldReason, isSummaryComparisonSimilar } from "./aiSummaryDebate";
 import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText, summaryAdviceRuleId, summaryInferenceRuleId } from "./aiSummaryJudgment";
-import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
+import { COACHING_JUDGMENT_WITHHELD, findDisallowedLatinWords, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
 import { COMBAT_ATTRIBUTION_CALCULATION_VERSION, POSITION_FRESHNESS_CALCULATION_VERSION } from "./constants";
+import type { SummaryCardScene } from "./aiSummaryScenes";
 
 /**
  * Server-owned card composition for the v2 AI summary contract.
@@ -80,6 +81,10 @@ export interface SummaryCard {
   analysisReason?: string;
   kindOpinion: string;
   spicyOpinion: string;
+  /** 매운맛 반박에 대한 다정 코치의 재반박·인정. 판정이 없는 카드와 이전 캐시에는 없다. */
+  counterOpinion?: string;
+  /** 판정 방향과 맞는 경기 장면 근거. 서버가 기록에서 고르며 맞는 장면이 없으면 없다. */
+  scene?: SummaryCardScene;
   reason: string;
   evaluation: string;
   winner: "kind" | "spicy" | "draw" | null;
@@ -607,6 +612,14 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
     if (topic !== expectedTopic || question !== topicQuestion(topicId, derivedDataStatus)) return null;
     const analysisReason = card.analysisReason === undefined ? undefined : nonEmptyString(card.analysisReason);
     if (card.analysisReason !== undefined && !analysisReason) return null;
+    const rawScene = card.scene as unknown;
+    const scene = rawScene === undefined ? undefined
+      : isRecord(rawScene) && nonEmptyString(rawScene.matchId) && nonEmptyString(rawScene.clock) && nonEmptyString(rawScene.text)
+        ? { matchId: rawScene.matchId as string, clock: rawScene.clock as string, text: rawScene.text as string } : null;
+    if (scene === null || (scene && winner === null)) return null;
+    const counterOpinion = card.counterOpinion === undefined ? undefined : nonEmptyString(card.counterOpinion);
+    if (card.counterOpinion !== undefined && (!counterOpinion || winner === null
+      || hasUnsupportedSummaryInference(counterOpinion) || hasUnsupportedSummaryAdvice(counterOpinion))) return null;
     return {
       topicId,
       topic,
@@ -619,6 +632,8 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
       ...(analysisReason ? { analysisReason } : {}),
       kindOpinion,
       spicyOpinion,
+      ...(counterOpinion ? { counterOpinion } : {}),
+      ...(scene ? { scene } : {}),
       reason,
       evaluation,
       winner,
@@ -1007,12 +1022,44 @@ function cardCheck(topicId: SummaryTopicId): string {
 
 // 비교 가능한 지표 중 비교 평균보다 불리한 방향이면 true, 유리하면 false, 판단할 수 없으면 null.
 function isUnfavorable(row: SummaryEvidence): boolean | null {
-  const higherIsBetter = AI_SUMMARY_HIGHER_IS_BETTER[row.metricId];
+  const isolation = row.metricId === "isolation_average";
+  // 고립 지수는 낮을수록 팀과 붙어 다닌 것이다. 프롬프트와 다른 검증 규칙은 방향이 없는 지표로 다루므로 카드 판정에서만 쓴다.
+  const higherIsBetter = isolation ? false : AI_SUMMARY_HIGHER_IS_BETTER[row.metricId];
   if (row.status !== "comparable" || higherIsBetter === undefined || summaryComparisonHoldReason(row.metricId, row.unit, row.userMatchCount, row.denominator)) return null;
   const user = evidenceNumericValue(row, "user");
   const benchmark = evidenceNumericValue(row, "benchmark");
   if (user === null || benchmark === null || isSummaryComparisonSimilar(user, benchmark, row.unit) || isDisplayedEqual(row)) return null;
+  // 2.0 미만은 평균보다 높아도 양호한 대열로 해석한다(LOW ISOLATION LOGIC).
+  if (isolation && user > benchmark && user < ISOLATION_GOOD_FORMATION_MAX) return null;
   return higherIsBetter ? user < benchmark : user > benchmark;
+}
+
+const ISOLATION_GOOD_FORMATION_MAX = 2;
+
+// 판정·강도용 차이 척도. 비율 지표는 %p의 2배, 그 밖은 비교 평균 대비 상대 차이(%)를 쓴다.
+// 2026-11-24 운영 요약 78건의 차이 분포(하위 25% 15, 중앙 26, 상위 25% 42)로 정했다.
+export const SUMMARY_GAP_POLICY = { drawMax: 10, weakBelow: 15, strongAbove: 40 } as const;
+export type SummaryIntensity = "weak" | "mid" | "strong";
+
+/** 유리하면 양수, 불리하면 음수인 차이 크기. 판정할 수 없는 지표는 null. */
+function favorableGap(row: SummaryEvidence): number | null {
+  const unfavorable = isUnfavorable(row);
+  if (unfavorable === null) return null;
+  const user = evidenceNumericValue(row, "user")!, benchmark = evidenceNumericValue(row, "benchmark")!;
+  const size = row.unit === "%" ? Math.abs(user - benchmark) * 2 : Math.abs(user - benchmark) / Math.max(Math.abs(benchmark), 1e-9) * 100;
+  return unfavorable ? -size : size;
+}
+
+function intensityFor(size: number): SummaryIntensity {
+  return size < SUMMARY_GAP_POLICY.weakBelow ? "weak" : size > SUMMARY_GAP_POLICY.strongAbove ? "strong" : "mid";
+}
+
+/** 카드의 가장 큰 불리 차이와 가장 큰 유리 차이로 놀림·칭찬 강도를 정한다. */
+export function summaryCardIntensity(card: Pick<SummaryCard, "evidence">): { roast: SummaryIntensity | null; praise: SummaryIntensity | null } {
+  const gaps = card.evidence.map(favorableGap).filter((gap): gap is number => gap !== null);
+  const worst = Math.max(0, ...gaps.filter(gap => gap < 0).map(gap => -gap));
+  const best = Math.max(0, ...gaps.filter(gap => gap > 0));
+  return { roast: worst > 0 ? intensityFor(worst) : null, praise: best > 0 ? intensityFor(best) : null };
 }
 
 /** 사용자 값과 비교 평균이 화면 표시 기준으로 같은지. 표시값을 해석할 수 없으면 false. */
@@ -1102,8 +1149,9 @@ const WEAKNESS_PREMISE = /보완|개선|부족|약점|향상|강화|끌어올|�
 const MAINTENANCE_CHECK = "다음 경기에서도 같은 기록이 이어지는지 확인해 보세요.";
 
 // 비교 평균보다 유리한 지표 중 차이가 가장 큰 지표(비율은 %p, 그 밖은 상대 차이).
+// 고립 지수는 평균이 작아 상대 차이가 크게 나오므로 대표 강점(칭호·결론)에서는 뺀다.
 function strongestMetric(cards: readonly SummaryCard[]): SummaryEvidence | null {
-  const strong = cards.flatMap(card => card.evidence.filter(row => isUnfavorable(row) === false));
+  const strong = cards.flatMap(card => card.evidence.filter(row => isUnfavorable(row) === false && row.metricId !== "isolation_average"));
   if (!strong.length) return null;
   const gap = (row: SummaryEvidence) => {
     const user = evidenceNumericValue(row, "user") ?? 0, benchmark = evidenceNumericValue(row, "benchmark") ?? 0;
@@ -1112,12 +1160,20 @@ function strongestMetric(cards: readonly SummaryCard[]): SummaryEvidence | null 
   return strong.reduce((a, b) => gap(b) > gap(a) ? b : a);
 }
 
+/** 프롬프트에 넘기는 카드별 토론 계획. 승자와 강도는 서버가 정하고 모델은 말투만 맞춘다. */
+export function summaryCardDebatePlan(card: SummaryCard): { serverWinner: SummaryCard["winner"]; roastIntensity: SummaryIntensity | null; praiseIntensity: SummaryIntensity | null } {
+  const intensity = summaryCardIntensity(card);
+  return { serverWinner: card.dataStatus === "comparable" ? serverWinner(card) : null, roastIntensity: intensity.roast, praiseIntensity: intensity.praise };
+}
+
+// 유리·불리 지표가 섞이면 차이 크기의 합으로 승자를 정하고, 합이 drawMax 이내로 비등할 때만 무승부다.
 function serverWinner(card: SummaryCard): SummaryCard["winner"] {
-  const directions = card.evidence.map(isUnfavorable).filter((value): value is boolean => value !== null);
-  if (!directions.length) return null;
-  if (directions.every(value => !value)) return "kind";
-  if (directions.every(value => value)) return "spicy";
-  return "draw";
+  const gaps = card.evidence.map(favorableGap).filter((gap): gap is number => gap !== null);
+  if (!gaps.length) return null;
+  if (gaps.every(gap => gap > 0)) return "kind";
+  if (gaps.every(gap => gap < 0)) return "spicy";
+  const total = gaps.reduce((sum, gap) => sum + gap, 0);
+  return Math.abs(total) <= SUMMARY_GAP_POLICY.drawMax ? "draw" : total > 0 ? "kind" : "spicy";
 }
 
 // 대표 강점 지표별 칭호. 측정한 지표의 이름에서만 나오며 성향·능력을 단정하지 않는다.
@@ -1161,11 +1217,84 @@ function groundedVerdict(cards: SummaryCard[]): string {
 // 모델이 작성하는 두 코치 의견만 오류 검증 대상으로 삼는다.
 const PROSE_FIELD_CODES = ["kind", "spicy"] as const;
 
+/** 토론 대사 칸별 채택 기록. 모델 대사가 검증을 통과해 실제로 쓰였는지 운영 로그로 확인한다. */
+export interface SummaryDialogueAdoption {
+  rebuttal: { adopted: number; total: number };
+  counter: { adopted: number; total: number };
+  dropped: string[];
+}
+
+const DIALOGUE_CELL_MAX_LENGTH = 90;
+const KIND_ENDING = /(?:니다|세요|어요|아요|해요|예요|이에요|네요|군요|죠|게요)[.!?]?$/u;
+const SPICY_FORMAL_ENDING = /(?:니다|세요|십시오)[.!?]?$/u;
+const SPICY_CONCEDES = /인정/u;
+const COUNTER_CONCEDES = /인정|맞(?:아요|습니다|는\s*말)|아쉬(?:운|웠|워)|보완|받아들/u;
+const COUNTER_GIVES_UP = /졌(?:어요|습니다|네요)|제가\s*틀렸|매운맛\s*(?:말|코치)(?:이|가)?\s*맞/u;
+
+// 재반박이 없거나 검증에 걸린 칸을 채우는 문장. 승자를 따라 굳히기·인정·한 점씩 인정으로 나뉜다.
+const COUNTER_TEMPLATES: Readonly<Record<"kind" | "spicy" | "draw", readonly string[]>> = {
+  kind: ["그래도 이번 기록에서는 강점 쪽이 더 분명하게 보입니다.", "지적은 새겨듣겠지만 이번 관측에서는 잘한 부분이 더 큽니다.", "아쉬운 점보다 앞선 기록이 더 크게 남았습니다."],
+  spicy: ["그 부분은 인정합니다. 다음 경기에서 함께 확인해 보세요.", "이번에는 아쉬운 기록이 더 컸네요. 다음 경기에서 다시 확인해 보세요.", "맞는 지적입니다. 다음 경기에서는 이 부분부터 챙겨 보세요."],
+  draw: ["서로 한 가지씩은 맞는 말이네요. 다음 경기에서 둘 다 확인해 보세요.", "잘한 점과 아쉬운 점이 비슷하게 남았습니다. 다음 경기에서 함께 확인해 보세요.", "이번 주제는 무승부로 두겠습니다. 다음 경기 기록으로 다시 견줘 보세요."],
+};
+
+function pickBySeed<T>(items: readonly T[], seed: string): T {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < seed.length; index += 1) hash = Math.imul((hash ^ seed.charCodeAt(index)) >>> 0, 0x01000193) >>> 0;
+  return items[hash % items.length];
+}
+
+/**
+ * 모델 대사 한 칸의 문제 사유. 통과하면 null.
+ * 숫자·비교 문구는 서버 사실 문장이 맡으므로 대사에는 쓰지 않는다.
+ */
+function dialogueCellIssue(text: string, rules: {
+  speaker: "kind" | "spicy";
+  card: SummaryCard;
+  roast: SummaryIntensity | null;
+  mustConcede?: boolean;
+  forbidGivingUp?: boolean;
+}): string | null {
+  const trimmed = text.trim();
+  if (!trimmed || isNeutralText(trimmed)) return "empty";
+  if (trimmed.length > DIALOGUE_CELL_MAX_LENGTH) return "length";
+  if (/\d/u.test(trimmed.replace(/1:1|3초/gu, ""))) return "number";
+  if (/평균|비교/u.test(trimmed)) return "comparison";
+  if (findDisallowedLatinWords(trimmed).length) return "latin";
+  if (rules.speaker === "kind" ? !KIND_ENDING.test(trimmed) : SPICY_FORMAL_ENDING.test(trimmed)) return "tone";
+  if (hasUnsupportedSummaryInference(trimmed) || hasUnsupportedSummaryAdvice(trimmed) || cardConclusionRuleId(trimmed, rules.card)) return "judgment";
+  if (rules.speaker === "spicy" && rules.roast === "weak" && SUMMARY_STRONG_JAB_PATTERN.test(trimmed)) return "intensity";
+  if (rules.mustConcede && !(rules.speaker === "spicy" ? SPICY_CONCEDES : COUNTER_CONCEDES).test(trimmed)) return "direction";
+  if (rules.forbidGivingUp && COUNTER_GIVES_UP.test(trimmed)) return "direction";
+  return null;
+}
+
+const DIALOGUE_CELL_MAX_SENTENCES = 2;
+
+/**
+ * 대사 칸 후보. 서버가 붙이는 비교 문장(앞)과 점검 문장은 빼고 남은 덩어리 전체를 검증한다.
+ * 캐시된 결과를 다시 정규화해도 같은 칸이 나오게 문장을 골라내지 않는다.
+ */
+function pickDialogueCell(text: string | null, rules: Parameters<typeof dialogueCellIssue>[1], serverSentences: readonly string[] = []): { value: string | null; issue: string | null } {
+  if (!text) return { value: null, issue: "missing" };
+  let rest = text.trim();
+  for (const prefix of serverSentences) if (prefix && rest.startsWith(prefix)) rest = rest.slice(prefix.length).trim();
+  const sentences = rest.split(/(?<=[.!?。！？])\s+|\n+/u).map(sentence => sentence.trim())
+    .filter(sentence => sentence && !serverSentences.some(server => server.includes(sentence)));
+  if (!sentences.length) return { value: null, issue: "empty" };
+  if (sentences.length > DIALOGUE_CELL_MAX_SENTENCES) return { value: null, issue: "length" };
+  const block = sentences.join(" ");
+  const issue = dialogueCellIssue(block, rules);
+  return issue ? { value: null, issue } : { value: block, issue: null };
+}
+
 export function normalizeSummaryCardFinal(input: unknown, cards: readonly SummaryCard[], options: {
   sanitizeText: (value: string) => string;
   sanitizeCardText?: (value: string, card: SummaryCard) => string;
   hasUnsupportedMode: (value: unknown) => boolean;
   onSchemaError?: (reason: string) => void;
+  /** 판정이 난 카드에 붙일 경기 장면. 경기 기록을 가진 호출부가 넘긴다. */
+  sceneFor?: (topicId: SummaryTopicId, winner: SummaryCard["winner"]) => SummaryCardScene | null;
 }): {
   final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" };
   cacheable: boolean;
@@ -1173,6 +1302,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   rejectReasons: string[];
   // 수용·거부와 무관하게 빠진 행동 제안의 사유 id(action_items:...). 기록용이며 rejectReasons에는 넣지 않는다.
   actionDropReasons: string[];
+  dialogueAdoption: SummaryDialogueAdoption;
 } | null {
   const malformed = (reason: string) => {
     options?.onSchemaError?.(reason);
@@ -1232,6 +1362,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   }
 
   let neutralCards = 0;
+  const dialogueAdoption: SummaryDialogueAdoption = { rebuttal: { adopted: 0, total: 0 }, counter: { adopted: 0, total: 0 }, dropped: [] };
   const normalizedCards = serverCards.map((serverCard) => {
     const issue = providerByTopic.get(serverCard.topicId);
     if (!issue) return serverCard;
@@ -1332,27 +1463,68 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     const kindUsable = hasFavorable && providerKind && !isNeutralText(providerKind) && !sanitized[0].changed
       && !/\d|평균|비교/u.test(providerKind) && !(hasUnfavorable && STRONG_PRAISE.test(providerKind)) && !hasUnsupportedSummaryInference(kindOpinion) && !hasUnsupportedSummaryAdvice(kindOpinion);
     sanitizedTexts[0] = [kindComparison, kindUsable ? providerKind : ""].filter(Boolean).join(" ") || (weak ? `${weak.label} 지표는 이번 관측에서 비교 평균에 못 미쳤습니다.` : neutralOpinion);
+    const intensity = summaryCardIntensity(serverCard);
+    // 가장 크게 밀린 지표부터 놀린다. 강도는 그 차이 크기로 정한다.
     const spicyJab = summaryCardSpicyJab(
-      serverCard.evidence.filter(row => isUnfavorable(row) === true).map(row => row.metricId),
+      serverCard.evidence.filter(row => isUnfavorable(row) === true)
+        .sort((a, b) => (favorableGap(a) ?? 0) - (favorableGap(b) ?? 0)).map(row => row.metricId),
       hasFavorable && !hasUnfavorable,
       `${serverCard.context.contextId}:${serverCard.topicId}`,
+      hasUnfavorable ? intensity.roast : intensity.praise,
     );
+    const winner = serverCard.dataStatus === "comparable" ? serverWinner(serverCard) : null;
+    // 반박 칸: 판정이 있는 카드에서만 모델 대사를 쓴다. 모두 유리하면 인정하는 대사만 받는다.
+    let rebuttal: string | null = null;
+    if (winner !== null) {
+      dialogueAdoption.rebuttal.total += 1;
+      const cell = sanitized[1].changed ? { value: null, issue: "sanitized" }
+        : pickDialogueCell(sanitized[1].value, { speaker: "spicy", card: serverCard, roast: intensity.roast, mustConcede: !hasUnfavorable },
+          [spicyComparison, kindComparison].filter(Boolean).map(toSummarySpicyBanmal).concat(conditionalCheckText(sanitizedTexts[1], true) || []));
+      if (cell.value) {
+        rebuttal = cell.value;
+        dialogueAdoption.rebuttal.adopted += 1;
+      } else dialogueAdoption.dropped.push(`${serverCard.topicId}:rebuttal:${cell.issue}`);
+    }
     sanitizedTexts[1] = hasUnfavorable
-      ? toSummarySpicyBanmal([spicyComparison, spicyJab, conditionalCheckText(sanitizedTexts[1], true) || metricCheck(serverCard)].filter(Boolean).join(" "))
-      : hasFavorable ? `${toSummarySpicyBanmal(kindComparison)} ${spicyJab}`
+      ? toSummarySpicyBanmal([spicyComparison, rebuttal ?? spicyJab, conditionalCheckText(sanitizedTexts[1], true) || metricCheck(serverCard)].filter(Boolean).join(" "))
+      : hasFavorable ? `${toSummarySpicyBanmal(kindComparison)} ${rebuttal ?? spicyJab}`
         : toSummarySpicyBanmal(serverCard.topicId === "positioning" && !hold
           ? conditionalCheckText(sanitizedTexts[1], true) || cardCheck(serverCard.topicId) : neutralOpinion);
+    // 재반박 칸: 승자를 따른다. 매운맛 승이면 인정, 다정 승이면 물러서지 않고, 무승부면 방향을 강제하지 않는다.
+    let counterOpinion: string | undefined;
+    if (winner !== null) {
+      dialogueAdoption.counter.total += 1;
+      // 새 응답은 kindCounter, 캐시된 결과를 다시 정규화할 때는 counterOpinion에 있다.
+      const rawCounter = nonEmptyString(issue.kindCounter) ?? nonEmptyString(issue.counterOpinion);
+      const sanitizedCounter = rawCounter ? sanitizeRequiredText(rawCounter,
+        (value) => options.sanitizeCardText ? options.sanitizeCardText(value, serverCard) : options.sanitizeText(value)) : null;
+      const cell = !sanitizedCounter ? { value: null, issue: "missing" }
+        : sanitizedCounter.changed ? { value: null, issue: "sanitized" }
+          : pickDialogueCell(sanitizedCounter.value, { speaker: "kind", card: serverCard, roast: intensity.roast, mustConcede: winner === "spicy", forbidGivingUp: winner === "kind" });
+      if (cell.value) dialogueAdoption.counter.adopted += 1;
+      else dialogueAdoption.dropped.push(`${serverCard.topicId}:counter:${cell.issue}`);
+      counterOpinion = cell.value ?? pickBySeed(COUNTER_TEMPLATES[winner], `${serverCard.context.contextId}:${serverCard.topicId}:counter`);
+    }
     const reason = buildSummaryCardFactText(serverCard);
     const evaluation = cardEvaluation(serverCard);
+    let scene: SummaryCardScene | null = null;
+    try {
+      scene = winner !== null && options.sceneFor ? options.sceneFor(serverCard.topicId, winner) : null;
+    } catch {
+      // 장면은 보조 근거다. 고르지 못해도 지표 판정은 그대로 쓴다.
+      scene = null;
+    }
     const readyCard: SummaryCard = {
       ...serverCard,
       analysisStatus: "ready",
       kindOpinion: sanitizedTexts[0],
       spicyOpinion: sanitizedTexts[1],
+      ...(counterOpinion ? { counterOpinion } : {}),
+      ...(scene ? { scene } : {}),
       reason,
       evaluation,
-      // 승패는 모델 선택이 아니라 비교 지표의 방향으로 정한다.
-      winner: serverCard.dataStatus === "comparable" ? serverWinner(serverCard) : null,
+      // 승패는 모델 선택이 아니라 비교 지표의 차이로 정한다.
+      winner,
     };
     return readyCard;
   });
@@ -1452,7 +1624,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     debateIssues: legacyIssues,
     actionItems: normalizedActionItems,
   } as Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" };
-  return { final, cacheable, usable, rejectReasons, actionDropReasons };
+  return { final, cacheable, usable, rejectReasons, actionDropReasons, dialogueAdoption };
 }
 
 export function parseSummaryCards(input: unknown): SummaryCard[] | null {

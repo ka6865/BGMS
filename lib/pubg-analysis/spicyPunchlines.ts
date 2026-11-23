@@ -77,21 +77,78 @@ export function applyMatchSpicyJab(text: string, match: any): string {
 }
 
 // 최근 요약 카드: 비교 평균에 못 미친 지표별 한마디. 단일 경기처럼 반말이다.
-const SUMMARY_METRIC_JABS: Readonly<Record<string, readonly string[]>> = {
-  damage_average: ["딜량 칸은 조용히 고개 숙이고 있었네.", "총은 들고 다녔는데 딜량은 소문만 무성했어."],
-  initiative_rate: ["선제 타격 기록만 보면 먼저 맞고 시작하는 게 국룰이었네."],
-  pressure_index: ["교전 압박은 상대한테 안부 인사 수준이었어."],
-  counter_failure_rate: ["기습당하고 3초 동안은 거의 관전 모드였네."],
-  reaction_latency: ["반격 버튼이 한 박자씩 늦게 눌리는 기록이야."],
-  duel_win_rate: ["1:1 성적표는 거의 상대 하이라이트 영상 재료야."],
-  solo_kill_share: ["킬로그에 혼자 이름 올린 장면은 손에 꼽혀."],
-  death_phase: ["자기장 좁아지는 구경은 주로 관전 화면으로 했네."],
-  isolation_average: ["팀원이랑 거리가 거의 장거리 연애 수준이었어."],
-  trade_success_rate: ["쓰러진 아군 복수는 대부분 다음 생으로 미뤘네."],
-  backup_latency: ["백업은 아군 장례식 끝날 즈음 도착했어."],
-  smoke_opportunity_rate: ["아군이 쓰러져도 연막 구출 기록은 조용했네."],
+// 강도는 차이 크기로 정한다(aiSummaryCards의 SUMMARY_GAP_POLICY). 약은 가벼운 견제, 강만 센 놀림을 쓴다.
+export type SummaryJabIntensity = "weak" | "mid" | "strong";
+type TieredLines = Readonly<Record<SummaryJabIntensity, readonly string[]>>;
+
+const SUMMARY_METRIC_JABS: Readonly<Record<string, TieredLines>> = {
+  damage_average: {
+    weak: ["딜량은 평균에서 살짝 모자랐네.", "딜량이 한 끗 차이로 아쉬웠어.", "딜량은 조금만 더 얹으면 되는 수준이야."],
+    mid: ["딜량 칸이 좀 조용했네.", "딜량은 평균 앞에서 한 발 물러섰어.", "총은 쐈는데 딜량은 평균에 못 닿았어."],
+    strong: ["딜량 칸은 조용히 고개 숙이고 있었네.", "총은 들고 다녔는데 딜량은 소문만 무성했어.", "딜량 기록이 거의 실종 신고 수준이야."],
+  },
+  initiative_rate: {
+    weak: ["먼저 쏜 교전이 평균보다 살짝 적었네.", "선제 타격은 아주 조금 밀렸어.", "첫 사격 타이밍이 한 끗 늦은 판이 있었네."],
+    mid: ["선제 타격은 평균보다 자주 뺏겼네.", "먼저 맞고 시작한 교전이 꽤 많았어.", "첫 총성은 상대 몫인 경우가 많았네."],
+    strong: ["선제 타격 기록만 보면 먼저 맞고 시작하는 게 국룰이었네.", "첫 사격은 거의 상대한테 양보했어.", "교전 시작 버튼은 대부분 상대가 눌렀네."],
+  },
+  pressure_index: {
+    weak: ["교전 압박은 평균보다 살짝 약했어.", "압박은 조금만 더 이어 가면 되는 수준이야.", "압박 기록이 한 끗 모자랐네."],
+    mid: ["교전 압박이 중간에 자주 끊겼네.", "압박은 시작했는데 끝까지 밀진 못했어.", "압박 기록은 평균에 못 미쳤어."],
+    strong: ["교전 압박은 상대한테 안부 인사 수준이었어.", "압박이라고 부르기엔 너무 예의 바른 기록이야.", "상대가 편하게 숨 돌릴 만한 압박이었네."],
+  },
+  counter_failure_rate: {
+    weak: ["기습당했을 때 대응이 살짝 늦은 적이 있었네.", "기습 대응은 아주 조금 아쉬웠어.", "기습 뒤 첫 대응이 한 끗 모자랐네."],
+    mid: ["기습당하고 대응 못 한 교전이 꽤 있었네.", "기습 대응 실패가 평균보다 잦았어.", "기습 뒤 첫 대응이 자주 비었네."],
+    strong: ["기습당하고 3초 동안은 거의 관전 모드였네.", "기습만 당하면 반격이 실종됐어.", "기습 대응 기록은 거의 백지야."],
+  },
+  reaction_latency: {
+    weak: ["반격이 평균보다 살짝 늦었네.", "반격 타이밍이 한 박자 반의 반쯤 늦었어.", "반격은 조금만 당기면 되는 수준이야."],
+    mid: ["반격 버튼이 한 박자씩 늦게 눌리는 기록이야.", "맞고 나서 반격까지 시간이 꽤 걸렸네.", "반격 속도는 평균보다 느렸어."],
+    strong: ["반격은 상대가 다 쏘고 난 뒤에 도착했네.", "맞고 나서 반격까지 거의 회의를 한 수준이야.", "반격 속도 기록이 느긋해도 너무 느긋했어."],
+  },
+  duel_win_rate: {
+    weak: ["1:1은 평균보다 살짝 밀렸네.", "1:1 성적이 한 끗 아쉬웠어.", "1:1은 조금만 더 이기면 되는 수준이야."],
+    mid: ["1:1에서 지는 쪽이 꽤 잦았네.", "1:1 성적은 평균에 못 미쳤어.", "1:1 붙으면 상대 쪽이 자주 웃었네."],
+    strong: ["1:1 성적표는 거의 상대 하이라이트 영상 재료야.", "1:1만 붙으면 상대 킬로그를 채워 줬네.", "1:1 기록은 상대한테 보너스 같았어."],
+  },
+  solo_kill_share: {
+    weak: ["혼자 마무리한 킬이 평균보다 살짝 적었네.", "직접 마무리는 아주 조금 모자랐어.", "단독 마무리가 한 끗 아쉬웠네."],
+    mid: ["혼자 마무리한 킬이 꽤 적었네.", "킬로그에 혼자 이름 올린 장면이 드물었어.", "단독 마무리 기록은 평균에 못 미쳤어."],
+    strong: ["킬로그에 혼자 이름 올린 장면은 손에 꼽혀.", "단독 마무리는 거의 전설 속 이야기야.", "혼자 마무리한 킬은 찾기가 힘들 정도야."],
+  },
+  death_phase: {
+    weak: ["후반까지 버틴 판이 평균보다 살짝 적었네.", "생존 페이즈가 한 끗 모자랐어.", "조금만 더 버티면 평균이야."],
+    mid: ["자기장 후반 구경은 자주 놓쳤네.", "중반쯤 퇴장하는 판이 꽤 있었어.", "생존 페이즈는 평균에 못 미쳤어."],
+    strong: ["자기장 좁아지는 구경은 주로 관전 화면으로 했네.", "후반 자기장은 거의 소문으로만 들었어.", "마지막 원은 관전석에서 보는 게 익숙했네."],
+  },
+  isolation_average: {
+    weak: ["팀원이랑 거리가 평균보다 살짝 벌어졌네.", "대열이 아주 조금 느슨했어.", "팀원과 거리가 한 걸음쯤 멀었네."],
+    mid: ["팀원이랑 거리가 꽤 벌어진 판이 많았네.", "대열에서 자주 떨어져 다녔어.", "팀원과 거리가 평균보다 멀었어."],
+    strong: ["팀원이랑 거리가 거의 장거리 연애 수준이었어.", "대열이라기보다 각자 여행이었네.", "팀원 위치는 미니맵 끝에서나 보였겠어."],
+  },
+  trade_success_rate: {
+    weak: ["아군 복수가 평균보다 살짝 적었네.", "복수 기록이 한 끗 모자랐어.", "복수는 조금만 더 챙기면 되는 수준이야."],
+    mid: ["쓰러진 아군 복수를 자주 놓쳤네.", "복수 기록은 평균에 못 미쳤어.", "아군 기절 뒤 갚아 준 기록이 적었네."],
+    strong: ["쓰러진 아군 복수는 대부분 다음 생으로 미뤘네.", "복수 기록은 거의 빈칸이야.", "아군 기절은 많았는데 갚아 준 기록은 실종이야."],
+  },
+  backup_latency: {
+    weak: ["백업이 평균보다 살짝 늦었네.", "백업 도착이 한 끗 늦었어.", "백업은 조금만 당기면 되는 수준이야."],
+    mid: ["백업 도착이 꽤 늦었네.", "백업 시간은 평균보다 길었어.", "아군 기절 뒤 복수까지 시간이 꽤 걸렸네."],
+    strong: ["백업은 아군 장례식 끝날 즈음 도착했어.", "백업은 거의 다음 교전에 맞춰 도착했네.", "복수까지 걸린 시간이 여유로워도 너무 여유로웠어."],
+  },
+  // 연막 구출은 구할 수 없는 상황이 섞여 있어 강하게 놀리지 않는다.
+  smoke_opportunity_rate: {
+    weak: ["연막 구출 기록이 살짝 적었네.", "연막 구출은 한 끗 아쉬웠어.", "연막 구출이 조금 모자랐네."],
+    mid: ["연막 구출 기록이 평균보다 적었어.", "연막 구출은 조용한 편이었네.", "연막 구출 기록이 아쉬웠어."],
+    strong: ["아군이 쓰러져도 연막 구출 기록은 조용했네.", "연막 구출 기록이 평균보다 꽤 적었어.", "연막 구출은 거의 쉬어 갔네."],
+  },
 };
-const SUMMARY_HYPES = ["이번 관측에서 비교 평균보다 유리하게 나온 지표는 인정할게.", "이 지표는 이번 관측 범위에서 인정할 만하네."];
+const SUMMARY_HYPES: TieredLines = {
+  weak: ["평균보다 살짝 앞섰네. 이 정도는 인정할게.", "한 끗 차이지만 이번 관측에서는 인정할게.", "조금이라도 앞섰으니 이번 관측 범위에서 인정."],
+  mid: ["이번 관측에서 비교 평균보다 유리하게 나온 지표는 인정할게.", "이 지표는 이번 관측 범위에서 인정할 만하네.", "평균보다 확실히 앞섰네. 이번 관측에서는 인정."],
+  strong: ["이건 트집 잡기 힘들 만큼 앞섰네. 이번 관측에서는 인정.", "평균을 크게 넘겼네. 이번 관측 범위에서 인정할게.", "이 지표는 매운맛도 할 말이 없네. 이번 관측에서는 인정."],
+};
 
 // 요약 카드 매운맛 의견의 서버 문장(비교·점검)과 모델 점검 문장은 존댓말로 만들어지므로 문장 끝만 반말로 바꾼다.
 // 관측 한계와 중립 비교도 매운 코치의 반말 어미로 맞춘다.
@@ -117,11 +174,15 @@ export function toSummarySpicyBanmal(text: string): string {
 }
 
 /**
- * 요약 카드 매운맛 한마디. 못 미친 지표가 있으면 첫 지표를 비꼬고, 비교 지표가 모두 평균 이상이면 인정한다.
- * unfavorableMetricIds가 비고 favorable이 false면(비교 불가) null.
+ * 요약 카드 매운맛 한마디. 못 미친 지표가 있으면 첫 지표를 강도에 맞춰 비꼬고, 비교 지표가 모두 평균 이상이면 인정한다.
+ * unfavorableMetricIds가 비고 favorable이 false면(비교 불가) null. 강도를 모르면 중간 단계를 쓴다.
  */
-export function summaryCardSpicyJab(unfavorableMetricIds: readonly string[], allFavorable: boolean, seed: string): string | null {
+export function summaryCardSpicyJab(unfavorableMetricIds: readonly string[], allFavorable: boolean, seed: string, intensity: SummaryJabIntensity | null = null): string | null {
+  const level = intensity ?? "mid";
   const metricId = unfavorableMetricIds.find(id => SUMMARY_METRIC_JABS[id]);
-  if (metricId) return pickVariant(SUMMARY_METRIC_JABS[metricId], `${seed}:${metricId}`);
-  return allFavorable ? pickVariant(SUMMARY_HYPES, seed) : null;
+  if (metricId) return pickVariant(SUMMARY_METRIC_JABS[metricId][level], `${seed}:${metricId}`);
+  return allFavorable ? pickVariant(SUMMARY_HYPES[level], seed) : null;
 }
+
+/** 강한 놀림 문장. 약한 차이에 모델이 이런 표현을 쓰면 강도 위반으로 본다. */
+export const SUMMARY_STRONG_JAB_PATTERN = /관전|로비|다음\s*생|장례식|국룰|실종|소문|하이라이트|백지|빈칸|장거리\s*연애|전설|회의|퇴근|귀가|낙제|변명/u;

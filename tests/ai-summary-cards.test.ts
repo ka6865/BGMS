@@ -306,8 +306,9 @@ describe("ai summary v2 card catalog", () => {
 
   it.each(["draw", null])("ignores a provider %s conclusion and keeps the server conclusion through fresh, cached and legacy cards", (winner) => {
     const cards = buildSummaryCards({ topics: ["교전 주도권", "화력", "포지셔닝"], context, evidence: [
-      evidence({ metricId: "initiative_rate", label: "주도권 성공률", unit: "%", userValue: "60%", benchmarkValue: "50%", sampleCount: 40 }),
-      evidence({ metricId: "pressure_index", label: "평균 압박 지수", unit: "", userValue: "2", benchmarkValue: "3", sampleCount: 40 }),
+      evidence({ metricId: "initiative_rate", label: "주도권 성공률", unit: "%", userValue: "54%", benchmarkValue: "50%", sampleCount: 40 }),
+      // 주도권 +4%p(척도 8)와 압박 -10%(척도 -10)의 합이 10 이내라 비등한 무승부다.
+      evidence({ metricId: "pressure_index", label: "평균 압박 지수", unit: "", userValue: "2.7", benchmarkValue: "3", sampleCount: 40 }),
       evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "0", benchmarkValue: "0", sampleCount: 40 }),
       evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "1.0" }),
     ] });
@@ -400,12 +401,14 @@ describe("ai summary v2 card catalog", () => {
   });
 
   it.each([
-    // 승자는 모델 선택이 아니라 비교 방향으로 정한다: 모두 유리 kind, 섞이면 draw, 같은 값만 있으면 null.
-    { trade: "33%", average: "17%", latency: "5s", latencyAverage: "15s", expected: "kind" },
-    { trade: "10%", average: "17%", latency: "5s", latencyAverage: "15s", expected: "draw" },
-    { trade: "33%", average: "17%", latency: "20s", latencyAverage: "15s", expected: "draw" },
-    { trade: "17%", average: "17%", latency: "15s", latencyAverage: "15s", expected: null },
-  ])("checks a mixed conclusion against outcome and latency directions: %j", ({ trade, average, latency, latencyAverage, expected }) => {
+    // 승자는 모델 선택이 아니라 비교 결과로 정한다: 모두 유리 kind, 섞이면 차이 합이 큰 쪽, 비등하면 draw, 같은 값만 있으면 null.
+    { trade: "33%", average: "17%", latency: "5s", latencyAverage: "15s", expected: "kind", mixed: false },
+    // 복수 -7%p(척도 -14)보다 백업 67% 빠름(척도 +67)이 커서 다정 승이다.
+    { trade: "10%", average: "17%", latency: "5s", latencyAverage: "15s", expected: "kind", mixed: true },
+    // 복수 +16%p(척도 +32)와 백업 33% 느림(척도 -33)이 비등하다.
+    { trade: "33%", average: "17%", latency: "20s", latencyAverage: "15s", expected: "draw", mixed: true },
+    { trade: "17%", average: "17%", latency: "15s", latencyAverage: "15s", expected: null, mixed: false },
+  ])("checks a mixed conclusion against outcome and latency directions: %j", ({ trade, average, latency, latencyAverage, expected, mixed }) => {
     const cards = buildSummaryCards({ topics: ["복수 성공률 및 백업", "화력", "포지셔닝"], context, evidence: [
       evidence({ metricId: "trade_success_rate", label: "복수 성공률", unit: "%", userValue: trade, benchmarkValue: average, sampleCount: 12 }),
       evidence({ metricId: "backup_latency", label: "백업 속도", unit: "s", userValue: latency, benchmarkValue: latencyAverage, sampleCount: 4 }),
@@ -418,14 +421,14 @@ describe("ai summary v2 card catalog", () => {
     const result = normalizeSummaryCardFinal(provider, cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => false });
     expect(result?.final.cards[0]).toMatchObject({ winner: expected, analysisStatus: "ready", evidence: cards[0].evidence });
     // 매운맛은 불리한 비교와 점검을, 다정한 코치는 유리한 비교만 말한다.
-    if (expected === "draw") expect(result?.final.cards[0].spicyOpinion).toMatch(/다음 경기에서 교전 연계를 점검해\.$/u);
+    if (mixed) expect(result?.final.cards[0].spicyOpinion).toMatch(/다음 경기에서 교전 연계를 점검해\.$/u);
     else expect(result?.final.cards[0].spicyOpinion).not.toContain("점검해");
     // 유리한 비교만 남으면 이번 관측 범위에서 인정한다.
-    if (expected === "kind") expect(result?.final.cards[0].spicyOpinion).toMatch(/이번 관측.*인정/u);
+    if (expected === "kind" && !mixed) expect(result?.final.cards[0].spicyOpinion).toMatch(/이번 관측.*인정/u);
     expect(result?.final.cards[0].kindOpinion).not.toMatch(/낮습니다|느립니다/u);
     expect(parseSummaryCards(result?.final)).not.toBeNull();
     expect(result?.final.finalVerdict).not.toContain("조율이 필요");
-    if (expected === "kind") {
+    if (expected === "kind" && !mixed) {
       const forged = JSON.parse(JSON.stringify(result?.final));
       forged.cards[0].winner = "draw";
       expect(parseSummaryCards(forged)).toBeNull();

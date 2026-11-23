@@ -1,3 +1,5 @@
+import { WEAPON_NAMES } from "./constants";
+
 export interface AiCoachingQualitySignals {
   hasRawMilliseconds: boolean;
   hasUndefinedOrNaN: boolean;
@@ -129,7 +131,37 @@ const NON_PROSE_KEYS = new Set([
 const KNOWN_TYPOS: ReadonlyArray<readonly [RegExp, string]> = [
   [/아들(?=과|와|의|이|을|에게|들)/gu, "아군"],
   [/다음\s*경지(?=에서|에는|에)/gu, "다음 경기"],
+  [/배기지/gu, "배지"],
+  [/쓰리게\s*만들/gu, "쓰러지게 만들"],
+  [/눕은(?=\s*아군)/gu, "누운"],
 ];
+
+// 영어 프롬프트 표현이 출력에 옮겨진 사례(스쿼드 "global average 12.20초"). 뜻이 같은 한국어로 바꾼다.
+// 모드 이름(solo·duo·squad)은 "solo kill" 같은 지표 문구를 보호하는 기존 모드 검사가 맡으므로 여기서 바꾸지 않는다.
+const ENGLISH_TERMS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bglobal\s+(?:revive\s+rate|average)\b/giu, "전체 팀 평균"],
+  [/\bbenchmark\s+average\b/giu, "비교 평균"],
+];
+
+// 사용자 문장에 나와도 되는 라틴 문자: 무기·차량 이름, 단위, 등급, 서비스 이름.
+const ALLOWED_LATIN = new Set(
+  [...Object.values(WEAPON_NAMES).flatMap((name) => name.match(/[A-Za-z][A-Za-z0-9-]*/gu) ?? []), "BGMS", "PUBG", "HP", "m", "s", "km", "AI"]
+    .map((word) => word.toLowerCase()),
+);
+
+/**
+ * 허용 목록 밖의 라틴 문자 단어를 돌려준다. 닉네임처럼 요청마다 다른 허용어는 extraAllowed로 넘긴다.
+ * 등급 표기(A-, B+)와 숫자가 섞인 무기 표기(M416)는 허용한다.
+ */
+export function findDisallowedLatinWords(text: string, extraAllowed: Iterable<string> = []): string[] {
+  const extra = new Set(Array.from(extraAllowed, (word) => word.toLowerCase()));
+  // 닉네임은 밑줄·숫자를 포함하므로 단어 단위가 아니라 원문 그대로 먼저 지운다.
+  const stripped = Array.from(extra).reduce((current, word) => word ? current.split(new RegExp(word.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "giu")).join(" ") : current, text);
+  return (stripped.match(/[A-Za-z][A-Za-z0-9_-]*/gu) ?? []).filter((word) => {
+    const lower = word.toLowerCase();
+    return !ALLOWED_LATIN.has(lower) && !/^[A-D][+-]?$/u.test(word) && !/\d/u.test(word);
+  });
+}
 
 export function sanitizeAiCoachingLanguageText(text: string): string {
   // Some callers pass the entire JSON response, others a single prose field.
@@ -144,7 +176,7 @@ export function sanitizeAiCoachingLanguageText(text: string): string {
       return text;
     }
   }
-  const typoFixed = KNOWN_TYPOS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text);
+  const typoFixed = [...KNOWN_TYPOS, ...ENGLISH_TERMS].reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text);
   const sentences = typoFixed.split(/(?<=[.!?。！？])\s+|\n+/u);
   let changed = typoFixed !== text;
   const cleaned = sentences.map((sentence) => {

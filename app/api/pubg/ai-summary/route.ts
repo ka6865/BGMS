@@ -43,9 +43,11 @@ import {
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
 import crypto from "crypto";
+import { pickSummaryCardScene } from "@/lib/pubg-analysis/aiSummaryScenes";
 import {
   applyCalculationVersionGuard,
   buildSummaryCardComparisonText,
+  summaryCardDebatePlan,
   buildSummaryCards,
   CALCULATION_5_BENCHMARK_KEYS,
   CALCULATION_6_BENCHMARK_KEYS,
@@ -1653,13 +1655,15 @@ export async function POST(request: Request) {
       promptLines.push(
         "[ID CARD CONTRACT V2] SERVER_CARD_PLAN_V2가 카드의 유일한 근거입니다. 지정된 topicId 3개를 정확히 한 번씩 반환하고 해당 카드의 evidenceIds만 중복 없이 참조하세요. 제목, 질문, 지표 라벨과 수치는 서버가 표시하므로 생성하지 마세요.",
         "[출력 범위] 칭호, 두 코치 의견, 근거 ID, 행동 제안만 작성하세요. 행동 근거가 없으면 actionItems는 빈 배열로 반환하세요. 근거 설명·평가·승자·결론·칭호 설명은 서버가 결정하므로 출력하지 마세요. 다른 카드의 근거, 다른 모드, 추측한 수치는 사용하지 마세요. 관측값이 없는 카드는 근거 부족을 명시하고 evidenceIds를 빈 배열로 반환하세요.",
-        "[말투 정책] 순한 코치 kindOpinion은 존댓말, 매운 코치 spicyOpinion은 반말입니다. 행동 안내 actionItems와 서버가 작성하는 결론·카드 설명은 공통 안내로 존댓말을 사용합니다.",
+        "[말투 정책] 순한 코치 kindOpinion·kindCounter는 존댓말, 매운 코치 spicyOpinion은 반말입니다. 행동 안내 actionItems와 서버가 작성하는 결론·카드 설명은 공통 안내로 존댓말을 사용합니다. 모든 문장은 한국어로만 쓰고 영어 단어를 쓰지 마세요.",
         "[칭호] signature는 대표 강점 지표 하나에 근거한 짧은 명사형 칭호입니다. 강점이 없으면 중립 칭호를 쓰세요. 기록·분석·요약·관측으로 끝나는 서술형이나 문장을 쓰지 마세요. 심리·습관·측정하지 않은 능력과 진입 위치·순서를 뜻하는 전선·돌파·돌입·진입 칭호를 만들지 마세요.",
-        "[문장 역할] 순한 코치는 확인된 비교 결과 또는 관측 한계를 짧게 설명합니다. 매운 코치는 유리한 지표라면 이번 관측 범위로 제한해 인정만 하세요. 트집이 없다거나 완벽하다는 절대 평가를 하지 마세요. 불리한 지표가 있을 때만 놀림과 다음 경기의 조건부 점검을 쓰세요. 비슷한 수준·관측 부족·통계량 불일치로 판정이 보류된 지표에는 강점·보완·놀림·행동을 만들지 마세요. 의견에 숫자와 근거 ID를 반복하지 마세요.",
+        "[토론 대사] 카드마다 두 코치가 말을 주고받습니다. 비교 수치와 '비교 평균보다 높다/낮다' 문장은 서버가 앞에 붙이므로 대사에는 숫자, '평균', '비교'를 쓰지 마세요. kindOpinion: 다정 코치의 주장 한 문장. spicyOpinion: 다정 코치 주장을 받아치는 매운 코치의 반말 한두 문장. kindCounter: 매운 코치의 반박에 답하는 다정 코치의 존댓말 한 문장.",
+        "[토론 판정] 각 카드의 debate.serverWinner는 서버가 정한 승자입니다. 승자를 바꾸거나 출력하지 마세요. serverWinner가 spicy면 kindCounter는 지적을 인정하고 다음 경기를 약속합니다. kind면 kindCounter는 물러서지 않고 강점을 굳힙니다. draw면 서로 한 가지씩 인정합니다. 불리한 지표가 없는 카드의 spicyOpinion은 이번 관측 범위에서 인정하는 말만 하세요. 트집이 없다거나 완벽하다는 절대 평가를 하지 마세요.",
+        "[놀림 강도] debate.roastIntensity가 weak면 가볍게 견제만 하고 관전·로비·다음 생 같은 센 표현을 쓰지 마세요. mid는 분명하게, strong일 때만 세게 놀리세요. 비슷한 수준·관측 부족·통계량 불일치로 판정이 보류된 지표에는 강점·보완·놀림·행동을 만들지 마세요. 의견에 근거 ID를 반복하지 마세요.",
         "[측정 의미] 백업 속도는 아군을 기절시킨 적을 30초 안에 처치한 성공 사례의 평균 시간이며 이동·첫 대응·모든 구조 기회의 시간이 아닙니다. 첫 반격 시간은 피격 전 사격을 구분한 교전의 첫 피격부터 같은 상대에게 첫 명중까지입니다. 인지·반사신경·집중력·판단력·소통·명중률·에임·반동·장전은 측정하지 않습니다. 관측값을 그런 능력 평가로 바꾸지 마세요.",
-        "[관측 범위] context.userMatchCount는 선택 경기 수이고 evidence.userMatchCount는 해당 지표 관측 경기 수입니다. 작은 표본과 누락 기록을 전체 기간의 습관·능력·꾸준함으로 확대하지 마세요. serverComparison을 따르고 기준을 새로 만들지 마세요. 연속형 1경기 이하와 개인 합산 1:1 승률은 비교 평가를 보류합니다. 연속형 상대 차이 5% 이하와 비율 차이 3%p 이하는 비슷한 수준입니다. 고립 지수는 판정 방향이 없으며 정상 기준이나 거리 목표를 만들지 마세요.",
+        "[관측 범위] context.userMatchCount는 선택 경기 수이고 evidence.userMatchCount는 해당 지표 관측 경기 수입니다. 작은 표본과 누락 기록을 전체 기간의 습관·능력·꾸준함으로 확대하지 마세요. serverComparison을 따르고 기준을 새로 만들지 마세요. 연속형 1경기 이하와 개인 합산 1:1 승률은 비교 평가를 보류합니다. 연속형 상대 차이 5% 이하와 비율 차이 3%p 이하는 비슷한 수준입니다. 고립 지수는 낮을수록 팀과 붙어 다닌 것이고 2.0 미만은 양호한 대열입니다. 거리 목표를 새로 만들지 마세요.",
         "[행동 제안] 다음 경기의 상황과 확인 행동을 존댓말 한 문장으로 쓰고 '확인해 보세요' 또는 '점검해 보세요'로 끝내세요. 솔로 킬 비중을 높이려고 혼자 싸우거나 낮은 화력 때문에 교전 참여를 무조건 늘리라고 하지 마세요. 투척 횟수는 사용 기록이며 보유량이 아닙니다. 확인하지 않은 지형·시야·팀원 위치·소생·팀원 화력 분담·실패 원인을 단정하지 마세요.",
-        '반드시 JSON 객체만 반환하세요: {"signature":"명사형 칭호","debateIssues":[{"topicId":"지정된 ID","evidenceIds":["지정된 근거 ID"],"kindOpinion":"존댓말 의견","spicyOpinion":"반말 의견"}],"actionItems":[{"icon":"target","title":"목표","desc":"존댓말 점검 안내"}]}',
+        '반드시 JSON 객체만 반환하세요: {"signature":"명사형 칭호","debateIssues":[{"topicId":"지정된 ID","evidenceIds":["지정된 근거 ID"],"kindOpinion":"다정 코치 주장(존댓말)","spicyOpinion":"매운 코치 반박(반말)","kindCounter":"다정 코치 재반박(존댓말)"}],"actionItems":[{"icon":"target","title":"목표","desc":"존댓말 점검 안내"}]}',
       );
       // The ID contract must have one factual population. The legacy prompt
       // includes latest-ten and best-five/minority-mode aggregates which are
@@ -1669,6 +1673,7 @@ export async function POST(request: Request) {
         evidenceIds: card.evidenceIds,
         evidence: card.evidence.filter((row) => card.evidenceIds.includes(row.id)),
         context: card.context, serverComparison: buildSummaryCardComparisonText(card),
+        debate: summaryCardDebatePlan(card),
       })))}\n### [END_SERVER_CARD_PLAN_V2]\n`;
     }
     const unavailableCards = () => serverCards.map((card) => ({ ...card, analysisStatus: "unavailable" as const, analysisReason: "AI 해석을 표시할 수 없습니다.", winner: null }));
@@ -1694,6 +1699,7 @@ export async function POST(request: Request) {
       try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { onInvalid?.("parse", "json_syntax"); return null; }
       return normalizeSummaryCardFinal(parsed, serverCards, {
         onSchemaError: (reason) => onInvalid?.("schema", reason),
+        sceneFor: (topicId, winner) => pickSummaryCardScene(topicId, winner, cardMatches),
         sanitizeText: (value) => sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), idCanonicalEvidence, { allowedMode: mainModeName, observedUserMetricKeys: serverCards.flatMap(card => card.evidence.filter(row => row.userValue !== null).map(row => row.metricId)) }),
         sanitizeCardText: (value, card) => {
           const cardEvidence = Object.fromEntries(card.evidence
@@ -2348,6 +2354,8 @@ export async function POST(request: Request) {
             }
             const partial = useIdCards && !idResult?.cacheable;
             if (partial) console.warn("[AI-SUMMARY] Partial interpretation:", idResult?.rejectReasons.join(","));
+            // 모델 대사가 칸 검증을 통과해 실제로 쓰인 비율. 배포 전후 비교용 운영 로그다.
+            if (idResult) console.info("[AI-SUMMARY] dialogue_adoption", JSON.stringify({ requestId, ...idResult.dialogueAdoption }));
 
             // 3. Write to DB Cache
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
