@@ -7,6 +7,7 @@ type StreamScript =
   | { kind: "ok"; text: string; usage?: { inputTokens: number; outputTokens: number } | null }
   | { kind: "error"; error: Error }
   | { kind: "error-mid"; partial: string; error: Error }
+  | { kind: "error-after-start"; error: Error }
   | { kind: "hang" };
 
 const {
@@ -42,6 +43,11 @@ const {
         return;
       }
       yield { type: "start-step" };
+      if (script.kind === "error-after-start") {
+        resolveUsage(undefined);
+        yield { type: "error", error: script.error };
+        return;
+      }
       if (script.kind === "error-mid") {
         yield { type: "text-delta", text: script.partial };
         resolveUsage(undefined);
@@ -193,6 +199,19 @@ describe("AI squad route stability", () => {
     expect(cache.upsert).toHaveBeenCalledTimes(1);
     expect(cache.upsert.mock.calls[0][0]).toMatchObject({ prompt_version: AI_SQUAD_CACHE_VERSION });
     expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", GEMINI_MODELS_TO_TRY[1], 12, 34, "squad", expect.any(Object));
+  });
+
+  it("start-step 직후 과부하 error part면 다음 모델로 넘어간다", async () => {
+    streamScripts.push({ kind: "error-after-start", error: new Error("This model is currently experiencing high demand.") }, {
+      kind: "ok", text: JSON.stringify(modelResult),
+    });
+    mockSquadSupabase(cacheChain());
+
+    const response = await aiSquadPOST(squadRequest());
+    const json = await response.json();
+
+    expect(json).toMatchObject({ summary: modelResult.summary });
+    expect(streamCalls.map(call => call.modelName)).toEqual(GEMINI_MODELS_TO_TRY.slice(0, 2));
   });
 
   it.each(["spicy", "mild"] as const)("새 응답과 캐시 두 번 읽기의 약점·총평·개인 칭찬이 같다 (%s)", async (coachingStyle) => {

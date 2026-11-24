@@ -1737,6 +1737,36 @@ describe("AI cache route stabilization", () => {
       ));
     });
 
+    it("start-step 직후 과부하 error part면 글자가 오기 전이므로 다음 모델로 넘어간다", async () => {
+      const summaryCache = setupSummary("sdk-error-after-start-step");
+      const validFinal = JSON.stringify(createValidSummaryFinal({ finalVerdict: "overload fallback summary" }));
+      mockStreamText
+        .mockImplementationOnce(() => sdkResult([{ type: "start" }, { type: "start-step" }, { type: "error", error: new Error("This model is currently experiencing high demand.") }]))
+        .mockImplementationOnce(() => sdkResult([{ type: "start-step" }, { type: "text-delta", text: validFinal }]));
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-error-after-start-step"], nickname: "Player_A", platform: "kakao", force: true }));
+      const records = parseSummaryNdjson(await response.text());
+
+      expect(mockStreamText).toHaveBeenCalledTimes(2);
+      expect(records.find((record) => record.type === "final")?.data).toContain("overload fallback summary");
+      expect(records.find((record) => record.type === "done")).toMatchObject({ valid: true });
+      expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
+    });
+
+    it("글자 전 과부하 재시도는 한 번만 하고, 다음 모델도 실패하면 provider 오류로 끝낸다", async () => {
+      const summaryCache = setupSummary("sdk-error-after-start-step-twice");
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const overloaded = () => sdkResult([{ type: "start-step" }, { type: "error", error: new Error("This model is currently experiencing high demand.") }]);
+      mockStreamText.mockImplementationOnce(overloaded).mockImplementationOnce(overloaded);
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-error-after-start-step-twice"], nickname: "Player_A", platform: "kakao", force: true }));
+      const records = parseSummaryNdjson(await response.text());
+
+      expect(mockStreamText).toHaveBeenCalledTimes(2);
+      expect(records.find((record) => record.type === "done")).toMatchObject({ valid: false, errorCode: "PUBG_AI_PROVIDER_ERROR" });
+      expect(summaryCache.upsert).not.toHaveBeenCalled();
+    });
+
     it("응답 도중 error part면 다음 모델로 넘기지 않고 오류 record로 끝내며 캐시하지 않는다", async () => {
       const summaryCache = setupSummary("sdk-error-after-text");
       vi.spyOn(console, "error").mockImplementation(() => undefined);
