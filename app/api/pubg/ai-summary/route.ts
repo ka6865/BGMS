@@ -520,6 +520,7 @@ export async function POST(request: Request) {
   let providerUsage: { inputTokens?: number; outputTokens?: number } = {};
   // 응답이 끊겨 다른 모델로 다시 생성한 경우, 끊긴 모델과 그 사용량을 결과 기록에 합친다.
   let truncationRetryFrom = "";
+  let preTextRetryFrom = "";
   let truncatedUsage: { inputTokens?: number; outputTokens?: number } = {};
   let providerUsageTask: Promise<void> | undefined;
   const recordOutcome = (outcome: {
@@ -2275,6 +2276,7 @@ export async function POST(request: Request) {
             const iterator = fullStreamIterator;
             aiResponseText = prefixText;
             finishReason = null;
+            let preTextError: unknown = null;
 
             try {
               while (true) {
@@ -2296,7 +2298,14 @@ export async function POST(request: Request) {
                 if (nextResult.done) break;
                 const part = nextResult.value;
                 // 응답 도중의 provider 오류는 기존 스트림 오류 경로(error/done record)로 보낸다.
-                if (part?.type === "error") throw part.error ?? new Error("AI summary provider stream failed");
+                if (part?.type === "error") {
+                  // Gemini 과부하 503은 start-step 직후 글자 없이 온다. 아직 보낸 글자가 없으면 다음 모델로 한 번 넘긴다.
+                  if (!aiResponseText && !preTextRetryFrom) {
+                    preTextError = part.error ?? new Error("AI summary provider stream failed");
+                    break;
+                  }
+                  throw part.error ?? new Error("AI summary provider stream failed");
+                }
                 if (part?.type === "text-delta" && typeof part.text === "string") aiResponseText += part.text;
                 if (part?.type === "finish-step" && part.usage) providerUsage = part.usage;
                 if (part?.type === "finish") {
@@ -2314,6 +2323,24 @@ export async function POST(request: Request) {
                   // Iterator cleanup is best effort after cancellation.
                 }
               }
+            }
+
+            if (preTextError) {
+              preTextRetryFrom = selectedModelName;
+              timing.settleLastAttempt(isProviderRateLimited(preTextError) ? "rate_limited" : "provider_error");
+              console.warn(`[AI-SUMMARY] Model ${preTextRetryFrom} failed before text (${String((preTextError as any)?.message || preTextError)}), trying next...`);
+              try {
+                iterator.return?.()?.catch(() => undefined);
+              } catch {
+                // 실패한 스트림 정리는 best effort다.
+              }
+              selectedModelAttemptSignalCleanup?.();
+              selectedModelAttemptSignalCleanup = null;
+              streamResult = null;
+              fullStreamIterator = null;
+              await openFirstPart(modelsToTry.slice(modelsToTry.findIndex((name) => name === preTextRetryFrom) + 1));
+              if (!streamResult) throw preTextError;
+              continue;
             }
 
             // Gemini가 OTHER로 생성을 중간에 멈추면 JSON이 완성되지 않는다. 다음 후보 모델로 한 번만 다시 생성한다.

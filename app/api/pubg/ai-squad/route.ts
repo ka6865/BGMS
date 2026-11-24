@@ -251,8 +251,10 @@ async function generateSquadCoaching(input: {
           if (next.done) throw new Error("AI SDK stream ended before a response");
           const part = next.value;
           if (part?.type === "error") throw part.error ?? new Error("Squad provider stream failed");
-          if (part?.type === "start-step" || part?.type === "text-delta") {
-            if (part.type === "text-delta") text += String(part.text ?? "");
+          // Gemini 과부하 503은 start-step 직후 error part로 오므로 첫 글자가 와야 이 모델로 확정한다.
+          if (part?.type === "start-step") clearTimeout(firstPartTimer);
+          if (part?.type === "text-delta") {
+            text += String(part.text ?? "");
             break;
           }
         }
