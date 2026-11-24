@@ -79,6 +79,29 @@ describe("최근 요약 토론 대사 칸", () => {
     // 판정이 없는 카드에는 재반박이 없다.
     expect(run(100, {}).card.counterOpinion).toBeUndefined();
   });
+
+  it.each([
+    ["매운맛 승", 50, "지적하신 부분을 새겨듣고 다음 판에는 꼭 보완하겠습니다."],
+    ["다정 승", 150, "앞으로도 이 좋은 흐름을 계속 이어가겠습니다."],
+  ])("%s 재반박이 선수 대신 1인칭으로 다짐하면 서버 문장으로 바꾼다", (_, damage, kindCounter) => {
+    const { card, result } = run(damage, { kindCounter });
+    expect(card.counterOpinion).not.toBe(kindCounter);
+    expect(card.counterOpinion).not.toMatch(/겠습니다$/u);
+    expect(result.dialogueAdoption.dropped).toContain("firepower:counter:voice");
+  });
+
+  it("코치가 바람을 말하는 재반박은 쓴다", () => {
+    const kindCounter = "아쉬운 부분은 인정해요. 다음 경기에서 함께 챙기면 좋겠습니다.";
+    expect(run(50, { kindCounter }).card.counterOpinion).toBe(kindCounter);
+  });
+
+  it("근거 줄의 보류 사유에 지표 이름을 붙인다", () => {
+    const held: SummaryEvidenceInput = { metricId: "counter_failure_rate", label: "3초 내 대응 실패율", unit: "%", userValue: "100%", userNumericValue: 100, benchmarkValue: null, benchmarkNumericValue: null, benchmarkLabel: "동일 티어 평균", sampleCount: null, userMatchCount: 4, numerator: 4, denominator: 4, unavailableReason: "내 관측이 4건이라 비교 평균과 견주지 않습니다." };
+    const cards = buildSummaryCards({ topics: ["교전 주도권", "화력", "포지셔닝"], context, evidence: [metric("pressure_index", "평균 압박 지수", 2, 1), held] });
+    const provider = { signature: "압박", debateIssues: cards.map(card => ({ topicId: card.topicId, evidenceIds: card.evidenceIds, kindOpinion: "기록을 확인했습니다.", spicyOpinion: "다음 교전 후 기록을 확인해 봐." })), actionItems: [] };
+    const initiative = normalizeSummaryCardFinal(provider, cards, options)!.final.cards.find(card => card.topicId === "initiative")!;
+    expect(initiative.evaluation).toContain("3초 내 대응 실패율: 내 관측이 4건이라 비교 평균과 견주지 않습니다.");
+  });
 });
 
 describe("최근 요약 토론 장면 근거", () => {
