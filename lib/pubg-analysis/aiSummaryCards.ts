@@ -1198,7 +1198,8 @@ function conditionalCheckText(text: string, spicy = false): string {
 }
 
 function cardEvaluation(card: SummaryCard): string {
-  const holds = [...new Set(card.evidence.filter(isObservedEvidence).map(row => row.unavailableReason).filter(Boolean))];
+  // 보류 사유만 나열하면 승부를 가른 지표가 보류된 것처럼 읽히므로 지표 이름을 붙인다.
+  const holds = [...new Set(card.evidence.filter(row => isObservedEvidence(row) && row.unavailableReason).map(row => `${row.label}: ${row.unavailableReason}`))];
   return `관측 범위: ${observationScope(card)}.${holds.length ? ` ${holds.join(" ")}` : ""}`;
 }
 
@@ -1229,6 +1230,8 @@ const KIND_ENDING = /(?:니다|세요|어요|아요|해요|예요|이에요|네�
 const SPICY_FORMAL_ENDING = /(?:니다|세요|십시오)[.!?]?$/u;
 const SPICY_CONCEDES = /인정/u;
 const COUNTER_CONCEDES = /인정|맞(?:아요|습니다|는\s*말)|아쉬(?:운|웠|워)|보완|받아들/u;
+// 다정 코치가 선수 대신 다짐하는 1인칭 약속("보완하겠습니다"). 바람을 뜻하는 "좋겠습니다"는 코치 말투라 허용한다.
+const KIND_FIRST_PERSON_PROMISE = /(?<!좋)겠(?:습니다|어요)|(?:제가|저는|저도)\s/u;
 const COUNTER_GIVES_UP = /졌(?:어요|습니다|네요)|제가\s*틀렸|매운맛\s*(?:말|코치)(?:이|가)?\s*맞/u;
 
 // 재반박이 없거나 검증에 걸린 칸을 채우는 문장. 승자를 따라 굳히기·인정·한 점씩 인정으로 나뉜다.
@@ -1262,6 +1265,7 @@ function dialogueCellIssue(text: string, rules: {
   if (/평균|비교/u.test(trimmed)) return "comparison";
   if (findDisallowedLatinWords(trimmed).length) return "latin";
   if (rules.speaker === "kind" ? !KIND_ENDING.test(trimmed) : SPICY_FORMAL_ENDING.test(trimmed)) return "tone";
+  if (rules.speaker === "kind" && KIND_FIRST_PERSON_PROMISE.test(trimmed)) return "voice";
   if (hasUnsupportedSummaryInference(trimmed) || hasUnsupportedSummaryAdvice(trimmed) || cardConclusionRuleId(trimmed, rules.card)) return "judgment";
   if (rules.speaker === "spicy" && rules.roast === "weak" && SUMMARY_STRONG_JAB_PATTERN.test(trimmed)) return "intensity";
   if (rules.mustConcede && !(rules.speaker === "spicy" ? SPICY_CONCEDES : COUNTER_CONCEDES).test(trimmed)) return "direction";
