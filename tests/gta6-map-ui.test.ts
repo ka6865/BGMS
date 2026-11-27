@@ -91,12 +91,18 @@ describe("GTA6 지도 마커 갱신", () => {
     expect(host.querySelector('[data-testid="gta6-map"]')?.firstElementChild).toBe(map);
   });
 
-  it("운영에서는 비교 주소에도 외부 타일을 요청하지 않는다", () => {
+  it("운영에서는 YANIS 타일을 표시하고 GTADB Day 원본 링크를 제공한다", () => {
     vi.stubEnv("NODE_ENV", "production");
     window.history.replaceState(null, "", "/gta6?tiles=day");
     render();
     expect(probe.tileOptions.url).toBe("/gta6/tiles/yanis-18/{z}/{z},{y},{x}.jpg");
-    expect(host.querySelector('[aria-label="지도 배경"]')).toBeNull();
+    expect(host.querySelector('[aria-label="지도 배경"] button')).toBeNull();
+    const dayLink = () => host.querySelector('[aria-label="지도 배경"] a');
+    expect(dayLink()?.getAttribute("href")).toBe("https://map.gtadb.org/?v=6#VI");
+    expect(dayLink()?.getAttribute("target")).toBe("_blank");
+
+    render(places[0]);
+    expect(dayLink()?.getAttribute("href")).toBe("https://map.gtadb.org/?v=6#VI,L1");
   });
 
   it("화면 밖 장소는 그리지 않고 선택한 장소는 항상 표시한다", () => {

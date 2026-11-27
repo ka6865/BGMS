@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Marker, Tooltip, useMap } from "react-leaflet";
 import { CRS, DomEvent, divIcon } from "leaflet";
-import { Expand, Minus, Plus } from "lucide-react";
+import { ArrowUpRight, Expand, Minus, Plus } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import { CATEGORIES, MAP_BOUNDS, MAP_REGIONS, tileCropRight, worldToMap, type Landmark } from "@/lib/gta6/map";
 import styles from "./gta6.module.css";
@@ -127,14 +127,20 @@ export default function GtaMap({ places, selected, visited, onSelect }: {
       <PlaceMarkers places={places} selected={selected} visited={visited} onSelect={onSelect} />
       <MapControls selected={selected} />
     </MapContainer>
-    {canPreviewDay ? <div role="group" aria-label="지도 배경" className="absolute left-3 top-3 z-[500] flex gap-1 rounded-lg bg-zinc-950 p-1 shadow-lg">
-      <button type="button" aria-pressed={!dayPreview} title="커뮤니티 추정 지도"
-        className={styles.layerButton} onClick={() => changeLayer(false)}>YANIS v18</button>
-      <button type="button" aria-pressed={dayPreview} title="출시판 지도 미리보기"
-        className={styles.layerButton} onClick={() => changeLayer(true)}>Day 미리보기</button>
-    </div> : <p className="pointer-events-none absolute left-3 top-3 z-[500] rounded-md bg-zinc-950/90 px-3 py-2 text-xs font-medium text-zinc-100">
-      YANIS v18 <span className="ml-2 text-zinc-300">커뮤니티 추정 지도</span>
-    </p>}
+    <div role="group" aria-label="지도 배경" className="absolute left-3 top-3 z-[500] flex max-w-[calc(100%-80px)] flex-wrap items-center gap-1 rounded-lg bg-zinc-950 p-1 shadow-lg">
+      {canPreviewDay ? <>
+        <button type="button" aria-pressed={!dayPreview} title="커뮤니티 추정 지도"
+          className={styles.layerButton} onClick={() => changeLayer(false)}>YANIS v18</button>
+        <button type="button" aria-pressed={dayPreview} title="출시판 지도 미리보기"
+          className={styles.layerButton} onClick={() => changeLayer(true)}>Day 미리보기</button>
+      </> : <p className="px-2 text-xs font-medium text-zinc-100">
+        YANIS v18 <span className="ml-1 text-zinc-300">커뮤니티 추정 지도</span>
+      </p>}
+      <a href={`https://map.gtadb.org/?v=6#VI${selected ? `,${selected.id}` : ""}`} target="_blank" rel="noreferrer"
+        aria-label="GTADB Day 원본 지도 (새 탭)" className={`${styles.layerButton} inline-flex items-center gap-1 underline underline-offset-4`}>
+        Day 원본 <ArrowUpRight size={13} aria-hidden />
+      </a>
+    </div>
     {tileError && <div role="alert" className="absolute bottom-8 left-3 right-16 z-[500] rounded-lg bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-100">
       일부 지도를 불러오지 못했습니다.
       <button type="button" className="ml-2 min-h-11 px-2 font-semibold text-amber-300 underline" onClick={() => { setTileError(false); setAttempt(a => a + 1); }}>다시 불러오기</button>
