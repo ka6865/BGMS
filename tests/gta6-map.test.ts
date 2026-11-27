@@ -34,6 +34,15 @@ describe("GTA6 지도 데이터", () => {
     });
   });
 
+  it("갱신된 원문과 한국어 표기로 기존 장소와 새 장소를 찾는다", () => {
+    const places = parseLandmarks(raw);
+    expect(places.find(place => place.id === "L101")).toMatchObject({
+      name: "워싱턴 비치 환영 벽화", originalName: "Washington Beach Welcome Mural",
+    });
+    expect(filterLandmarks(places, "와일드 호그 비행장 관제탑", "all").map(place => place.id)).toContain("L3764");
+    expect(filterLandmarks(places, "Wild Hog Airfield ATC Tower", "all").map(place => place.id)).toContain("L3764");
+  });
+
   it("잘못된 JSON·좌표·태그를 거부하고 좌표가 없는 행은 제외한다", () => {
     for (const data of [null, [], { L1: [] }, { L1: ["이름", [NaN, 0], [], "", [], [], []] },
       { L1: ["이름", [0, 0], [], "", [], [], [42]] }]) {

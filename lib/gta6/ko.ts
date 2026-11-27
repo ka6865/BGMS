@@ -28,7 +28,7 @@ export const REGION_TRANSLATIONS: Record<string, string> = {
 
 export const KOREAN_NAMES_BY_ID: Record<string, string> = {
   L16: "Y 바이스 시티", L17: "크리스털", L20: "디 아톨", L25: "도미니언 호텔",
-  L101: "바이스 비치 환영 벽화", L172: "잭 오브 하츠", L266: "제이슨의 집",
+  L172: "잭 오브 하츠", L266: "제이슨의 집",
   L308: "알파 주유소", L317: "보카마르 다리", L360: "사라의 미용실", L530: "칼라가 산",
 };
 
@@ -36,7 +36,7 @@ export const KOREAN_NAMES_BY_TEXT: Record<string, string> = {
   "Albany Hotel": "올버니 호텔", "Crystal": "크리스털", "The Atoll": "디 아톨",
   "Dominion Hotel": "도미니언 호텔", "Hotel Dixon": "딕슨 호텔", "Paramour Hotel": "파라모어 호텔",
   "Ocean View Hotel": "오션 뷰 호텔", "Hotel Neptune": "넵튠 호텔", "Vice Museum of Art": "바이스 미술관",
-  "Vice Beach Welcome Mural": "바이스 비치 환영 벽화", "Firefly Plaza": "파이어플라이 플라자",
+  "Washington Beach Welcome Mural": "워싱턴 비치 환영 벽화", "Firefly Plaza": "파이어플라이 플라자",
   "Vice Beach Marina": "바이스 비치 마리나", "Jason's House": "제이슨의 집", "Alpha Gas Station": "알파 주유소",
   "Bocamar Bridge": "보카마르 다리", "Sara's Unisex Salon": "사라의 남녀 공용 미용실",
   "Mount Kalaga": "칼라가 산", "Gellhorn International Raceway": "겔혼 국제 레이스웨이",
@@ -65,6 +65,9 @@ export const KOREAN_NAMES_BY_TEXT: Record<string, string> = {
   "Shoeless Keys": "슈리스 키스", "Wetman Bay": "웨트먼 베이",
   "Gellhorn Drive-In Theatre": "겔혼 자동차 극장", "Mile Zero Air Station": "마일 제로 항공 기지",
   "Vice City Hall": "바이스 시티청",
+  "Wild Hog Airfield ATC Tower": "와일드 호그 비행장 관제탑",
+  "Mount Kalaga National Park Visitor Center": "칼라가 산 국립공원 방문자 센터",
+  "Cecilia Richardson Public Library": "세실리아 리처드슨 공공도서관",
 };
 
 // 라벨 표시용 근사 중심일 뿐, 경계나 장소 좌표가 아니다. worldToMap 변환 전 원본 [x, y] 좌표.

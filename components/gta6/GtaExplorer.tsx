@@ -234,7 +234,7 @@ export default function GtaExplorer() {
           {!selected && <section aria-labelledby="gta6-about" className="border-t border-white/10 px-4 py-5 text-xs leading-relaxed text-zinc-400">
             <h2 id="gta6-about" className="text-sm font-semibold text-zinc-200">GTA6 지도 소개</h2>
             <p className="mt-2">GTA VI의 무대인 레오니다 주를 한국어로 검색하는 커뮤니티 지도입니다. {MAP_REGIONS.map(region => region.name).join(", ")} 등 주요 지역과 장소 {manifest.locatedCount.toLocaleString("ko-KR")}곳의 추정 위치를 지도에서 찾고, 즐겨찾기와 방문 체크로 기록할 수 있습니다.</p>
-            <p className="mt-2">위치는 출시 전 공개 자료를 바탕으로 한 추정이며 확인되는 대로 갱신합니다. 미션 공략과 팁은 <Link href="/gta6/guides" className="font-semibold text-amber-300 underline underline-offset-2">GTA6 공략 게시판</Link>에서 나눌 수 있습니다.</p>
+            <p className="mt-2">위치는 GTADB 커뮤니티 자료를 바탕으로 한 추정이며, 데이터가 갱신되면 반영합니다. 미션 공략과 팁은 <Link href="/gta6/guides" className="font-semibold text-amber-300 underline underline-offset-2">GTA6 공략 게시판</Link>에서 나눌 수 있습니다.</p>
           </section>}
         </div>
       </aside>
