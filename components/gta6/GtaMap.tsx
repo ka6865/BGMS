@@ -2,10 +2,10 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Marker, Tooltip, useMap } from "react-leaflet";
-import { CRS, DomEvent, divIcon } from "leaflet";
+import { CRS, DomEvent, divIcon, type DivIcon } from "leaflet";
 import { ArrowUpRight, Expand, Minus, Plus } from "lucide-react";
 import "leaflet/dist/leaflet.css";
-import { CATEGORIES, MAP_BOUNDS, MAP_REGIONS, tileCropRight, worldToMap, type Landmark } from "@/lib/gta6/map";
+import { CATEGORIES, MAP_BOUNDS, MAP_REGIONS, tileCropRight, worldToMap, type Category, type Landmark } from "@/lib/gta6/map";
 import styles from "./gta6.module.css";
 
 const dayPreviewTileUrl = "https://raw.githubusercontent.com/rolux/gtadb.org/d406fea099e1df2bce42fd6b87eed04bce646629/maps/tiles/6/day/{z}/{z},{y},{x}.jpg";
@@ -40,13 +40,32 @@ function MapControls({ selected }: { selected: Landmark | null }) {
   </div>;
 }
 
-const PlaceMarker = memo(function PlaceMarker({ place, radius, visited, onSelect }: {
-  place: Landmark; radius: number; visited: boolean; onSelect: (id: string) => void;
+// 가까이 확대했을 때만 분류 글자 배지를 쓴다. 멀리서는 수천 개를 캔버스 원으로 그려야 가볍다.
+const BADGE_ZOOM = -1;
+const badgeIcons = new Map<string, DivIcon>();
+// 첫 글자가 겹치는 분류(공공 기관·공공 시설, 기반 시설·기타)만 따로 정한다.
+const badgeText: Partial<Record<Category, string>> = { government: "관", other: "·" };
+function badgeIcon(category: Category, visited: boolean) {
+  const key = `${category}:${visited}`;
+  let icon = badgeIcons.get(key);
+  if (!icon) {
+    icon = divIcon({ className: `${styles.placeBadge}${visited ? ` ${styles.placeBadgeVisited}` : ""}`, iconSize: [22, 22], iconAnchor: [11, 11],
+      html: `<span style="background:${CATEGORIES[category].color}">${badgeText[category] ?? CATEGORIES[category].label[0]}</span>` });
+    badgeIcons.set(key, icon);
+  }
+  return icon;
+}
+
+const PlaceMarker = memo(function PlaceMarker({ place, radius, badge, visited, onSelect }: {
+  place: Landmark; radius: number; badge: boolean; visited: boolean; onSelect: (id: string) => void;
 }) {
   const center = useMemo(() => worldToMap(place.coordinates), [place.coordinates]);
   const pathOptions = useMemo(() => ({ color: "#27272a", weight: 1,
     fillColor: CATEGORIES[place.category].color, fillOpacity: visited ? 0.35 : 0.9 }), [place.category, visited]);
   const eventHandlers = useMemo(() => ({ click: () => onSelect(place.id) }), [onSelect, place.id]);
+  if (badge) return <Marker position={center} icon={badgeIcon(place.category, visited)} eventHandlers={eventHandlers}>
+    <Tooltip direction="top" offset={[0, -10]}>{place.name} · {place.id}</Tooltip>
+  </Marker>;
   return <CircleMarker center={center} radius={radius} pathOptions={pathOptions} eventHandlers={eventHandlers}>
     <Tooltip direction="top">{place.name} · {place.id}</Tooltip>
   </CircleMarker>;
@@ -69,7 +88,7 @@ function PlaceMarkers({ places, selected, visited, onSelect }: {
       icon={region.icon} interactive={false} keyboard={false} zIndexOffset={-1000} />)}
     {places.filter(place => place.id !== selected?.id && (zoom >= -4 || !place.name.startsWith("이름 미확인")))
       .filter(place => bounds.contains(worldToMap(place.coordinates))).map(place =>
-        <PlaceMarker key={place.id} place={place} radius={radius} visited={visited.has(place.id)} onSelect={onSelect} />)}
+        <PlaceMarker key={place.id} place={place} radius={radius} badge={zoom >= BADGE_ZOOM} visited={visited.has(place.id)} onSelect={onSelect} />)}
     {selected && <CircleMarker center={worldToMap(selected.coordinates)} radius={9}
       pathOptions={{ color: "#18181b", weight: 3, fillColor: "#fcd34d", fillOpacity: 1 }}>
       <Tooltip direction="top" permanent>{selected.name}</Tooltip>

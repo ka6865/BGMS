@@ -113,6 +113,12 @@ describe("GTA6 지도 마커 갱신", () => {
     expect(host.textContent).toContain("Far");
   });
 
+  it("가까이 확대하면 원 대신 분류 배지 마커로 그린다", () => {
+    probe.zoom = -1; render();
+    expect(probe.renders).toBe(0);
+    expect(host.querySelectorAll("[data-marker]")).toHaveLength(0);
+  });
+
   it("같은 반경 구간의 소수 확대에서는 기존 마커를 다시 렌더링하지 않는다", () => {
     render(); const count = probe.renders;
     probe.zoom = -2.9;

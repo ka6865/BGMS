@@ -14,14 +14,39 @@
 .layerButton[aria-pressed="true"] { background: #fcd34d; color: #18181b; }
 .layerButton:focus-visible { outline: 2px solid #fcd34d; outline-offset: 1px; }
 .panel { scrollbar-width: thin; scrollbar-color: #52525b #18181b; }
+.categoryButton {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-shrink: 0;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  color: #e4e4e7;
+  font-size: 12px;
+  text-align: left;
+}
+.categoryButton:hover { background: #27272a; }
+.categoryButton[aria-pressed="false"] { border-style: dashed; color: #8b8b94; }
+.categoryButton[aria-pressed="false"] > span:first-child { opacity: 0.3; }
+.categoryProgress { position: absolute; bottom: 0; left: 0; height: 2px; background: #a7f3d0; }
+.categoryButton:focus-visible { outline: 2px solid #fcd34d; outline-offset: -2px; }
+@media (pointer: coarse) {
+  .categoryButton { min-height: 44px; }
+}
 @media (width < 64rem) {
   .listPanel[data-expanded="false"] .panelContent { display: none; }
-  .listPanel[data-expanded="true"] { height: min(max(46dvh, 260px), calc(100% - 200px)); }
+  .listPanel[data-expanded="true"] { height: min(max(56dvh, 260px), calc(100% - 180px)); }
 }
 @media (max-height: 560px) and (480px <= width < 64rem) {
   .explorer:has(.listPanel[data-expanded="true"]) { flex-direction: row; }
   .explorer:has(.listPanel[data-expanded="true"]) .mapPanel { min-width: 0; min-height: 0; }
   .explorer .listPanel[data-expanded="true"] { order: -1; width: min(42vw, 360px); height: auto; border-top: 0; border-right: 1px solid rgb(255 255 255 / 10%); }
 }
+.placeBadge span { display: grid; width: 22px; height: 22px; place-items: center; border: 2px solid #18181b; border-radius: 9999px; color: #18181b; font-size: 11px; font-weight: 800; line-height: 1; box-shadow: 0 1px 3px #0009; }
+.placeBadgeVisited span { opacity: 0.45; }
 .regionLabel { pointer-events: none; color: #fff; font-size: 12px; font-weight: 700; line-height: 24px; text-align: center; white-space: nowrap; text-shadow: 0 1px 3px #10283d, 0 0 5px #10283d, 0 0 8px #10283d; }
 @media (prefers-reduced-motion: no-preference) { .panel button { transition: background-color 120ms ease-out, color 120ms ease-out; } }
