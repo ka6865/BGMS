@@ -14,6 +14,24 @@
 .layerButton[aria-pressed="true"] { background: #fcd34d; color: #18181b; }
 .layerButton:focus-visible { outline: 2px solid #fcd34d; outline-offset: 1px; }
 .panel { scrollbar-width: thin; scrollbar-color: #52525b #18181b; }
+.categoryButton {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #e4e4e7;
+  font-size: 12px;
+  text-align: left;
+}
+.categoryButton:hover { background: #27272a; }
+.categoryButton[aria-pressed="true"] { border-color: #fcd34d66; background: #fcd34d12; color: #fde68a; }
+.categoryButton:focus-visible { outline: 2px solid #fcd34d; outline-offset: -2px; }
+@media (pointer: coarse) {
+  .categoryButton { min-height: 44px; }
+}
 @media (width < 64rem) {
   .listPanel[data-expanded="false"] .panelContent { display: none; }
   .listPanel[data-expanded="true"] { height: min(max(46dvh, 260px), calc(100% - 200px)); }

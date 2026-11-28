@@ -86,6 +86,7 @@ export default function GtaExplorer() {
     for (const place of places ?? []) result.set(place.category, (result.get(place.category) ?? 0) + 1);
     return result;
   }, [places]);
+  const categories = Object.entries(CATEGORIES).filter(([key]) => key !== "all" && counts.has(key as Category));
   const savedCount = (set: Set<string>) => (places ?? []).filter(place => set.has(place.id)).length;
 
   const select = useCallback((id: string | null) => {
@@ -128,23 +129,24 @@ export default function GtaExplorer() {
   }
 
   return <>
-    <div className={`flex min-h-0 flex-1 flex-col lg:flex-row ${styles.explorer}`}>
-      <section aria-label="레오니다 지도" className={`relative min-h-[200px] flex-1 lg:order-2 ${styles.mapPanel}`}>
+    <div className={`flex min-h-0 flex-1 flex-col bg-zinc-900 lg:flex-row ${styles.explorer}`}>
+      <section aria-label="레오니다 지도" className={`relative min-h-[200px] flex-1 overflow-hidden lg:order-2 lg:m-3 lg:min-w-0 lg:rounded-xl lg:border lg:border-white/10 ${styles.mapPanel}`}>
         <GtaMap places={filtered} selected={selected} visited={visited} onSelect={select} />
       </section>
-      <aside aria-label="장소 탐색" data-expanded={panelOpen} className={`flex shrink-0 flex-col border-t border-white/10 bg-zinc-950 lg:order-1 lg:w-[360px] lg:border-r lg:border-t-0 ${styles.panel} ${styles.listPanel}`}>
+      <aside aria-label="장소 탐색" data-expanded={panelOpen} className={`flex min-h-0 shrink-0 flex-col border-t border-white/10 bg-zinc-950 lg:order-1 lg:w-[340px] lg:border-r lg:border-t-0 xl:w-[360px] ${styles.panel} ${styles.listPanel}`}>
         <button type="button" aria-expanded={panelOpen} aria-controls={selected ? "gta6-results" : "gta6-filters gta6-results"}
           aria-label={selected ? `${selected.name} 상세 정보` : undefined}
           onClick={() => setPanelOpen(open => !open)}
           className="flex min-h-11 w-full shrink-0 items-center gap-2 px-4 text-left text-sm font-semibold text-zinc-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-amber-300 lg:hidden">
-          <MapPin size={16} aria-hidden className="shrink-0 text-amber-300" />
-          <span className="min-w-0 flex-1 truncate">{selected?.name ?? "필터·장소 목록"}</span>
+          {selected ? <MapPin size={17} aria-hidden className="shrink-0 text-amber-300" /> : <Search size={17} aria-hidden className="shrink-0 text-amber-300" />}
+          <span className="min-w-0 flex-1 truncate">{selected?.name ?? "장소 검색·필터"}</span>
+          {!selected && places && <span className="shrink-0 text-xs font-medium tabular-nums text-zinc-400">{filtered.length.toLocaleString("ko-KR")}곳</span>}
           <ChevronDown size={17} aria-hidden className={`shrink-0 text-zinc-400 ${panelOpen ? "" : "rotate-180"}`} />
         </button>
         {!selected && <div id="gta6-filters" className={`shrink-0 px-4 pb-3 pt-4 ${styles.panelContent}`}>
-          <div className="mb-3 flex items-baseline justify-between gap-3">
-            <h1 className="text-lg font-bold tracking-tight">GTA6 지도</h1>
-            <span className="text-xs tabular-nums text-zinc-400">{places ? `${places.length.toLocaleString("ko-KR")}개 장소` : "장소 불러오는 중"}</span>
+          <div className="mb-4 hidden items-center justify-between gap-3 lg:flex">
+            <h1 className="text-xl font-bold tracking-tight text-white">GTA6 지도</h1>
+            {places && <span className="text-xs tabular-nums text-zinc-400">{places.length.toLocaleString("ko-KR")}개 장소</span>}
           </div>
           <form role="search" onSubmit={e => e.preventDefault()}>
             <label htmlFor="gta6-search" className="sr-only">장소 검색</label>
@@ -159,19 +161,19 @@ export default function GtaExplorer() {
           <div className="mt-2 flex gap-2">
             <label className="sr-only" htmlFor="gta6-category">장소 분류</label>
             <select id="gta6-category" value={category} onChange={e => changeFilters(() => setCategory(e.target.value as Category))}
-              className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm focus-visible:outline-2 focus-visible:outline-amber-300">
-              {Object.entries(CATEGORIES).filter(([key]) => key === "all" || counts.has(key as Category)).map(([key, value]) =>
-                <option key={key} value={key}>{value.label}{key !== "all" ? ` (${counts.get(key as Category)})` : ""}</option>)}
+              className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm focus-visible:outline-2 focus-visible:outline-amber-300 lg:hidden">
+              <option value="all">전체 장소</option>
+              {categories.map(([key, value]) => <option key={key} value={key}>{value.label} ({counts.get(key as Category)})</option>)}
             </select>
             <button type="button" aria-label="즐겨찾기만 보기" aria-pressed={savedFilter === "favorites"}
               className={`${button} ${savedFilter === "favorites" ? "bg-amber-300 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
               onClick={() => changeFilters(() => setSavedFilter(savedFilter === "favorites" ? "all" : "favorites"))}>
-              <Star size={16} aria-hidden /><span className="tabular-nums">{savedCount(favorites)}</span>
+              <Star size={16} aria-hidden /><span className="hidden lg:inline">즐겨찾기</span><span className="tabular-nums">{savedCount(favorites)}</span>
             </button>
             <button type="button" aria-label="방문한 장소만 보기" aria-pressed={savedFilter === "visited"}
               className={`${button} ${savedFilter === "visited" ? "bg-emerald-200 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
               onClick={() => changeFilters(() => setSavedFilter(savedFilter === "visited" ? "all" : "visited"))}>
-              <CheckCheck size={17} aria-hidden /><span className="tabular-nums">{savedCount(visited)}</span>
+              <CheckCheck size={17} aria-hidden /><span className="hidden lg:inline">방문 완료</span><span className="tabular-nums">{savedCount(visited)}</span>
             </button>
           </div>
         </div>}
@@ -212,6 +214,22 @@ export default function GtaExplorer() {
               <a href={`https://map.gtadb.org/#VI,${selected.id}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-amber-300 underline underline-offset-4">원본 장소 확인<ArrowUpRight size={13} aria-hidden /></a>
               <p className="mt-2 text-xs leading-relaxed text-zinc-400">즐겨찾기와 방문 기록은 이 브라우저에만 저장됩니다. 게임 진행도와 자동으로 연결되지 않습니다.</p>
             </div> : <>
+              <details open={!query && savedFilter === "all"} className="hidden border-b border-white/10 px-4 pb-3 lg:block">
+                <summary className="min-h-11 cursor-pointer rounded py-3 text-sm font-semibold text-zinc-200 focus-visible:outline-2 focus-visible:outline-amber-300">장소 분류</summary>
+                <div className="grid grid-cols-2 gap-1" role="group" aria-label="장소 분류">
+                  <button type="button" aria-pressed={category === "all"}
+                    className={`col-span-2 ${styles.categoryButton}`} onClick={() => changeFilters(() => setCategory("all"))}>
+                    <span>전체 장소</span><span className="ml-auto tabular-nums text-zinc-400">{places.length.toLocaleString("ko-KR")}</span>
+                  </button>
+                  {categories.map(([key, value]) => (
+                    <button key={key} type="button" aria-pressed={key === category}
+                      className={styles.categoryButton} onClick={() => changeFilters(() => setCategory(key as Category))}>
+                      <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: value.color }} />
+                      {value.label}<span className="ml-auto tabular-nums text-zinc-400">{counts.get(key as Category)?.toLocaleString("ko-KR")}</span>
+                    </button>
+                  ))}
+                </div>
+              </details>
               <div className="flex min-h-11 items-center justify-between gap-2 px-4 text-xs text-zinc-400" role="status">
                 <span>{savedFilter === "favorites" ? "즐겨찾기" : savedFilter === "visited" ? "방문한 장소" : "검색 결과"} <strong className="font-medium tabular-nums text-zinc-200">{filtered.length.toLocaleString("ko-KR")}개</strong></span>
                 {(query || category !== "all" || savedFilter !== "all") && <button type="button" className="min-h-11 rounded px-2 font-semibold text-amber-300 focus-visible:outline-2 focus-visible:outline-amber-300" onClick={() => changeFilters(() => { setQuery(""); setCategory("all"); setSavedFilter("all"); })}>필터 초기화</button>}
@@ -220,8 +238,8 @@ export default function GtaExplorer() {
                 {savedFilter === "favorites" ? "즐겨찾기한 장소가 없습니다. 장소를 선택하고 별을 눌러 보세요." : savedFilter === "visited" ? "방문 체크한 장소가 없습니다." : "일치하는 장소가 없습니다. 다른 이름이나 지역으로 검색해 보세요."}
               </div> : <ul aria-label="검색된 장소">
                 {filtered.slice(0, limit).map(place => <li key={place.id} className="border-t border-white/5">
-                  <button type="button" onClick={() => select(place.id)} className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left hover:bg-zinc-900 focus-visible:bg-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-amber-300">
-                    <MapPin size={17} aria-hidden className="shrink-0" style={{ color: CATEGORIES[place.category].color }} />
+                  <button type="button" onClick={() => select(place.id)} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left hover:bg-zinc-900 focus-visible:bg-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-amber-300">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-zinc-900" style={{ color: CATEGORIES[place.category].color }}><MapPin size={16} aria-hidden /></span>
                     <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{place.name}</span><span className="mt-1 block truncate text-xs text-zinc-400">{place.id} · {CATEGORIES[place.category].label} · {place.displayAddress.replace(/^[^,]*,?\s*/, "")}</span></span>
                     {favorites.has(place.id) && <Star size={13} className="shrink-0 text-amber-300" aria-label="즐겨찾기" fill="currentColor" />}
                     {visited.has(place.id) && <Check size={15} className="shrink-0 text-emerald-200" aria-label="방문 완료" />}
