@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowUpRight, Check, CheckCheck, ChevronDown, ChevronRight, MapPin, Search, Share2, Star, X } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, CheckCheck, ChevronDown, ChevronRight, EyeOff, MapPin, Search, Share2, Star, X } from "lucide-react";
 import { CATEGORIES, MAP_REGIONS, filterLandmarks, parseLandmarks, parseProgress, STORAGE_KEY, type Category, type Landmark, type Progress } from "@/lib/gta6/map";
 import manifest from "@/public/gta6/manifest.json";
 import styles from "./gta6.module.css";
@@ -19,7 +19,8 @@ export default function GtaExplorer() {
   const [attempt, setAttempt] = useState(0);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
-  const [category, setCategory] = useState<Category>("all");
+  const [hidden, setHidden] = useState<ReadonlySet<Category>>(() => new Set());
+  const [hideVisited, setHideVisited] = useState(false);
   const [savedFilter, setSavedFilter] = useState<SavedFilter>("all");
   const [limit, setLimit] = useState(60);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -77,16 +78,27 @@ export default function GtaExplorer() {
   const favorites = useMemo(() => new Set(progress.favorites), [progress.favorites]);
   const visited = useMemo(() => new Set(progress.visited), [progress.visited]);
   const selected = places?.find(place => place.id === selectedId) ?? null;
-  const filtered = useMemo(() => filterLandmarks(places ?? [], deferredQuery, category)
+  const filtered = useMemo(() => filterLandmarks(places ?? [], deferredQuery, "all")
+    .filter(place => !hidden.has(place.category) && !(hideVisited && visited.has(place.id)))
     .filter(place => savedFilter === "all" || (savedFilter === "favorites" ? favorites : visited).has(place.id))
     .sort((a, b) => Number(a.name.startsWith("이름 미확인")) - Number(b.name.startsWith("이름 미확인")) || a.name.localeCompare(b.name, "ko-KR")),
-  [places, deferredQuery, category, savedFilter, favorites, visited]);
+  [places, deferredQuery, hidden, hideVisited, savedFilter, favorites, visited]);
   const counts = useMemo(() => {
-    const result = new Map<Category, number>();
-    for (const place of places ?? []) result.set(place.category, (result.get(place.category) ?? 0) + 1);
+    const result = new Map<Category, { total: number; visited: number }>();
+    for (const place of places ?? []) {
+      const count = result.get(place.category) ?? { total: 0, visited: 0 };
+      count.total++;
+      if (visited.has(place.id)) count.visited++;
+      result.set(place.category, count);
+    }
     return result;
-  }, [places]);
-  const categories = Object.entries(CATEGORIES).filter(([key]) => key !== "all" && counts.has(key as Category));
+  }, [places, visited]);
+  const categories = (Object.keys(CATEGORIES) as Category[]).filter(key => counts.has(key));
+  const toggleCategory = (key: Category) => changeFilters(() => setHidden(current => {
+    const next = new Set(current);
+    if (!next.delete(key)) next.add(key);
+    return next;
+  }));
   const savedCount = (set: Set<string>) => (places ?? []).filter(place => set.has(place.id)).length;
 
   const select = useCallback((id: string | null) => {
@@ -144,7 +156,7 @@ export default function GtaExplorer() {
           <ChevronDown size={17} aria-hidden className={`shrink-0 text-zinc-400 ${panelOpen ? "" : "rotate-180"}`} />
         </button>
         {!selected && <div id="gta6-filters" className={`shrink-0 px-4 pb-3 pt-4 ${styles.panelContent}`}>
-          <div className="mb-4 hidden items-center justify-between gap-3 lg:flex">
+          <div className="sr-only lg:not-sr-only lg:mb-4 lg:flex lg:items-center lg:justify-between lg:gap-3">
             <h1 className="text-xl font-bold tracking-tight text-white">GTA6 지도</h1>
             {places && <span className="text-xs tabular-nums text-zinc-400">{places.length.toLocaleString("ko-KR")}개 장소</span>}
           </div>
@@ -158,24 +170,48 @@ export default function GtaExplorer() {
               {query && <button type="button" aria-label="검색어 지우기" className="-mr-2 flex min-h-11 min-w-11 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-amber-300" onClick={() => changeFilters(() => setQuery(""))}><X size={16} /></button>}
             </div>
           </form>
-          <div className="mt-2 flex gap-2">
-            <label className="sr-only" htmlFor="gta6-category">장소 분류</label>
-            <select id="gta6-category" value={category} onChange={e => changeFilters(() => setCategory(e.target.value as Category))}
-              className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm focus-visible:outline-2 focus-visible:outline-amber-300 lg:hidden">
-              <option value="all">전체 장소</option>
-              {categories.map(([key, value]) => <option key={key} value={key}>{value.label} ({counts.get(key as Category)})</option>)}
-            </select>
+          <div className="mt-2 flex gap-2 whitespace-nowrap">
             <button type="button" aria-label="즐겨찾기만 보기" aria-pressed={savedFilter === "favorites"}
-              className={`${button} ${savedFilter === "favorites" ? "bg-amber-300 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
+              className={`${button} flex-1 ${savedFilter === "favorites" ? "bg-amber-300 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
               onClick={() => changeFilters(() => setSavedFilter(savedFilter === "favorites" ? "all" : "favorites"))}>
               <Star size={16} aria-hidden /><span className="hidden lg:inline">즐겨찾기</span><span className="tabular-nums">{savedCount(favorites)}</span>
             </button>
             <button type="button" aria-label="방문한 장소만 보기" aria-pressed={savedFilter === "visited"}
-              className={`${button} ${savedFilter === "visited" ? "bg-emerald-200 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
+              className={`${button} flex-1 ${savedFilter === "visited" ? "bg-emerald-200 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
               onClick={() => changeFilters(() => setSavedFilter(savedFilter === "visited" ? "all" : "visited"))}>
-              <CheckCheck size={17} aria-hidden /><span className="hidden lg:inline">방문 완료</span><span className="tabular-nums">{savedCount(visited)}</span>
+              <CheckCheck size={17} aria-hidden /><span className="hidden lg:inline">방문</span><span className="tabular-nums">{savedCount(visited)}</span>
+            </button>
+            <button type="button" aria-pressed={hideVisited}
+              className={`${button} flex-1 ${hideVisited ? "bg-zinc-200 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
+              onClick={() => changeFilters(() => setHideVisited(value => !value))}>
+              <EyeOff size={16} aria-hidden />방문 숨김
             </button>
           </div>
+          {places && <div className="mt-2 lg:mt-3">
+            <div className="sr-only lg:not-sr-only lg:flex lg:items-center lg:justify-between lg:gap-2">
+              <h2 id="gta6-category-title" className="text-xs font-semibold text-zinc-300">장소 분류</h2>
+              <div className="hidden text-xs font-semibold text-amber-300 lg:flex">
+                <button type="button" disabled={hidden.size === 0} className="min-h-11 rounded px-2 focus-visible:outline-2 focus-visible:outline-amber-300 disabled:text-zinc-500 lg:min-h-8"
+                  onClick={() => changeFilters(() => setHidden(new Set()))}>모두 켜기</button>
+                <button type="button" disabled={hidden.size === categories.length} className="-mr-2 min-h-11 rounded px-2 focus-visible:outline-2 focus-visible:outline-amber-300 disabled:text-zinc-500 lg:min-h-8"
+                  onClick={() => changeFilters(() => setHidden(new Set(categories)))}>모두 끄기</button>
+              </div>
+            </div>
+            <div role="group" aria-labelledby="gta6-category-title" className={`-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 lg:mx-0 lg:grid lg:grid-cols-2 lg:overflow-visible lg:px-0 ${styles.panel}`}>
+              <button type="button" aria-pressed={hidden.size === 0} className={`${styles.categoryButton} lg:hidden`}
+                onClick={() => changeFilters(() => setHidden(hidden.size === 0 ? new Set(categories) : new Set()))}>전체</button>
+              {categories.map(key => {
+                const { total, visited: done } = counts.get(key)!;
+                return <button key={key} type="button" aria-pressed={!hidden.has(key)} onClick={() => toggleCategory(key)}
+                  aria-label={`${CATEGORIES[key].label} ${total}곳 중 ${done}곳 방문`} className={styles.categoryButton}>
+                  <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: CATEGORIES[key].color }} />
+                  <span className="whitespace-nowrap">{CATEGORIES[key].label}</span>
+                  <span aria-hidden className="ml-auto whitespace-nowrap tabular-nums text-zinc-400">{done > 0 && <span className="text-emerald-200">{done}/</span>}{total.toLocaleString("ko-KR")}</span>
+                  {done > 0 && <span aria-hidden className={styles.categoryProgress} style={{ width: `${(done / total) * 100}%` }} />}
+                </button>;
+              })}
+            </div>
+          </div>}
         </div>}
 
         <div id="gta6-results" ref={panel} className={`min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-white/10 ${styles.panel} ${styles.panelContent}`} aria-busy={!places && !loadError}>
@@ -214,28 +250,12 @@ export default function GtaExplorer() {
               <a href={`https://map.gtadb.org/#VI,${selected.id}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-amber-300 underline underline-offset-4">원본 장소 확인<ArrowUpRight size={13} aria-hidden /></a>
               <p className="mt-2 text-xs leading-relaxed text-zinc-400">즐겨찾기와 방문 기록은 이 브라우저에만 저장됩니다. 게임 진행도와 자동으로 연결되지 않습니다.</p>
             </div> : <>
-              <details open={!query && savedFilter === "all"} className="hidden border-b border-white/10 px-4 pb-3 lg:block">
-                <summary className="min-h-11 cursor-pointer rounded py-3 text-sm font-semibold text-zinc-200 focus-visible:outline-2 focus-visible:outline-amber-300">장소 분류</summary>
-                <div className="grid grid-cols-2 gap-1" role="group" aria-label="장소 분류">
-                  <button type="button" aria-pressed={category === "all"}
-                    className={`col-span-2 ${styles.categoryButton}`} onClick={() => changeFilters(() => setCategory("all"))}>
-                    <span>전체 장소</span><span className="ml-auto tabular-nums text-zinc-400">{places.length.toLocaleString("ko-KR")}</span>
-                  </button>
-                  {categories.map(([key, value]) => (
-                    <button key={key} type="button" aria-pressed={key === category}
-                      className={styles.categoryButton} onClick={() => changeFilters(() => setCategory(key as Category))}>
-                      <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: value.color }} />
-                      {value.label}<span className="ml-auto tabular-nums text-zinc-400">{counts.get(key as Category)?.toLocaleString("ko-KR")}</span>
-                    </button>
-                  ))}
-                </div>
-              </details>
               <div className="flex min-h-11 items-center justify-between gap-2 px-4 text-xs text-zinc-400" role="status">
                 <span>{savedFilter === "favorites" ? "즐겨찾기" : savedFilter === "visited" ? "방문한 장소" : "검색 결과"} <strong className="font-medium tabular-nums text-zinc-200">{filtered.length.toLocaleString("ko-KR")}개</strong></span>
-                {(query || category !== "all" || savedFilter !== "all") && <button type="button" className="min-h-11 rounded px-2 font-semibold text-amber-300 focus-visible:outline-2 focus-visible:outline-amber-300" onClick={() => changeFilters(() => { setQuery(""); setCategory("all"); setSavedFilter("all"); })}>필터 초기화</button>}
+                {(query || hidden.size > 0 || hideVisited || savedFilter !== "all") && <button type="button" className="min-h-11 rounded px-2 font-semibold text-amber-300 focus-visible:outline-2 focus-visible:outline-amber-300" onClick={() => changeFilters(() => { setQuery(""); setHidden(new Set()); setHideVisited(false); setSavedFilter("all"); })}>필터 초기화</button>}
               </div>
               {filtered.length === 0 ? <div className="px-4 pb-6 pt-3 text-sm leading-relaxed text-zinc-300">
-                {savedFilter === "favorites" ? "즐겨찾기한 장소가 없습니다. 장소를 선택하고 별을 눌러 보세요." : savedFilter === "visited" ? "방문 체크한 장소가 없습니다." : "일치하는 장소가 없습니다. 다른 이름이나 지역으로 검색해 보세요."}
+                {hidden.size === categories.length ? "켜진 분류가 없습니다. 위에서 보고 싶은 분류를 켜 주세요." : savedFilter === "favorites" ? "즐겨찾기한 장소가 없습니다. 장소를 선택하고 별을 눌러 보세요." : savedFilter === "visited" ? "방문 체크한 장소가 없습니다." : "일치하는 장소가 없습니다. 다른 이름이나 지역으로 검색해 보세요."}
               </div> : <ul aria-label="검색된 장소">
                 {filtered.slice(0, limit).map(place => <li key={place.id} className="border-t border-white/5">
                   <button type="button" onClick={() => select(place.id)} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left hover:bg-zinc-900 focus-visible:bg-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-amber-300">
